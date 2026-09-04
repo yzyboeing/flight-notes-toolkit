@@ -82,6 +82,14 @@ python3 tools/verify.py build/manual.pdf   # 空白页 / 标签泄漏 / 项目�
 
 `tools/assemble.py` 里的 `CH` 字典定义了模块划分与文件顺序，换用到别的项目改这里。
 
+## 与私有笔记库配合
+
+推荐采用两阶段工作流：先由 ChatGPT 讨论原始材料、确认整理方案，再由 Codex 使用本工具链执行组装、渲染和复核。笔记正文不放在本公开仓库，而是放在私有的 [`flight-theory-notes`](https://github.com/yzyboeing/flight-theory-notes) 仓库。
+
+私有库的日常更新流程是：新增或修订 `notes_src/` → 更新 `MANIFEST.txt` 和目录 → 运行 `assemble.py` → 生成 DOCX → 转换 PDF → 运行 `verify.py` → 更新版本记录。公开库只在工具、通用规则或排版行为发生可复用变化时更新；个人资料和具体受控内容永远不应提交到这里。
+
+规则或工具更新后，应同时核对私有库调用的工具版本，并用至少一个应触发案例、一个不应触发案例和一个失败案例进行复核。
+
 ---
 
 ## 内容原则
