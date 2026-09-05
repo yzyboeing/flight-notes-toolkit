@@ -15,6 +15,7 @@
     "examples/*",
     "tests/*",
     "AI_INDEX.md",
+    "ai-catalog.json",
     "DISTRIBUTION.md",
     "COMPATIBILITY.md",
     "package*.json"
