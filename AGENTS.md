@@ -12,14 +12,14 @@ python3 --version    # 有 Python？
 node --version       # 有 Node？
 ```
 
-三条全过 → **完全模式**。任一条失败 → **草稿模式**。
+这三条只验证文件与基础运行时。完整文档制作还必须验证 docx 依赖、PDF 渲染和 CJK 字体；具体缺失仅限制相关环节。
 
 两点须知，否则会误判：
 
 - **本仓库不含 `node_modules`。** `docx` 渲染依赖装在笔记仓库里，渲染能力要到那边自检，不要在本仓库 `require('docx')`。
 - **`check_src.py` 没有 `--help`**，且默认在当前目录找 `notes_src`。本仓库没有笔记正文，直接跑必然报错。正确用法是 `python3 tools/check_src.py --src <笔记仓库>/notes_src [--quiet]`。
 
-**永远不要编造执行结果。没跑就说没跑。** `prompt/AGENT.md` 里「依赖已装好」「gh CLI 已登录」只在作者本机为真，不是通用事实。
+**永远不要编造执行结果。没跑就说没跑。** `prompt/AGENT.md` 是简短任务入口，不声明任何机器已安装依赖或已登录。
 
 ## 二、两个档位各能做到哪一步
 
@@ -38,14 +38,14 @@ node --version       # 有 Node？
 
 | 文件 | 内容 | 注意 |
 |---|---|---|
-| `prompt/SKILL.md` | 整理规则真源——归属判定、结构方法、标记约定、排版规则 | 动手前完整读一遍 |
+| `prompt/rules.md` | 整理规则真源——归属判定、结构方法、标记约定、排版规则 | 动手前完整读一遍 |
 | `prompt/standing-decisions.md` | **长期决策记录（SD-1…）** | 每次必读；已有结论不得重复提问；「历史决策」中已放弃的方案不得重新提出 |
-| `prompt/AGENT.md` | 作者本机的操作流程 | 描述的是作者那台 Mac，其中环境事实不通用 |
+| `prompt/AGENT.md` | 简短任务入口 | 引导读取规则并实测能力 |
 | `README.md` | 对外说明 | |
 
-公开 raw 入口：`https://raw.githubusercontent.com/yzyboeing/flight-notes-toolkit/main/prompt/SKILL.md`
+兼容 raw 入口仍为 `https://raw.githubusercontent.com/yzyboeing/flight-notes-toolkit/main/prompt/SKILL.md`，由 `tools/export_prompt.py` 自动生成。
 
-三者冲突时以 `prompt/SKILL.md` 为准。
+三者冲突时以 `prompt/rules.md` 为准。
 
 ## 四、通用工作约定（本仓库适用部分）
 
@@ -62,11 +62,11 @@ node --version       # 有 Node？
 
 1. **本仓库是公开的。推送前必须跑泄漏扫描。**
    ```bash
-   grep -rnf ~/.leakscan-keywords --exclude-dir=.git .
+   python3 tools/check_package.py --private-keywords ~/.leakscan-keywords
    ```
    关键词表刻意放在仓库外——把要防的词列进公开仓库等于公布它防的是谁。**关键词表不存在时停下报告，不得当作通过。**
 2. **笔记正文、私有库的章节标题、具体运行限制值不进本仓库。** 本仓库只放方法论与工具。
 3. **数值逐字保留**：不换算、不四舍五入、不「修正」看起来异常的值。
 4. **两套校验都要跑**：`check_src.py` 查源头，`verify.py` 查排版结果。只跑一套会漏——源码干净不代表排版没问题，反过来也一样。
-5. **推送前先 `git fetch` 比对远端。** 远端可能有本地没有的提交，不要用本地旧文件覆盖远端新内容。
+5. **推送前先运行包检查、自动导出一致性检查，并 `git fetch` 比对远端。** 远端可能有本地没有的提交，不要用本地旧文件覆盖远端新内容。
 6. **删文件前先问用户**，或改名备份代替删除。

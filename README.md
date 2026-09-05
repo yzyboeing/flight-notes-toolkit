@@ -24,7 +24,9 @@
 ## 仓库结构
 
 ```
-prompt/SKILL.md       整理规则（真源）——格式约定、排版规则、归属判定、校验流程
+SKILL.md              标准 Skill 入口（name: flight-theory-notes）
+prompt/rules.md       整理规则（真源）
+prompt/SKILL.md       自动导出的完整 Prompt（兼容旧网址）——格式约定、排版规则、归属判定、校验流程
 tools/assemble.py     从源文件组装章节 md 与全书 md
 tools/build_docx.js   md + 内嵌 HTML 表格 → A4 横版 docx
 tools/docx2md.py      既有 docx → 源格式（无损保留加粗/红字/合并单元格）
@@ -106,7 +108,7 @@ python3 tools/verify.py build/manual.pdf   # 空白页 / 标签泄漏 / 项目�
 - **技术冲突不自行裁决**，列出双方原文与出处，请使用者判定
 - **原始材料不完整时不猜写**，标 `【缺失，待原件补充】`
 
-细则见 [`prompt/SKILL.md`](prompt/SKILL.md)。
+细则见 [`prompt/rules.md`](prompt/rules.md)。
 
 ---
 
@@ -121,3 +123,17 @@ python3 tools/verify.py build/manual.pdf   # 空白页 / 标签泄漏 / 项目�
 ## 免责
 
 本仓库提供的是文档整理方法与工具。用它整理出的任何飞行技术资料**不得作为运行依据**，一切以所属运营人现行有效的手册、通告与规章为准。
+
+## 安装、跨 AI 使用与维护
+
+将整个仓库安装为 `flight-theory-notes` Skill，以 `$flight-theory-notes` 调用。不要只复制 `prompt/`：生成与检查脚本位于 `tools/`。支持读取文件的代理使用根目录 `SKILL.md`；只接受文本的环境使用 `prompt/SKILL.md`，并遵守私有资料边界。
+
+```bash
+python3 tools/export_prompt.py
+python3 tools/check_package.py --private-keywords ~/.leakscan-keywords
+python3 -m unittest discover -s tests -v
+```
+
+只编辑 `prompt/rules.md` 和长期决策文件，再生成兼容 Prompt。CI 检查导出是否过期、引用是否完整及虚构案例是否通过源检查。CI 不持有个人敏感关键词，公开发布前必须在本机运行带私有关键词的检查。一次规则反馈不自动授权长期维护或公开推送。
+
+源码版本以 Git 提交号识别；安装副本记录来源提交，备份移到 Skill 发现目录之外。规则和工具的自有原创部分采用 MIT 许可证；第三方材料仍适用其原许可，许可证不授权传播公司手册或笔记正文。

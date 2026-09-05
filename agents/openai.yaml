@@ -1,0 +1,4 @@
+interface:
+  display_name: "飞行理论笔记"
+  short_description: "整理中文飞行笔记、制作 Word 并维护私有笔记库的编号和引用"
+  default_prompt: "使用 $flight-theory-notes 整理我提供的材料，按已确认范围生成并复核文档。"
