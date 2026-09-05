@@ -1,21 +1,61 @@
-# 归档：flight-theory-notes skill v1.8
+# flight-theory-notes
 
-本分支保存 `~/.codex/skills/flight-theory-notes` 在 2026-09-05 被改成薄路由**之前**的原始文件。该 skill 从未有过版本管理，这是它唯一的版本化副本。
+把中文航空原始材料整理成结构化复习材料，产出带目录的 `.docx`；也用于已有笔记库的重组、去重、编号治理和增量维护。
 
-## 为什么归档而不是删除
+## 一份源，两种形态
 
-其中的**规则**已于 2026-09-05 逐条并入 `main` 分支（见 `CHANGELOG.md` 的
-「合并 Codex 侧并行分支的独有规则」与「并入 Codex 侧 skill 的最后四条独有规则」两节，
-共 18 项，每项都经实证核实）。但**文件本身**从未进过任何仓库：
+```text
+SKILL.md + references/     唯一的规则源，只改这里
+        │
+        ├─ Claude / Codex：整个目录作为 skill 安装，按需加载 references
+        └─ ChatGPT / Gemini：node tools/export_prompt.js → dist/ 单文件 prompt
+```
 
-- `scripts/build_docx.js` 与 `main` 分支的 `tools/build_docx.js` 差 993 行，
-  是同一功能的**另一次独立实现**，可能藏有更好的做法；
-- `references/` 下 7 个文件、`dist/`、`tools/export_prompt.js`、`VERSION`
-  在别处不存在同名文件。
+不要手工修改 `dist/` 下的 prompt。它由脚本生成，下次导出会被覆盖。
 
-## 不要从这里取规则
+## 目录
 
-**规则真源是 `main` 分支的 `prompt/SKILL.md` 与 `prompt/standing-decisions.md`。**
-本分支内容已停止维护，其中若干条已被实证否定并记入
-`standing-decisions.md` 的「历史决策」（5 章重构方案、条目级 `[NG]` 标记、
-块编号并入库后作废、结尾语、`EAEFF3` 共享项色等）。仅作追溯用途。
+```text
+SKILL.md
+VERSION
+references/
+  fidelity.md
+  decisions.md
+  structure.md
+  formats.md
+  output.md
+  source_material.md
+  library.md
+scripts/build_docx.js
+tools/export_prompt.js
+tools/iteration_prompt_variant.md
+```
+
+## 用法
+
+安装为 Skill：把整个目录复制到 skills 目录。
+
+导出单文件 Prompt：
+
+```bash
+node tools/export_prompt.js
+```
+
+生成笔记成品：
+
+```bash
+node scripts/build_docx.js src/01_systems/01.06_electrical.md build/01.06_electrical.docx
+```
+
+首次在 Word 中打开需更新域，目录才会显示条目；LibreOffice 或预览器里目录为空属正常。
+
+## 改规则
+
+1. 修改 `SKILL.md` 或 `references/` 对应文件。
+2. 更新 `VERSION`。
+3. 运行 `node tools/export_prompt.js`。
+4. 校验后再决定是否提交。
+
+## 内容边界
+
+本目录只保存工作方法和脚本，不保存笔记正文、受控手册内容、运行限制值、机号、内部编号、组织身份信息或凭据。笔记正文使用本地 git 管理，不进入公开托管仓库。
