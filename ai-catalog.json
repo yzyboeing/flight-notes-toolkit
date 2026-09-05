@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "repository": "https://github.com/yzyboeing/flight-notes-toolkit",
+      "type": "skill",
+      "name": "flight-theory-notes",
+      "visibility": "public",
+      "entry": "SKILL.md",
+      "release_tag": "skill-v1.0.0",
+      "asset": "flight-theory-notes-1.0.0.skill.zip"
+    },
+    {
+      "repository": "https://github.com/yzyboeing/flight-theory-notes",
+      "type": "content-project",
+      "visibility": "private",
+      "entry": "AGENTS.md",
+      "uses_skill": "flight-theory-notes",
+      "skill_source": "https://github.com/yzyboeing/flight-notes-toolkit",
+      "distributed": false
+    },
+    {
+      "repository": "https://github.com/yzyboeing/flight-doc-translate",
+      "type": "skill",
+      "name": "flight-doc-translate",
+      "visibility": "public",
+      "entry": "SKILL.md",
+      "release_tag": "skill-v1.0.0",
+      "asset": "flight-doc-translate-1.0.0.skill.zip"
+    },
+    {
+      "repository": "https://github.com/yzyboeing/feixun-ppt",
+      "type": "skill",
+      "name": "feixun-ppt",
+      "visibility": "private",
+      "entry": "SKILL.md",
+      "release_tag": "skill-v1.0.0",
+      "asset": "feixun-ppt-1.0.0.skill.zip"
+    },
+    {
+      "repository": "https://github.com/yzyboeing/jimmyloon",
+      "type": "skill",
+      "name": "jimmyloon",
+      "visibility": "private",
+      "entry": "SKILL.md",
+      "release_tag": "skill-v1.0.0",
+      "asset": "jimmyloon-1.0.0.skill.zip"
+    },
+    {
+      "repository": "https://github.com/yzyboeing/jimmysurge",
+      "type": "skill",
+      "name": "jimmysurge",
+      "visibility": "private",
+      "entry": "SKILL.md",
+      "release_tag": "skill-v1.0.0",
+      "asset": "jimmysurge-1.0.0.skill.zip"
+    },
+    {
+      "repository": "https://github.com/yzyboeing/vbs",
+      "type": "skill",
+      "name": "vbs",
+      "visibility": "public",
+      "entry": "skills/vbs/SKILL.md",
+      "release_tag": "skill-v1.0.0",
+      "asset": "vbs-1.0.0.skill.zip"
+    }
+  ]
+}

@@ -2,6 +2,8 @@
 
 这里导航七个仓库：六个可安装 Skill，加一个私有内容项目。入口不授予私有仓库访问、资料上传、执行脚本或发布权限。先确认任务与目标，再按对应 SKILL.md 的路由读取资料；不要加载所有 Skill。
 
+机器可读的仓库、入口、安装名与固定版本映射见 [ai-catalog.json](ai-catalog.json)。升级包版本时同步该清单；源码提交和校验值以对应 Release 的 SOURCE.json / sha256 文件为准。
+
 | 项目 | 类型 / 权限 | 执行入口 | 版本包 |
 |---|---|---|---|
 | [flight-doc-translate](https://github.com/yzyboeing/flight-doc-translate) | Skill / 公开 | 根 SKILL.md | flight-doc-translate |
