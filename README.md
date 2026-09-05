@@ -1,5 +1,7 @@
 # flight-notes-toolkit
 
+跨 AI 统一入口：[AI_INDEX.md](https://github.com/yzyboeing/flight-notes-toolkit/blob/main/AI_INDEX.md)。版本化 Skill 包使用本仓库 Releases 中的 `skill-vX.Y.Z` 标签；不要与配置版本混用。安装、环境检查与更新方式见 [分发说明](https://github.com/yzyboeing/flight-notes-toolkit/blob/main/DISTRIBUTION.md)。私有包及资料仍受本仓库的保密和授权边界约束。
+
 把零散的飞行理论笔记整理成**可查、可维护、可版本管理**的结构化手册的一套方法与工具链。
 
 面向 Boeing 737-NG / 737-8 的中文学习笔记（系统知识、非正常程序、模拟机参考、技术提示、CRM、规章），但整理规则与渲染器与机型无关，改一套归属判据就能用在别的机型或别的技术文档上。
