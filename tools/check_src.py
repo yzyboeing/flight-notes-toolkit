@@ -30,6 +30,7 @@ FM      = re.compile(r'\A---\n(.*?)\n---\n', re.S)
 WIKI    = re.compile(r'\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]')
 BULLET  = re.compile(r'(?m)^\s*(?:[▪•]|[-*]\s)')
 TAGS    = ('em', 'strong', 'td', 'th', 'tr', 'table')
+TABLE   = re.compile(r'<table[^>]*>[\s\S]*?</table>', re.I)
 TR      = re.compile(r'<tr([^>]*)>([\s\S]*?)</tr>')
 CELL    = re.compile(r'<(td|th)([^>]*)>([\s\S]*?)</\1>')
 COLSPAN = re.compile(r'colspan="(\d+)"')
@@ -103,14 +104,14 @@ def main():
                 errors.append('<%s> 开闭不配对 (%d 开 / %d 闭): %s' % (tag, o, c, rel(f)))
 
         # 表格列数一致性：build_docx.js 只按首行算 nCols，首行写错会静默毁掉整表列宽
-        for block in re.split(r'\n\s*\n', body):
-            if block.count('<tr') < 2:
-                continue
-            w = table_widths(block)
-            if not w:
+        # 按 <table>…</table> 切分，与 build_docx.js 界定表格的方式一致；
+        # 不按空行切，否则表内出现空行会被拆成两个假表而误报
+        for mt in TABLE.finditer(body):
+            w = table_widths(mt.group(0))
+            if len(w) < 2:
                 continue
             if w[0] != max(w):
-                ln_no = body[:body.find(block)].count('\n') + 1
+                ln_no = body[:mt.start()].count('\n') + 1
                 errors.append('表格首行列宽 %d，表内最大 %d（nCols 会被算成 %d）: %s:%d'
                               % (w[0], max(w), w[0], rel(f), ln_no))
 
