@@ -8,6 +8,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackageTest(unittest.TestCase):
+    def test_hidden_install_parent_does_not_hide_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / '.agent' / 'skill' / 'examples'
+            source.mkdir(parents=True)
+            content = '---\nid: "1.1"\n---\n# 1.1 Example\n\nFictional fixture.\n'
+            (source / '1.1 Example.md').write_text(content)
+            hidden = source / '.ignored'
+            hidden.mkdir()
+            (hidden / 'invalid.md').write_text('must not be loaded')
+            subprocess.run([sys.executable, str(ROOT / 'tools/check_src.py'), '--src', str(source), '--quiet'], check=True, capture_output=True)
+            output = Path(tmp) / 'build'
+            subprocess.run([sys.executable, str(ROOT / 'tools/assemble.py'), '--src', str(source), '--out', str(output)], check=True, capture_output=True)
+            self.assertIn('Fictional fixture.', (output / 'full.md').read_text())
+
     def test_export_is_current(self):
         subprocess.run([sys.executable, str(ROOT / 'tools/export_prompt.py'), '--check'], check=True)
 

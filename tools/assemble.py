@@ -36,7 +36,7 @@ def load():
     """返回 {id: (title, body)}"""
     out = {}
     for f in glob.glob(os.path.join(SRC, '**', '*.md'), recursive=True):
-        if os.sep + '.' in f:                     # 跳过 .obsidian 等隐藏目录
+        if any(part.startswith('.') for part in os.path.relpath(f, SRC).split(os.sep)):  # 只跳过输入内部的隐藏目录
             continue
         t = io.open(f, encoding='utf-8').read()
         m = FM.match(t)

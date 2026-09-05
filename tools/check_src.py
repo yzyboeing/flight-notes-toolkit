@@ -53,7 +53,7 @@ def rel(p):
 
 def main():
     files = [f for f in glob.glob(os.path.join(SRC, '**', '*.md'), recursive=True)
-             if os.sep + '.' not in f]
+             if not any(part.startswith('.') for part in os.path.relpath(f, SRC).split(os.sep))]
     if not files:
         sys.exit('未在 %s 下找到任何 .md' % SRC)
 
