@@ -13,6 +13,16 @@
 - `prompt/AGENT.md` 顶部声明其描述作者本机环境，非通用安装指南；移除私有库章节标题
 - 泄漏扫描关键词表统一为 `~/.leakscan-keywords`（软链指向私有库中版本管理的那份）
 
+### style：check_src.py 新增表格列数一致性检查
+
+- `build_docx.js` 的 `nCols` 只按**首行** `colspan` 合计推算。按本项目格式约定，
+  首行常是 `class="premise"` 通栏行——它的 colspan 若与表格真实列数不符，
+  整张表的列宽会被静默算错，且 `check_src.py`（原本零 colspan 校验）与
+  `verify.py`（只查空白页／标签泄漏／项目符号／front matter）都不会发现。
+- 新增检查：首行 colspan 合计 ≠ 表内最大列数即报错并给出行号。
+- 实测：现有 81 节 785 个表块**零误报**；注入首行 colspan 错误能精确定位；
+  修正后放行。
+
 ### fix：第九节 commit 前缀规则与实际不符且指向泄漏
 
 - 原「前三个推主库，`style:`/`rule:` 推工具链」与 `AGENT.md`「前四个推私有库」

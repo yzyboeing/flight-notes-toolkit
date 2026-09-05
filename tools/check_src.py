@@ -11,7 +11,9 @@
   4. 双链指向不存在的笔记
   5. HTML 标签开闭不配对（em / strong / td / th / tr / table）
   6. 行首项目符号（▪ • - *）—— 会被 OneNote 转成列表，且渲染器不认
-  7. MANIFEST.txt 条目数与实际笔记数不符（警告）
+  7. 表格首行 colspan 合计与表内最大列数不符
+     —— build_docx.js 的 nCols 只按首行推算，首行 colspan 写错会静默算错整表列宽
+  8. MANIFEST.txt 条目数与实际笔记数不符（警告）
 
 verify.py 查的是排版结果（空白页、跨页、标签泄漏到 PDF），
 本脚本查的是源头。两者互补，不能互相替代。
@@ -28,6 +30,18 @@ FM      = re.compile(r'\A---\n(.*?)\n---\n', re.S)
 WIKI    = re.compile(r'\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]')
 BULLET  = re.compile(r'(?m)^\s*(?:[▪•]|[-*]\s)')
 TAGS    = ('em', 'strong', 'td', 'th', 'tr', 'table')
+TR      = re.compile(r'<tr([^>]*)>([\s\S]*?)</tr>')
+CELL    = re.compile(r'<(td|th)([^>]*)>([\s\S]*?)</\1>')
+COLSPAN = re.compile(r'colspan="(\d+)"')
+
+
+def table_widths(block):
+    """返回该表块每一行的列宽合计（colspan 累加）。"""
+    out = []
+    for _cls, inner in TR.findall(block):
+        out.append(sum(int(COLSPAN.search(at).group(1)) if COLSPAN.search(at) else 1
+                       for _tag, at, _txt in CELL.findall(inner)))
+    return out
 
 errors, warns = [], []
 
@@ -87,6 +101,18 @@ def main():
             c = len(re.findall(r'</%s>' % tag, body))
             if o != c:
                 errors.append('<%s> 开闭不配对 (%d 开 / %d 闭): %s' % (tag, o, c, rel(f)))
+
+        # 表格列数一致性：build_docx.js 只按首行算 nCols，首行写错会静默毁掉整表列宽
+        for block in re.split(r'\n\s*\n', body):
+            if block.count('<tr') < 2:
+                continue
+            w = table_widths(block)
+            if not w:
+                continue
+            if w[0] != max(w):
+                ln_no = body[:body.find(block)].count('\n') + 1
+                errors.append('表格首行列宽 %d，表内最大 %d（nCols 会被算成 %d）: %s:%d'
+                              % (w[0], max(w), w[0], rel(f), ln_no))
 
         # 双链
         for m2 in WIKI.finditer(body):
