@@ -15,7 +15,7 @@ updated: "2026-09-04"
 
 <table class="ftn">
 <tr class="hdr"><th>类型</th><th>现象</th><th>处置</th></tr>
-<tr class="premise"><td colspan="3">正常离场 → <strong>限速 <em>230kt</em></strong> → 执行《<strong>示例故障</strong>》检查单。<br>
+<tr class="premise"><td colspan="3">正常离场 → <strong>限速 <em>XXXkt</em></strong> → 执行《<strong>示例故障</strong>》检查单。<br>
 <em>本行是「共性前提」：对表内每一行都成立的入口条件，浅灰底 + 左侧竖条。</em></td></tr>
 <tr><td rowspan="2">手柄在 <strong>UP</strong> 位</td>
     <td>所有<strong>红色和绿色</strong>指示灯亮</td>
@@ -57,9 +57,9 @@ updated: "2026-09-04"
 
 <table class="ftn">
 <tr class="hdr"><th>时机</th><th>PF</th><th>PM</th></tr>
-<tr><td><em>400ft</em></td>
+<tr><td><em>XXXft</em></td>
     <td>「<strong>示例喊话</strong>」→ 执行相应动作，<em>提前 10° 改出</em></td>
-    <td>「<strong>400ft</strong>」；<br>核实<strong>示例参数</strong></td></tr>
+    <td>「<strong>XXXft</strong>」；<br>核实<strong>示例参数</strong></td></tr>
 <tr><td>稳定后</td>
     <td>「<strong>稳定进近</strong>」</td>
     <td>报告 ATC：「<em>示例通报用语</em>」</td></tr>
