@@ -3,7 +3,7 @@
 #
 # 在 vault（＝ git 仓库）里任意位置执行：
 #     ./sync.sh "改了什么"          只重建有改动的模块
-#     ./sync.sh --full "改了什么"   重建全书 534 页
+#     ./sync.sh --full "改了什么"   重建全书（页数随字体环境变化，PingFang SC 下约 370 页）
 #     ./sync.sh --check             只跑校验，不构建不提交
 #     ./sync.sh --no-push "..."     构建并提交，但不推送
 #     ./sync.sh --no-build "..."    只提交推送，不重建 docx
