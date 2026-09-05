@@ -28,6 +28,7 @@ prompt/SKILL.md       整理规则（真源）——格式约定、排版规则�
 tools/assemble.py     从源文件组装章节 md 与全书 md
 tools/build_docx.js   md + 内嵌 HTML 表格 → A4 横版 docx
 tools/docx2md.py      既有 docx → 源格式（无损保留加粗/红字/合并单元格）
+tools/check_src.py    源文件校验（front matter / id / 双链 / 标签配对 / MANIFEST 对账）
 tools/verify.py       交付前 PDF 校验
 examples/             源格式示例
 ```
@@ -69,6 +70,7 @@ markdown 骨架 + 内嵌 HTML 表格，只有六个标记：
 
 ```bash
 npm install docx
+python3 tools/check_src.py --src <笔记仓库>/notes_src   # 先查源头
 python3 tools/assemble.py                # 源文件 → build/mod0..5.md + build/full.md
 
 DOC_AUTHOR="by　某某" NODE_PATH=./node_modules \
@@ -78,9 +80,11 @@ soffice --headless --convert-to pdf --outdir build build/manual.docx
 python3 tools/verify.py build/manual.pdf   # 空白页 / 标签泄漏 / 项目符号 / front matter
 ```
 
+**两套校验都要跑。** `check_src.py` 查源头，`verify.py` 查排版结果——源码干净不代表排版没问题，反过来也一样。
+
 生成的 docx 打开后按 **Ctrl+A → F9** 刷新目录（TOC 是 Word 域，首次打开为空）。
 
-`tools/assemble.py` 里的 `CH` 字典定义了模块划分与文件顺序，换用到别的项目改这里。
+`tools/assemble.py` 里的 `MOD` 字典定义了模块划分与文件顺序，换用到别的项目改这里。
 
 ## 与私有笔记库配合
 
