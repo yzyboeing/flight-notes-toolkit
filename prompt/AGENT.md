@@ -138,6 +138,18 @@ cd ~/flight-repos/gh-private
 
 **提交说明前缀**：`add:` 新增小节 / `fix:` 修订内容 / `refactor:` 重排或改编号 / `docs:` 文档 / `style:` 排版与渲染器 / `rule:` 规则变更 / `chore:` 工具依赖。前四个推私有库，`style:` `rule:` 推公开库。
 
+**身份是两套，别混：**
+
+| | 取自 | 用途 |
+|---|---|---|
+| git 提交作者 | 仓库本地 `user.name` / `user.email` | GitHub 上的归属 |
+| Word 封面署名 | 仓库本地 `notes.docAuthor` | 成品封面那行「by　某某」 |
+
+两者可以不同（提交用账号名、封面署真名）。都存在各仓库的 `.git/config` 里，**不入库**。
+`sync.sh` 优先读 `notes.docAuthor`，没设才退回 `user.name`。
+
+**不要擅自改这两项配置**，也不要在提交里用你自己编的名字。要改先问用户。
+
 改完记得更新 `CHANGELOG.md`。
 
 ---
