@@ -25,3 +25,5 @@ jobs:
           python3 tools/check_package.py
           python3 -m unittest discover -s tests -v
           node --check tools/build_docx.js
+      - name: Build immutable-source distribution
+        run: python3 tools/distribute_skills.py build --repo . --ref HEAD --out "$RUNNER_TEMP/skill-bundle"

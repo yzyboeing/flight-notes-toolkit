@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "name": "flight-theory-notes",
+  "version": "1.0.0",
+  "repository": "https://github.com/yzyboeing/flight-notes-toolkit",
+  "visibility": "public",
+  "root": ".",
+  "include": [
+    "SKILL.md",
+    "AGENTS.md",
+    "README.md",
+    "LICENSE",
+    "prompt/*",
+    "tools/*",
+    "examples/*",
+    "tests/*",
+    "AI_INDEX.md",
+    "DISTRIBUTION.md",
+    "COMPATIBILITY.md",
+    "package*.json"
+  ],
+  "prompt": [
+    "SKILL.md",
+    "AGENTS.md",
+    "prompt/rules.md",
+    "prompt/standing-decisions.md",
+    "prompt/AGENTS-common.md"
+  ],
+  "stages": {
+    "rules": [
+      "file:SKILL.md"
+    ],
+    "build": [
+      "bin:node",
+      "node:docx"
+    ],
+    "render": [
+      "bin:soffice",
+      "bin:pdftoppm",
+      "py:fitz"
+    ]
+  },
+  "limitations": [
+    "Actual source validation, build, CJK rendering and visual QA still required."
+  ],
+  "next_checks": []
+}
