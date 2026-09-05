@@ -102,7 +102,12 @@ if [ "$BUILD" = 1 ]; then
 
   NODE_PATH="$ROOT/node_modules"; export NODE_PATH
   [ -d "$NODE_PATH/docx" ] || die "缺 docx 模块，先在仓库根目录跑：npm install docx"
-  DOC_AUTHOR="${DOC_AUTHOR:-$(git config user.name)}"; export DOC_AUTHOR
+  # 封面署名与 git 提交身份是两回事：git 身份可能用账号名/化名，
+  # 而成品封面要署真名。优先取仓库本地配置 notes.docAuthor：
+  #     git config notes.docAuthor "by　张三"
+  # 没设才退回 user.name。
+  DOC_AUTHOR="${DOC_AUTHOR:-$(git config --get notes.docAuthor || git config user.name)}"
+  export DOC_AUTHOR
 
   echo; info "[4/5] 渲染 docx"
   if [ "$FULL" = 1 ]; then
