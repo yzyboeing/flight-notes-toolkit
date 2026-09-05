@@ -13,7 +13,11 @@ const fs = require('fs');
 const SRC = process.argv[2] || 'flight_theory_notes_prompt_v5.md';
 const OUT = process.argv[3] || 'prompt.docx';
 
-const CN = 'Microsoft YaHei', EN = 'Segoe UI', MONO = 'Consolas';
+// 字体：默认用 macOS 自带族，保证本机 Word 与 LibreOffice 排版一致。
+// Windows 上跑可覆盖：DOC_FONT_CN="Microsoft YaHei" DOC_FONT_EN="Segoe UI" DOC_FONT_MONO=Consolas
+const CN   = process.env.DOC_FONT_CN   || 'PingFang SC',
+      EN   = process.env.DOC_FONT_EN   || 'Helvetica Neue',
+      MONO = process.env.DOC_FONT_MONO || 'Menlo';
 const GRAY = '595959', LINE = 'BFBFBF', HDR = 'D9D9D9', ALT = 'F7F7F7', CODE = 'F2F2F2';
 const RED = 'C00000', PREMISE = 'EDEDED';
 const TOTAL = 14400; // A4 横版减页边距，DXA
