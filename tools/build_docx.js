@@ -338,12 +338,14 @@ function htmlTable(html) {
     const isHdr = r.cls.includes('hdr');
     const isNote = r.cls.includes('note');
     const isPre = r.cls.includes('premise');
-    const fill = isHdr ? HDR : isPre ? PREMISE : isNote ? 'FFFFFF' : (ri % 2 ? ALT : 'FFFFFF');
+    const isWarn = r.cls.includes('warn');
+    /* 警告行：白底 + 左侧红竖条。不用红底——红色是强调色，不是背景色 */
+    const fill = isHdr ? HDR : isWarn ? 'FFFFFF' : isPre ? PREMISE : isNote ? 'FFFFFF' : (ri % 2 ? ALT : 'FFFFFF');
     const cells = r.cells.map((c, ck) => {
       const ci = startCol[ri][ck];
       let w = 0;
       for (let k = 0; k < c.colspan; k++) w += W[Math.min(ci + k, nCols - 1)];
-      const isFirstCol = (ci === 0) && !isPre && !isNote;
+      const isFirstCol = (ci === 0) && !isPre && !isNote && !isWarn;
       /* 表头、数字列、项目 / 参数名称等短文本列整列居中；说明类长列左对齐 */
       const center = isHdr || c.head
                    || (c.colspan === 1 && (centerCols.has(ci) || narrowSet.has(ci)))
@@ -358,8 +360,9 @@ function htmlTable(html) {
       const borders = {
         top: { style: BorderStyle.SINGLE, size: 2, color: LINE },
         bottom: { style: BorderStyle.SINGLE, size: 2, color: LINE },
-        left: isPre ? { style: BorderStyle.SINGLE, size: 14, color: GRAY }
-                    : { style: BorderStyle.SINGLE, size: 2, color: LINE },
+        left: isWarn ? { style: BorderStyle.SINGLE, size: 14, color: RED }
+             : isPre  ? { style: BorderStyle.SINGLE, size: 14, color: GRAY }
+                      : { style: BorderStyle.SINGLE, size: 2, color: LINE },
         right: { style: BorderStyle.SINGLE, size: 2, color: LINE }
       };
       return new TableCell({
