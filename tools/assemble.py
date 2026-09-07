@@ -3,11 +3,13 @@
 
 用法：
     python3 assemble.py [--src .] [--out build]
+    python3 assemble.py [--src .] [--out build] --only 3.8
 
 在 vault 根目录执行。识别规则：
   · 只收 front matter 里 id 为「数字」或「数字.数字」的笔记；MOC / 索引类（id: MOC-*）自动跳过
   · 章内顺序 = id 的数值顺序
   · 输出 build/mod0..5.md（分册）与 build/full.md（全书）
+  · --only <id> 只导出该节到 build/sec_<id>.md，不动分册与全书（用于交付刚整理的那一节）
   · [[双链]] 在输出时还原为纯文本，Word 里不出现方括号
 
 组装规则见 prompt/SKILL.md。
@@ -19,6 +21,7 @@ def _arg(flag, default):
 
 SRC = os.path.abspath(_arg('--src', '.'))
 OUT = os.path.abspath(_arg('--out', 'build'))
+ONLY = _arg('--only', None)
 
 MOD = {
     '0': '基础知识速查区',
@@ -80,6 +83,16 @@ def main():
     if not secs:
         sys.exit('未找到任何带数字 id 的笔记，检查 --src 路径')
     os.makedirs(OUT, exist_ok=True)
+
+    if ONLY:                                      # 单节导出：只写 sec_<id>.md
+        if ONLY not in secs:
+            sys.exit('没有 id 为 %s 的笔记' % ONLY)
+        title, body = secs[ONLY]
+        out = os.path.join(OUT, 'sec_%s.md' % ONLY)
+        io.open(out, 'w', encoding='utf-8').write(
+            '# %s\n\n%s\n' % (title, re.sub(r'\n{3,}', '\n\n', unwiki(body)).strip()))
+        print('assembled 1 节 -> %s' % out)
+        return
     full = ['# 737 理论知识笔记\n']
     total = 0
     for n in '012345':
