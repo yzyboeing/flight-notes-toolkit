@@ -6,7 +6,7 @@
 const {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, TableOfContents,
   WidthType, ShadingType, BorderStyle, AlignmentType, VerticalAlign, HeadingLevel,
-  PageBreak, Footer, PageNumber, PageOrientation, Bookmark, PageReference
+  PageBreak, Footer, PageNumber, PageOrientation, Bookmark, PageReference, InternalHyperlink
 } = require('docx');
 const fs = require('fs');
 
@@ -72,9 +72,9 @@ function bmk(text) {
   const m = String(text).match(/^(\d+(?:\.\d+)*)[\s\u3000]/);
   return m ? 'SEC_' + m[1].replace(/\./g, '_') : null;
 }
-function H(text, level, brk) {
+function H(text, level, brk, forceId) {
   const sizes = { 1: 30, 2: 24, 3: 21, 4: 20 };
-  const id = level <= 2 ? bmk(text) : null;
+  const id = forceId || (level <= 2 ? bmk(text) : null);
   const tr = new TextRun({ text, font: { ascii: EN, eastAsia: CN }, size: sizes[level], bold: true, color: '000000' });
   return new Paragraph({
     heading: level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : level === 3 ? HeadingLevel.HEADING_3 : HeadingLevel.HEADING_4,
@@ -124,6 +124,46 @@ function codeBlock(lines) {
 
 
 /* ---------- 模块速查导航表（页码用 PAGEREF 域，F9 刷新） ---------- */
+/* ---------- 目录页下方的「章节快速跳转」表：点章名跳到该章首页 ---------- */
+function chapterJump(mods) {
+  const W = [11400, 3000];
+  const cell = (children, o = {}) => new TableCell({
+    width: { size: o.w, type: WidthType.DXA },
+    shading: { type: ShadingType.CLEAR, color: 'auto', fill: o.fill || 'FFFFFF' },
+    margins: { top: 40, bottom: 40, left: 140, right: 140 },
+    verticalAlign: VerticalAlign.CENTER,
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 2, color: LINE }, bottom: { style: BorderStyle.SINGLE, size: 2, color: LINE },
+      left: { style: BorderStyle.SINGLE, size: 2, color: LINE }, right: { style: BorderStyle.SINGLE, size: 2, color: LINE }
+    },
+    children
+  });
+  const hdr = new TableRow({
+    tableHeader: true,
+    children: ['章　节', '页　码'].map((t, k) => cell(
+      [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 6, after: 6, line: 220 },
+        children: [new TextRun({ text: t, font: { ascii: EN, eastAsia: CN }, size: 19, bold: true })] })],
+      { w: W[k], fill: HDR }))
+  });
+  const rows = mods.map((m, ri) => {
+    const fill = ri % 2 ? ALT : 'FFFFFF';
+    return new TableRow({
+      cantSplit: true,
+      children: [
+        cell([new Paragraph({ spacing: { before: 6, after: 6, line: 220 }, children: [
+          new InternalHyperlink({ anchor: m.id, children: [
+            new TextRun({ text: m.text, font: { ascii: EN, eastAsia: CN }, size: 20, bold: true, color: '000000', underline: {} })
+          ] })
+        ] })], { w: W[0], fill }),
+        cell([new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 6, after: 6, line: 220 }, children: [
+          new PageReference(m.id)
+        ] })], { w: W[1], fill })
+      ]
+    });
+  });
+  return new Table({ rows: [hdr, ...rows], width: { size: W[0] + W[1], type: WidthType.DXA }, columnWidths: W });
+}
+
 function navTable(rows) {
   const W = [1500, 10300, 2600];
   const cell = (children, o = {}) => new TableCell({
@@ -413,6 +453,7 @@ if (rawSrc.startsWith('---')) {                 // 跳过 YAML front matter
 }
 const src = rawSrc.split(/\r?\n/);
 const body = [];
+const modules = [];          // 分册（## 级标题），供目录页的「章节快速跳转」表使用
 let i = 0, docTitle = '', pendingBreak = false;
 
 while (i < src.length) {
@@ -449,7 +490,12 @@ while (i < src.length) {
     i++; body.push(navTable(rows)); continue;
   }
   if (/^#\s+/.test(ln)) { docTitle = ln.replace(/^#\s+/, ''); i++; continue; }
-  if (/^##\s+/.test(ln)) { body.push(H(ln.replace(/^##\s+/, ''), 1, pendingBreak)); pendingBreak = false; i++; continue; }
+  if (/^##\s+/.test(ln)) {
+    const t = ln.replace(/^##\s+/, '');
+    const cid = 'CHAP_' + modules.length;
+    modules.push({ id: cid, text: t });
+    body.push(H(t, 1, pendingBreak, cid)); pendingBreak = false; i++; continue;
+  }
   if (/^#####\s+/.test(ln)) { body.push(H(ln.replace(/^#####\s+/, ''), 4, pendingBreak)); pendingBreak = false; i++; continue; }
   if (/^####\s+/.test(ln)) { body.push(H(ln.replace(/^####\s+/, ''), 3, pendingBreak)); pendingBreak = false; i++; continue; }
   if (/^###\s+/.test(ln)) { body.push(H(ln.replace(/^###\s+/, ''), 2, pendingBreak)); pendingBreak = false; i++; continue; }
@@ -514,6 +560,18 @@ const front = [
     alignment: AlignmentType.CENTER, spacing: { before: 200, after: 360 }
   }),
   new TableOfContents('目录', { hyperlink: true, headingStyleRange: '1-2' }),
+  ...(modules.length > 1 ? [
+    new Paragraph({
+      children: [new TextRun({ text: '章节快速跳转', font: { ascii: EN, eastAsia: CN }, size: 22, bold: true })],
+      spacing: { before: 420, after: 60 }
+    }),
+    new Paragraph({
+      children: [new TextRun({ text: '点击章名直接跳到该章第一页；页码在 Word 中按 Ctrl+A 再按 F9 可刷新。',
+                               font: { ascii: EN, eastAsia: CN }, size: 18, color: GRAY })],
+      spacing: { before: 0, after: 160 }
+    }),
+    chapterJump(modules)
+  ] : []),
   new Paragraph({ children: [new PageBreak()] })
 ];
 
