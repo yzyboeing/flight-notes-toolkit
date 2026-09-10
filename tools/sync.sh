@@ -130,16 +130,28 @@ if [ "$BUILD" = 1 ]; then
     echo "$BUILT" | while IFS= read -r f; do
       [ -n "$f" ] || continue
       pdf="build/$(basename "${f%.docx}").pdf"
-      rm -f "$pdf" 2>/dev/null || true          # 先删旧的，避免转换失败时拿旧 PDF 当通过
-      "$SOF" --headless --convert-to pdf --outdir build "$f" >/dev/null 2>&1
-      if [ ! -f "$pdf" ]; then
-        printf '%s✗ %s%s\n' "$RED" "LibreOffice 没能生成 $pdf —— 排版校验未做，不算通过（LibreOffice 正开着？先退出它再跑）" "$RST" >&2
-        exit 1
+      # 转换一律输出到干净的临时目录再拷回来。两个原因：
+      #   · 直接往已存在的 PDF 上覆写，在某些文件系统（网络盘 / 受限挂载）会以
+      #     Io/Abort 失败；先写临时目录再 cp 覆盖最稳。
+      #   · 临时目录里有没有产物，是「这次到底转成功没有」的唯一可信判据，
+      #     不会被上一轮留下的旧 PDF 冒充。
+      # -env:UserInstallation 给 headless 一个独立 profile：LibreOffice 图形界面
+      # 开着时默认 profile 被占用，转换会失败且不报错；独立 profile 可以并存。
+      LOPROF="${TMPDIR:-/tmp}/lo-sync-profile"
+      LOTMP="$(mktemp -d)"; LOLOG="$(mktemp)"
+      "$SOF" -env:UserInstallation="file://$LOPROF" \
+             --headless --convert-to pdf --outdir "$LOTMP" "$f" >"$LOLOG" 2>&1
+      fresh="$LOTMP/$(basename "${f%.docx}").pdf"
+      if [ ! -f "$fresh" ]; then
+        printf '%s✗ %s%s\n' "$RED" "LibreOffice 没能生成 $(basename "$pdf") —— 排版校验未做，不算通过" "$RST" >&2
+        printf '%s  LibreOffice 输出：%s\n' "$DIM" "$RST" >&2
+        tail -12 "$LOLOG" | sed 's/^/    /' >&2
+        printf '%s  排查：确认已装（brew install --cask libreoffice）；仍失败可删掉 %s 重试%s\n' \
+               "$DIM" "$LOPROF" "$RST" >&2
+        rm -rf "$LOTMP" "$LOLOG"; exit 1
       fi
-      if [ "$pdf" -ot "$f" ]; then
-        printf '%s✗ %s%s\n' "$RED" "$pdf 比 docx 旧，说明转换失败留下了上一次的文件 —— 不算通过" "$RST" >&2
-        exit 1
-      fi
+      cp "$fresh" "$pdf" || { printf '%s✗ 写不进 %s%s\n' "$RED" "$pdf" "$RST" >&2; rm -rf "$LOTMP" "$LOLOG"; exit 1; }
+      rm -rf "$LOTMP" "$LOLOG"
       python3 "$TOOLKIT/verify.py" "$pdf" || exit 1
     done || die "排版校验未通过，已中止（未提交）"
     ok "排版校验通过"
