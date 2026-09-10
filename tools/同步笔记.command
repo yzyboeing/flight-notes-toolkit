@@ -60,10 +60,10 @@ command -v soffice >/dev/null 2>&1 || [ -x /Applications/LibreOffice.app/Content
 line
 
 # ---------- 选做什么 ----------
-printf '  %s1%s  快速同步　　只重建改动过的分册（推荐，日常用这个）\n' "$B" "$RST"
-printf '  %s2%s  全书重建　　连 465 页合订本一起重建（慢，几分钟）\n' "$B" "$RST"
+printf '  %s1%s  快速同步　　重建改动过的分册 → 提交 → 推两个仓库（日常用这个）\n' "$B" "$RST"
+printf '  %s2%s  全书重建　　同上，另加 465 页合订本（慢，几分钟）\n' "$B" "$RST"
 printf '  %s3%s  只校验　　　不构建、不提交，只看有没有问题\n' "$B" "$RST"
-printf '  %s4%s  只推送　　　不构建，把已有提交推上去\n' "$B" "$RST"
+printf '  %s4%s  只推送　　　不构建，把两个仓库已有的提交推上去\n' "$B" "$RST"
 printf '  %s0%s  退出\n' "$B" "$RST"
 printf '\n选择 [1]: '
 read -r PICK || PICK=1
@@ -74,10 +74,7 @@ case "$PICK" in
   3) printf '\n'; bash "$TOOLKIT/sync.sh" --check; RC=$?
      [ $RC -eq 0 ] && printf '\n%s✓ 校验通过%s\n' "$GRN" "$RST" || printf '\n%s✗ 校验未通过%s\n' "$RED" "$RST"
      ;;
-  4) printf '\n'
-     if [ "$AHEAD_N" -gt 0 ]; then git push -q origin HEAD && printf '%s✓%s 笔记库已推送\n' "$GRN" "$RST" || printf '%s✗%s 笔记库推送失败\n' "$RED" "$RST"
-     else printf '%s·%s 笔记库无待推送提交\n' "$DIM" "$RST"; fi
-     RC=0 ;;
+  4) printf '\n'; bash "$TOOLKIT/push_all.sh" "$ROOT"; RC=$? ;;
   1|2)
      if [ "$CHANGED" -eq 0 ] && [ "$PICK" = 1 ]; then
        printf '\n%s没有改动可提交，将只推送已有提交%s\n' "$DIM" "$RST"
@@ -86,28 +83,16 @@ case "$PICK" in
      read -r MSG || MSG=""
      MSG="${MSG:-更新笔记}"
      printf '\n'
-     if [ "$PICK" = 2 ]; then bash "$TOOLKIT/sync.sh" --full "$MSG"; else bash "$TOOLKIT/sync.sh" "$MSG"; fi
+     if [ "$PICK" = 2 ]; then bash "$TOOLKIT/sync.sh" --full --no-push "$MSG"
+     else                       bash "$TOOLKIT/sync.sh"        --no-push "$MSG"; fi
      RC=$?
+     if [ "$RC" -eq 0 ]; then
+       line; printf '  %s推送两个仓库%s\n' "$B" "$RST"
+       bash "$TOOLKIT/push_all.sh" "$ROOT" || RC=$?
+     fi
      ;;
   *) die "无效选择：$PICK" ;;
 esac
-
-# ---------- 工具链仓库：sync.sh 管不到，这里补上 ----------
-if [ "${RC:-1}" -eq 0 ] && [ "$PICK" != 3 ]; then
-  AHEAD_T="$(git -C "$PUB" rev-list --count @{u}..HEAD 2>/dev/null || echo 0)"
-  if [ "$AHEAD_T" -gt 0 ]; then
-    line
-    printf '  工具链还有 %s 条提交未推送（sync.sh 管不到这个仓库）\n' "$AHEAD_T"
-    printf '  现在推吗？[Y/n]: '
-    read -r YN || YN=y
-    case "${YN:-y}" in
-      [Nn]*) printf '  %s跳过%s\n' "$DIM" "$RST" ;;
-      *) git -C "$PUB" push -q origin HEAD \
-           && printf '  %s✓%s 工具链已推送\n' "$GRN" "$RST" \
-           || printf '  %s✗%s 工具链推送失败（跑一下 gh auth status 看看）\n' "$RED" "$RST" ;;
-    esac
-  fi
-fi
 
 line
 if [ "${RC:-1}" -eq 0 ]; then printf '%s✓ 完成%s\n' "$GRN" "$RST"
