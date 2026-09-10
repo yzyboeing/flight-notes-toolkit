@@ -112,7 +112,8 @@ if [ "$BUILD" = 1 ]; then
   echo; info "[4/5] 渲染 docx"
   if [ "$FULL" = 1 ]; then
     out="build/737理论知识笔记_全书.docx"
-    node "$TOOLKIT/build_docx.js" build/full.md "$out" || die "全书渲染失败"
+    python3 "$TOOLKIT/make_book.py" || die "拼合订本失败"
+    node "$TOOLKIT/build_docx.js" build/book.md "$out" || die "全书渲染失败"
     BUILT="$out"
   else
     for n in $CHANGED; do
@@ -128,9 +129,17 @@ if [ "$BUILD" = 1 ]; then
   if [ -x "$SOF" ]; then
     echo "$BUILT" | while IFS= read -r f; do
       [ -n "$f" ] || continue
-      "$SOF" --headless --convert-to pdf --outdir build "$f" >/dev/null 2>&1
       pdf="build/$(basename "${f%.docx}").pdf"
-      if [ ! -f "$pdf" ]; then warn "未生成 $pdf，跳过排版校验"; continue; fi
+      rm -f "$pdf" 2>/dev/null || true          # 先删旧的，避免转换失败时拿旧 PDF 当通过
+      "$SOF" --headless --convert-to pdf --outdir build "$f" >/dev/null 2>&1
+      if [ ! -f "$pdf" ]; then
+        printf '%s✗ %s%s\n' "$RED" "LibreOffice 没能生成 $pdf —— 排版校验未做，不算通过（LibreOffice 正开着？先退出它再跑）" "$RST" >&2
+        exit 1
+      fi
+      if [ "$pdf" -ot "$f" ]; then
+        printf '%s✗ %s%s\n' "$RED" "$pdf 比 docx 旧，说明转换失败留下了上一次的文件 —— 不算通过" "$RST" >&2
+        exit 1
+      fi
       python3 "$TOOLKIT/verify.py" "$pdf" || exit 1
     done || die "排版校验未通过，已中止（未提交）"
     ok "排版校验通过"
@@ -146,6 +155,15 @@ fi
 echo; info "[5/5] 提交"
 if [ "$DIRTY" = 0 ]; then
   warn "工作区无改动，跳过提交（成品已重建）"
+  # 没东西可提交，不代表没东西可推——之前的提交可能还堆在本地
+  AHEAD="$(git rev-list --count @{u}..HEAD 2>/dev/null || echo 0)"
+  if [ "$PUSH" = 1 ] && [ "${AHEAD:-0}" -gt 0 ]; then
+    info "本地还有 $AHEAD 条未推送的提交，推送中"
+    git push -q origin HEAD || die "推送失败（检查网络，或跑 gh auth status）"
+    ok "已推送到 $(git remote get-url origin)"
+  elif [ "${AHEAD:-0}" -gt 0 ]; then
+    info "--no-push，$AHEAD 条提交仍未推送"
+  fi
   if [ -n "$BUILT" ]; then
     echo; ok "Word 成品："
     echo "$BUILT" | while IFS= read -r f; do [ -n "$f" ] && printf '    %s/%s\n' "$ROOT" "$f"; done
