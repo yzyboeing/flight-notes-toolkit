@@ -1,9 +1,22 @@
 #!/bin/bash
-# 点击 Dock 图标 → 在「终端」里打开同目录 Resources 下的同步脚本。
+# 点击 Dock 图标 → 在「终端」里打开同步脚本。
 # 之所以要绕一道终端：菜单要读键盘输入、输出也要给人看，
 # app 直接执行脚本是没有窗口的。
+#
+# 脚本从哪儿取：优先用工具链仓库里的那份，永远是最新的。
+# Resources 里那份是软链（指回仓库），只作为最后兜底——
+# 万一 app 被搬到别处、软链断了，下面的候选路径还能找回来。
 set -e
 RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
-CMD="$RES/同步笔记.command"
+CMD=""
+for c in "$RES/../../../pub/tools/同步笔记.command" \
+         "$HOME/flight-repos/pub/tools/同步笔记.command" \
+         "$RES/同步笔记.command"; do
+  if [ -f "$c" ]; then CMD="$c"; break; fi
+done
+if [ -z "$CMD" ]; then
+  osascript -e 'display alert "找不到同步脚本" message "同步笔记.command 不在工具链仓库里，也不在 app 内。请确认 ~/flight-repos/pub/tools/ 是否还在。" as critical'
+  exit 1
+fi
 chmod +x "$CMD" 2>/dev/null || true
 open -a Terminal "$CMD"
