@@ -61,6 +61,9 @@ mod_name() {
 # ---------- 1. 源码级校验 ----------
 echo; info "[1/5] 源码级校验"
 python3 "$TOOLKIT/check_src.py" --src notes_src || die "源码校验未通过，已中止（什么都没提交）"
+if [ -f "$TOOLKIT/check_blocks.py" ]; then
+  python3 "$TOOLKIT/check_blocks.py" --src notes_src || die "块形态校验未通过，已中止（什么都没提交）"
+fi
 
 if [ "$CHECK_ONLY" = 1 ]; then echo; ok "仅校验模式，结束"; exit 0; fi
 
