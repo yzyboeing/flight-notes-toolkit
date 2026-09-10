@@ -25,7 +25,7 @@ hold() { printf '\n%s按回车键关闭…%s' "$DIM" "$RST"; read -r _ || true; 
 # ---------- 定位两个仓库 ----------
 SELF="$0"; while [ -L "$SELF" ]; do SELF="$(readlink "$SELF")"; done
 HERE="$(cd "$(dirname "$SELF")" && pwd)"
-for base in "$HERE" "$HERE/.." "$HERE/../.." "$HOME/flight-repos"; do
+for base in "$HERE" "$HERE/.." "$HERE/../.." "$HERE/../../.." "$HOME/flight-repos"; do
   [ -d "$base/gh-private/notes_src" ] && { ROOT="$(cd "$base/gh-private" && pwd)"; break; }
   [ -d "$base/notes_src" ]            && { ROOT="$(cd "$base" && pwd)"; break; }
 done

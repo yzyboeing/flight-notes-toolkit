@@ -1,0 +1,9 @@
+#!/bin/bash
+# 点击 Dock 图标 → 在「终端」里打开同目录 Resources 下的同步脚本。
+# 之所以要绕一道终端：菜单要读键盘输入、输出也要给人看，
+# app 直接执行脚本是没有窗口的。
+set -e
+RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
+CMD="$RES/同步笔记.command"
+chmod +x "$CMD" 2>/dev/null || true
+open -a Terminal "$CMD"
