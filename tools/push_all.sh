@@ -53,7 +53,7 @@ else
     warn "按规则：表不存在时停下报告，不得当作通过。工具链**未推送**。"
     exit 1
   fi
-  info "泄漏扫描（关键词表 $KW，$(wc -l < "$KW" | tr -d ' ') 条）"
+  info "泄漏扫描（关键词表 ${KW}，$(wc -l < "$KW" | tr -d ' ') 条）"
   HITS="$(cd "$PUB" && grep -rnIf "$KW" --exclude-dir=.git . 2>/dev/null | grep -v '^\./CHANGELOG\.md' || true)"
   # 模式拼出来而不是写死，否则本脚本自己会被自己扫中
   UPAT="/$(printf 'Users')/|/$(printf 'home')/[a-z]|/$(printf 'sessions')/"
