@@ -112,6 +112,64 @@ def check(path):
         warns.append('%s：节首没有溯源说明' % name)
     elif '（20' not in head:
         warns.append('%s：溯源说明里没有日期' % name)
+    # 9 「本节共 N 块 M 个知识点」与实际一致（SD-21）
+    mc = re.search(r'本节共\s*<strong>\s*(\d+)\s*块\s*(\d+)\s*个知识点\s*</strong>', body)
+    if mc:
+        if (int(mc.group(1)), int(mc.group(2))) != (len(blocks), len(items)):
+            errs.append('%s：节首写着 %s 块 %s 条，实际 %d 块 %d 条'
+                        % (name, mc.group(1), mc.group(2), len(blocks), len(items)))
+    else:
+        warns.append('%s：节首没有「本节共 N 块 M 个知识点」' % name)
+
+    # 10 id / 文件名前缀 / H1 三处同号（SD-21）
+    fid = re.search(r'^id:\s*"?([0-9.]+)"?\s*$', m.group(0), re.M)
+    pre = name.split()[0]
+    if fid and fid.group(1) != pre:
+        errs.append('%s：front matter id 为 %s，与文件名前缀 %s 不符' % (name, fid.group(1), pre))
+    h1 = re.search(r'(?m)^#\s+([0-9.]+)\s*　', body)
+    if h1 and h1.group(1) != pre:
+        errs.append('%s：H1 编号为 %s，与文件名前缀 %s 不符' % (name, h1.group(1), pre))
+
+    return errs, warns
+
+def check_numbering(files):
+    """SD-21：节编号在章内连续不跳号；MANIFEST 与 000 总目录同号"""
+    errs, warns = [], []
+    bych = {}
+    for f in files:
+        pre = os.path.basename(f).split()[0]
+        if '.' not in pre: continue
+        ch, no = pre.split('.', 1)
+        if not no.isdigit(): continue
+        bych.setdefault(ch, []).append((int(no), pre))
+    for ch in sorted(bych, key=lambda x: int(x) if x.isdigit() else 99):
+        nums = sorted(n for n, _ in bych[ch])
+        start = 0 if 0 in nums else 1            # x.0 是本章导读，允许从 0 起
+        want = list(range(start, start + len(nums)))
+        if nums != want:
+            miss = [n for n in want if n not in nums]
+            errs.append('第 %s 章节编号不连续：实际 %s，缺 %s（SD-21 要求删除后顺延，不留空号）'
+                        % (ch, nums, miss))
+    # MANIFEST
+    mf = os.path.join(SRC, 'MANIFEST.txt')
+    if os.path.exists(mf):
+        ids = set()
+        for ln in io.open(mf, encoding='utf-8'):
+            mm = re.match(r'\s*([0-9]+\.[0-9]+)\s', ln)
+            if mm: ids.add(mm.group(1))
+        real = set(os.path.basename(f).split()[0] for f in files)
+        if ids != real:
+            only_mf = sorted(ids - real); only_rl = sorted(real - ids)
+            errs.append('MANIFEST 与实际笔记不符：表内多出 %s，表内缺 %s' % (only_mf or '无', only_rl or '无'))
+    # 000 总目录
+    toc = os.path.join(SRC, '000 总目录.md')
+    if os.path.exists(toc):
+        t = io.open(toc, encoding='utf-8').read()
+        listed = set(re.findall(r'<tr><td><strong>([0-9]+\.[0-9]+)</strong>', t))
+        real = set(os.path.basename(f).split()[0] for f in files)
+        if listed and listed != real:
+            errs.append('000 总目录与实际笔记不符：目录多出 %s，目录缺 %s'
+                        % (sorted(listed - real) or '无', sorted(real - listed) or '无'))
     return errs, warns
 
 def main():
@@ -122,6 +180,8 @@ def main():
     E, W = [], []
     for f in files:
         e, w = check(f); E += e; W += w
+    if not ONLY:                                  # 编号连续性与清单对账是全库级的
+        e, w = check_numbering(files); E += e; W += w
     print('块形态校验 %d 节' % len(files))
     for w in W: print('  提醒  ' + w)
     for e in E: print('  错误  ' + e)
