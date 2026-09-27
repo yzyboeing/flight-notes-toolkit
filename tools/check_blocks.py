@@ -12,7 +12,7 @@
   1  块字母从 A 起连续，不跳号
   2  每块内条目从 1 起连续，不跳号
   3  条目标题在本节内唯一
-  4  块索引存在（有并列条目的节），且与正文条目**逐条一一对应**（编号 + 标题、顺序一致）
+  4  块索引存在（有并列条目的节；第零章不设，SD-23），且与正文条目**逐条一一对应**（编号 + 标题、顺序一致）
   5  关键数字总表里每个「出处」引用的块编号，在本节确实存在
   6  正文无 <strong>/<em> 嵌套（渲染器会把标签当文字打出来）
   7  面向人的段落里没有漏出 Markdown / HTML 语法名（###、<code> 等）
@@ -47,6 +47,9 @@ def check(path):
         return ['%s：缺 front matter' % name], []
     body = t[m.end():]
 
+    if '.' not in name.split()[0]:               # 扁平节（第零章速查区，SD-23）
+        return check_flat(name, body)
+
     blocks = BLK.findall(body)
     items  = ITEM.findall(body)
     if not blocks:
@@ -72,9 +75,11 @@ def check(path):
     dup = {x for x in titles if titles.count(x) > 1}
     if dup: errs.append('%s：条目标题重复 %s' % (name, sorted(dup)))
 
-    # 4 块索引与正文逐条对齐
+    # 4 块索引与正文逐条对齐（第零章速查区不设块索引，SD-23）
     mi = re.search(r'(?s)### 块索引\n(.*?)(?=\n### |\Z)', body)
-    if not mi:
+    if name.startswith('0.'):
+        if mi: errs.append('%s：第零章不设块索引（SD-23）' % name)
+    elif not mi:
         errs.append('%s：缺「块索引」' % name)
     else:
         idx = [(c, ti.strip()) for c, ti in IDXE.findall(mi.group(1))]
@@ -106,9 +111,12 @@ def check(path):
     if LEAK.search(prose):
         errs.append('%s：正文说明里漏出 Markdown / HTML 语法名' % name)
 
-    # 8 溯源说明
+    # 8 溯源说明（第零章速查区节首不放说明，SD-23）
     head = body.split('### ', 1)[0]
-    if not strip_tags(head).strip():
+    ch0 = name.startswith('0.')
+    if ch0:
+        pass
+    elif not strip_tags(head).strip():
         warns.append('%s：节首没有溯源说明' % name)
     elif '（20' not in head:
         warns.append('%s：溯源说明里没有日期' % name)
@@ -118,7 +126,7 @@ def check(path):
         if (int(mc.group(1)), int(mc.group(2))) != (len(blocks), len(items)):
             errs.append('%s：节首写着 %s 块 %s 条，实际 %d 块 %d 条'
                         % (name, mc.group(1), mc.group(2), len(blocks), len(items)))
-    else:
+    elif not ch0:
         warns.append('%s：节首没有「本节共 N 块 M 个知识点」' % name)
 
     # 10 id / 文件名前缀 / H1 三处同号（SD-21）
@@ -130,6 +138,28 @@ def check(path):
     if h1 and h1.group(1) != pre:
         errs.append('%s：H1 编号为 %s，与文件名前缀 %s 不符' % (name, h1.group(1), pre))
 
+    return errs, warns
+
+def check_flat(name, body):
+    """SD-23：第零章一页连续速查表——## 块标题 + ### 全章连续编号「N. 标题」"""
+    errs, warns = [], []
+    if re.search(r'(?m)^### 块索引', body): errs.append('%s：第零章不设块索引（SD-23）' % name)
+    if re.search(r'(?m)^#### ', body): errs.append('%s：扁平节不应出现 #### 标题' % name)
+    heads = re.findall(r'(?m)^(##|###) (.+)$', body)
+    if not heads or heads[0][0] != '##':
+        errs.append('%s：第一个标题应是 ## 块标题' % name)
+    nums, titles = [], []
+    for lv, tx in heads:
+        if lv != '###': continue
+        m = re.match(r'(\d+)\. (.+)$', tx)
+        if not m: errs.append('%s：条目标题不是「N. 标题」格式：%s' % (name, tx[:30])); continue
+        nums.append(int(m.group(1))); titles.append(m.group(2).strip())
+    if nums != list(range(1, len(nums) + 1)):
+        bad = [n for k, n in enumerate(nums, 1) if n != k][:5]
+        errs.append('%s：条目编号不连续（应为 1–%d），首个异常 %s' % (name, len(nums), bad))
+    dup = {x for x in titles if titles.count(x) > 1}
+    if dup: warns.append('%s：条目标题重复 %s' % (name, sorted(dup)))
+    if NEST.search(body): errs.append('%s：<strong>/<em> 嵌套' % name)
     return errs, warns
 
 def check_numbering(files):
@@ -155,7 +185,7 @@ def check_numbering(files):
     if os.path.exists(mf):
         ids = set()
         for ln in io.open(mf, encoding='utf-8'):
-            mm = re.match(r'\s*([0-9]+\.[0-9]+)\s', ln)
+            mm = re.match(r'\s*([0-9]+(?:\.[0-9]+)?)\s', ln)
             if mm: ids.add(mm.group(1))
         real = set(os.path.basename(f).split()[0] for f in files)
         if ids != real:
@@ -165,7 +195,7 @@ def check_numbering(files):
     toc = os.path.join(SRC, '000 总目录.md')
     if os.path.exists(toc):
         t = io.open(toc, encoding='utf-8').read()
-        listed = set(re.findall(r'<tr><td><strong>([0-9]+\.[0-9]+)</strong>', t))
+        listed = set(re.findall(r'<tr><td><strong>([0-9]+(?:\.[0-9]+)?)</strong>', t))
         real = set(os.path.basename(f).split()[0] for f in files)
         if listed and listed != real:
             errs.append('000 总目录与实际笔记不符：目录多出 %s，目录缺 %s'

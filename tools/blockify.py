@@ -13,7 +13,7 @@ plan.py 需定义：
     LEVEL = 4            # 原文用 ### 块 + #### 条目；若原文是并列的 ### 条目则写 3
     FILE  = "~/…/1.6 发动机、APU.md"
     PLAN  = [("A", "块名", ["条目标题1", "条目标题2"]), ...]     # 顺序即新顺序
-    GROUPS= {"A": [("组名", 1, 2), ("组名", 3, 5)], ...}          # 块索引里的分组，闭区间
+    # GROUPS 已废止（SD-22，2026-09-25）：块索引一行一个块，不再分组
     SPLIT = [["A","B"], ["C"]]                                   # 块索引拆成几张表，防跨页
     NOTE  = "本节按…重排，…（2026-09-09）"                        # 节首溯源说明（不含「本节共 N 块 M 条」，自动加）
     NUMS  = '<table class="ftn">…</table>'                        # 可选，关键数字总表
@@ -70,18 +70,13 @@ def main():
 
     def table(letters):
         o = ['<table class="ftn">',
-             '<tr class="hdr"><th>块</th><th>主题</th><th>组</th><th>条目</th></tr>']
+             '<tr class="hdr"><th>块</th><th>主题</th><th>条目</th></tr>']
         for L in letters:
             btitle = dict((a, b) for a, b, _ in P.PLAN)[L]
             ts = dict((a, c) for a, _, c in P.PLAN)[L]
-            gs = P.GROUPS[L]
-            for k, (g, lo, hi) in enumerate(gs):
-                ent = '<br>'.join('<strong>%s-%d</strong> %s' % (L, i, ts[i - 1])
-                                  for i in range(lo, hi + 1))
-                hd = ('<td rowspan="%d"><strong>%s</strong></td>'
-                      '<td rowspan="%d"><strong>%s</strong></td>'
-                      % (len(gs), L, len(gs), btitle)) if k == 0 else ''
-                o.append('<tr>%s<td>%s</td><td>%s</td></tr>' % (hd, g, ent))
+            ent = '<br>'.join('<strong>%s-%d</strong> %s' % (L, i, x) for i, x in enumerate(ts, 1))
+            o.append('<tr><td><strong>%s</strong></td><td><strong>%s</strong></td><td>%s</td></tr>'
+                     % (L, btitle, ent))
         o.append('</table>')
         return '\n'.join(o)
 

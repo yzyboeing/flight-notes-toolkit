@@ -93,6 +93,9 @@ def table_md(tb):
                 a += ' rowspan="%d"' % it['rowspan']
             cells.append('<%s%s>%s</%s>' % (tag, a, it['text'], tag))
         out.append('<tr%s>%s</tr>' % (cls, ''.join(cells)))
+    # 共性前提一律放在表头之上（表格第一行，SD-24）：表头后紧跟的通栏前提行提到最前
+    if len(out) > 2 and 'class="hdr"' in out[1] and 'class="premise"' in out[2]:
+        out[1], out[2] = out[2], out[1]
     out.append('</table>')
     s = '\n'.join(out)
     return re.sub(r'<th([^>]*)><strong>(.*?)</strong></th>', r'<th\1>\2</th>', s)
