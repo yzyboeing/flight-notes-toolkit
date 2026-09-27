@@ -100,14 +100,19 @@ def main():
         if not ids:
             continue
         total += len(ids)
-        bodies = [re.sub(r'\n{3,}', '\n\n', '## %s\n\n%s' % (secs[i][0], unwiki(secs[i][1]))).strip()
+        # id 不带小数点的是「整章一页」的扁平节（第零章速查区，SD-23）：不出节标题，正文里的 ## 块标题直接当节级标题
+        bodies = [re.sub(r'\n{3,}', '\n\n', ('%s' if '.' not in i else '## %s\n\n%s') % (
+                      (unwiki(secs[i][1]),) if '.' not in i else (secs[i][0], unwiki(secs[i][1])))).strip()
                   for i in ids]
         content = '\n\n---\n\n'.join(bodies)
         if n == '5':                              # 每个技术提示单独起页
             content = re.sub(r'(?m)^(## 5\.\d+　.*)$', r'%%PAGEBREAK%%\n\n\1', content)
             content = re.sub(r'\A%%PAGEBREAK%%\n\n', '', content)
+        if n == '0':                              # 速查区：表格按内容收宽、逐格判定对齐
+            content = '%%COMPACT%%\n\n' + content + '\n\n%%ENDCOMPACT%%'
+        flat = all('.' not in i for i in ids)     # 扁平章：分册里块标题降一级，避免每块另起一页
         io.open(os.path.join(OUT, 'mod%s.md' % n), 'w', encoding='utf-8').write(
-            '# %s\n\n%s\n' % (MOD[n], content))
+            '# %s\n\n%s\n' % (MOD[n], demote(content) if flat else content))
         full += ['\n%%PAGEBREAK%%\n', '\n## %s\n' % MOD[n], demote(content) + '\n']
     io.open(os.path.join(OUT, 'full.md'), 'w', encoding='utf-8').write('\n'.join(full))
     print('assembled %d 节 -> %s' % (total, OUT))
