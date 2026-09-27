@@ -12,7 +12,7 @@ for i in range(d.page_count):
     t = d[i].get_text()
     body = re.sub(r'第 \d+ 页', '', t).strip()
     if not body and i > 0: blank.append(i + 1)
-    if re.search(r'</?(em|strong|td|th|tr)>', t): leak.append(i + 1)
+    if re.search(r'</?(em|strong|td|th|tr)>|\[\[|\]\]', t): leak.append(i + 1)      # 含未还原的 [[双链]]
     if re.search(r'[▪•]', t): bullet.append(i + 1)
     if re.search(r'title_cn:|aircraft:', t): fm.append(i + 1)
 print('页数', d.page_count)

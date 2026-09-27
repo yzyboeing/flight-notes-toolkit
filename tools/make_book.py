@@ -38,6 +38,8 @@ def prep(path):
     t = re.sub(r'(?m)^####\s', '##### ', t)
     t = re.sub(r'(?m)^###\s',  '#### ',  t)
     t = re.sub(r'(?m)^##\s',   '### ',   t)
+    # 总目录 / 编排规范里的 [[双链]] 在 Word 里还原为纯文本（与 assemble.py 一致）
+    t = re.sub(r'\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]', lambda m: (m.group(2) or m.group(1)).strip(), t)
     return title, t.strip()
 
 def main():
