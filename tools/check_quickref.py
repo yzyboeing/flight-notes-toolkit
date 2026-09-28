@@ -152,7 +152,8 @@ def main():
         if miss: warns.append('第 %s 条（%s）↔ %s %s：正文里找不到 %s' % (n, title[:16], *key, '、'.join(miss[:8])))
         for x in polarity_issues(body, blocks[key]):
             errs.append('第 %s 条 ↔ %s %s 否定词不一致：%s' % (n, *key, x))
-        for x in row_issues(body, blocks[key]):
+        # 整节找同表头的表：一条速查可能汇总本节相邻两条，「详见」只指其中一条
+        for x in row_issues(body, secs[key[0]]):
             warns.append('第 %s 条 ↔ %s %s 疑似行对应错位：%s' % (n, *key, x))
     print('速查区核对（数值 / 否定词 / 行对应）：%d 条有「详见」，%d 条为速查区独有' % (n_ptr, n_own))
     for w in warns: print('  疑似不一致  ' + w)
