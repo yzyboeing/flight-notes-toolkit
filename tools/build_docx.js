@@ -90,6 +90,7 @@ function H(text, level, brk, forceId) {
     children: id ? [new Bookmark({ id, children: [tr] })] : [tr],
     spacing: { before: level === 1 ? 320 : 220, after: level === 1 ? 140 : 100 },
     border: level === 1 ? { bottom: { style: BorderStyle.SINGLE, size: 8, color: GRAY, space: 6 } } : undefined,
+    keepNext: true,                                  // 标题永远与下文同页
     /* 速查区竖版：排版预检发现会被拆页的表，其条目标题另起一页（BREAK_BEFORE=21,35） */
     pageBreakBefore: !!brk || (COMPACT && BREAKS.has((String(text).match(/^(\d+)\. /) || [])[1])) || itemBreak(text)
   });
@@ -100,7 +101,7 @@ const BREAK_IDX = new Set(String(process.env.BREAK_IDX || '').split(',').filter(
 function itemBreak(text) {
   if (!/^(\d+\. |[A-Z]-\d+\u3000)/.test(String(text))) return false;
   ITEM_IDX += 1;
-  return BREAK_IDX.has(ITEM_IDX);
+  return BREAK_IDX.has(ITEM_IDX) && !ITEM_SKIP.has(ITEM_IDX);
 }
 const BREAKS = new Set(String(process.env.BREAK_BEFORE || '').split(',').filter(Boolean));
 
@@ -620,6 +621,25 @@ if (rawSrc.startsWith('---')) {                 // 跳过 YAML front matter
   if (end > 0) rawSrc = rawSrc.slice(rawSrc.indexOf('\n', end + 1) + 1);
 }
 const src = rawSrc.split(/\r?\n/);
+/* 另起一页的条目若紧跟在节 / 块标题（及其下的短说明）之后，把分页提到那个标题前，免得标题孤零零留在上一页底部 */
+const ITEM_SKIP = new Set(), HEAD_BREAK = new Set();
+if (BREAK_IDX.size) {
+  const isHead = s => /^#{2,6}\s+/.test(s), isItem = s => /^#{2,6}\s+(\d+\. |[A-Z]-\d+\u3000)/.test(s);
+  let k = 0;
+  for (let L = 0; L < src.length; L++) {
+    if (!isItem(src[L])) continue;
+    k += 1; if (!BREAK_IDX.has(k)) continue;
+    let target = -1, j = L - 1, paraOk = true;
+    while (j >= 0) {
+      const s = src[j];
+      if (!s.trim()) { j--; continue; }
+      if (isHead(s) && !isItem(s) && !/^#{2,6}\s+块索引/.test(s)) { target = j; paraOk = false; j--; continue; }
+      if (paraOk && !/^\s*(<table|<tr|<\/table|\||%%)/.test(s) && s.length < 400) { j--; continue; }
+      break;
+    }
+    if (target >= 0) { ITEM_SKIP.add(k); HEAD_BREAK.add(target); }
+  }
+}
 const body = [];
 const modules = [];          // 分册（## 级标题），供目录页的「章节快速跳转」表使用
 let i = 0, docTitle = '', pendingBreak = false;
@@ -666,11 +686,11 @@ while (i < src.length) {
     const t = ln.replace(/^##\s+/, '');
     const cid = 'CHAP_' + modules.length;
     modules.push({ id: cid, text: t });
-    body.push(H(t, 1, pendingBreak, cid)); pendingBreak = false; i++; continue;
+    body.push(H(t, 1, pendingBreak || HEAD_BREAK.has(i), cid)); pendingBreak = false; i++; continue;
   }
-  if (/^#####\s+/.test(ln)) { body.push(H(ln.replace(/^#####\s+/, ''), 4, pendingBreak)); pendingBreak = false; i++; continue; }
-  if (/^####\s+/.test(ln)) { body.push(H(ln.replace(/^####\s+/, ''), 3, pendingBreak)); pendingBreak = false; i++; continue; }
-  if (/^###\s+/.test(ln)) { body.push(H(ln.replace(/^###\s+/, ''), 2, pendingBreak)); pendingBreak = false; i++; continue; }
+  if (/^#####\s+/.test(ln)) { body.push(H(ln.replace(/^#####\s+/, ''), 4, pendingBreak || HEAD_BREAK.has(i))); pendingBreak = false; i++; continue; }
+  if (/^####\s+/.test(ln)) { body.push(H(ln.replace(/^####\s+/, ''), 3, pendingBreak || HEAD_BREAK.has(i))); pendingBreak = false; i++; continue; }
+  if (/^###\s+/.test(ln)) { body.push(H(ln.replace(/^###\s+/, ''), 2, pendingBreak || HEAD_BREAK.has(i))); pendingBreak = false; i++; continue; }
   if (/^---\s*$/.test(ln)) { i++; continue; }
   if (/^>\s?/.test(ln)) {
     const buf = [];
@@ -707,7 +727,10 @@ while (i < src.length) {
   {                                                // 表格前的短说明（≤ 两行）与表格同页，不单独留在上一页
     let j = i + 1; while (j < src.length && !src[j].trim()) j++;
     const beforeTable = j < src.length && /^<table/.test(src[j].trim());
-    body.push(P(ln, { keepNext: beforeTable && ln.replace(/<[^>]+>/g, '').length <= 120 }));
+    let k = i - 1; while (k >= 0 && !src[k].trim()) k--;
+    const beforeHead = j < src.length && /^#{2,6}\s+/.test(src[j]) && k >= 0 && /^#{2,6}\s+/.test(src[k]);   // 夹在节标题与条目标题之间的节首短说明：与条目同页，不让节标题孤悬页底
+    const len = ln.replace(/<[^>]+>/g, '').length;
+    body.push(P(ln, { keepNext: (beforeTable && len <= 120) || (beforeHead && len <= 200) }));
   }
   i++;
 }

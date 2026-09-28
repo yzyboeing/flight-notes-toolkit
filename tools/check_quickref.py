@@ -134,9 +134,12 @@ def main():
         secs[sid] = t
         for m in re.finditer(r'(?ms)^#### ([A-Z]-\d+)　[^\n]*\n(.*?)(?=^#### |^### |\Z)', t):
             blocks[(sid, m.group(1))] = m.group(2)
+        if sid.split('.')[0] in ('4', '5'):          # 第 4、5 章条目「### N. 标题」，地址写「第 N 条」（SD-30）
+            for m in re.finditer(r'(?ms)^### (\d+)\. [^\n]*\n(.*?)(?=^### |\Z)', t):
+                blocks[(sid, '第 %s 条' % m.group(1))] = m.group(2)
     errs, warns, n_ptr, n_own = [], [], 0, 0
     for n, title, body in items:
-        mp = re.search(r'详见 \[\[[^\]|]+\|(\d+\.\d+) ([A-Z]-\d+)\]\]', body)
+        mp = re.search(r'详见 \[\[[^\]|]+\|(\d+\.\d+) ([A-Z]-\d+|第 \d+ 条)\]\]', body)
         if not mp: n_own += 1; continue
         n_ptr += 1
         key = (mp.group(1), mp.group(2))
