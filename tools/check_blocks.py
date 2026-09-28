@@ -16,7 +16,7 @@
   5  关键数字总表里每个「出处」引用的块编号，在本节确实存在
   6  正文无 <strong>/<em> 嵌套（渲染器会把标签当文字打出来）
   7  面向人的段落里没有漏出 Markdown / HTML 语法名（###、<code> 等）
-  8  节首有溯源说明（H1 之后、第一张导航表之前的说明段）
+  8  节首不放整理说明（SD-30：「本节共…」、带日期的改动记录移到主库「整理记录」）；第 4、5 章不分块、条目「N. 标题」连续编号
 退出码非 0 表示有错。
 """
 import io, os, re, sys, glob
@@ -49,6 +49,9 @@ def check(path):
 
     if '.' not in name.split()[0]:               # 扁平节（第零章速查区，SD-23）
         return check_flat(name, body)
+
+    if name.split('.')[0] in ('4', '5'):         # 第 4、5 章不分块（SD-30）
+        return check_numbered(name, body)
 
     blocks = BLK.findall(body)
     items  = ITEM.findall(body)
@@ -111,23 +114,10 @@ def check(path):
     if LEAK.search(prose):
         errs.append('%s：正文说明里漏出 Markdown / HTML 语法名' % name)
 
-    # 8 溯源说明（第零章速查区节首不放说明，SD-23）
+    # 8 节首不放整理说明（SD-30）
     head = body.split('### ', 1)[0]
-    ch0 = name.startswith('0.')
-    if ch0:
-        pass
-    elif not strip_tags(head).strip():
-        warns.append('%s：节首没有溯源说明' % name)
-    elif '（20' not in head:
-        warns.append('%s：溯源说明里没有日期' % name)
-    # 9 「本节共 N 块 M 个知识点」与实际一致（SD-21）
-    mc = re.search(r'本节共\s*<strong>\s*(\d+)\s*块\s*(\d+)\s*个知识点\s*</strong>', body)
-    if mc:
-        if (int(mc.group(1)), int(mc.group(2))) != (len(blocks), len(items)):
-            errs.append('%s：节首写着 %s 块 %s 条，实际 %d 块 %d 条'
-                        % (name, mc.group(1), mc.group(2), len(blocks), len(items)))
-    elif not ch0:
-        warns.append('%s：节首没有「本节共 N 块 M 个知识点」' % name)
+    if re.search(r'本节共\s*<strong>', head) or re.search(r'(?m)^<strong>20\d\d-\d\d-\d\d', head):
+        errs.append('%s：节首还有整理说明（SD-30：移到主库「整理记录」）' % name)
 
     # 10 id / 文件名前缀 / H1 三处同号（SD-21）
     fid = re.search(r'^id:\s*"?([0-9.]+)"?\s*$', m.group(0), re.M)
@@ -138,6 +128,28 @@ def check(path):
     if h1 and h1.group(1) != pre:
         errs.append('%s：H1 编号为 %s，与文件名前缀 %s 不符' % (name, h1.group(1), pre))
 
+    return errs, warns
+
+def check_numbered(name, body):
+    """SD-30：第 4、5 章——不设块索引与块标题，条目「### N. 标题」每节从 1 连续编号"""
+    errs, warns = [], []
+    if re.search(r'(?m)^### 块索引', body): errs.append('%s：第 4、5 章不设块索引（SD-30）' % name)
+    if re.search(r'(?m)^#### |^### [A-Z]　', body): errs.append('%s：第 4、5 章不应有块标题或 #### 条目（SD-30）' % name)
+    head = body.split('### ', 1)[0]
+    if re.search(r'本节共\s*<strong>', head) or re.search(r'(?m)^<strong>20\d\d-\d\d-\d\d', head):
+        errs.append('%s：节首还有整理说明（SD-30）' % name)
+    nums, titles = [], []
+    for tx in re.findall(r'(?m)^### (.+)$', body):
+        m = re.match(r'(\d+)\. (.+)$', tx)
+        if not m: errs.append('%s：条目标题不是「N. 标题」格式：%s' % (name, tx[:30])); continue
+        nums.append(int(m.group(1))); titles.append(m.group(2).strip())
+    if nums != list(range(1, len(nums) + 1)):
+        errs.append('%s：条目编号不连续 %s' % (name, nums))
+    dup = {x for x in titles if titles.count(x) > 1}
+    if dup: errs.append('%s：条目标题重复 %s' % (name, sorted(dup)))
+    if NEST.search(body): errs.append('%s：<strong>/<em> 嵌套' % name)
+    stale = re.findall(r'(?<![0-9A-Za-z.\-])[A-H]-\d+(?!\d)', re.sub(r'(?m)^#.*$', '', strip_tags(body)))
+    if stale: warns.append('%s：正文里还有块编号式引用 %s（第 4、5 章已改为「第 N 条」）' % (name, sorted(set(stale))[:5]))
     return errs, warns
 
 def check_flat(name, body):
