@@ -27,12 +27,15 @@ UNIT = r'(?:%|kt|ft|fpm|psi|nm|NM|km|m|kg|lb|LB|℃|°C|°|g|min|s|h|Hz|V|hPa|mb
 NUM  = re.compile(r'((?:[<>≤≥±]\s?)?(?:(?<![\d.])[-−])?(?<![\d.])\d+(?:\.\d+)?)\s?(' + UNIT[3:-2] + r')?')   # 数字前紧挨的 – 是区间号，不当负号
 
 def plain(s):
+    s = re.sub(r'<small>.*?</small>', ' ', s, flags=re.S)   # SD-33 灰色出处 / 解释不参与数值比对
     s = re.sub(r'<[^>]+>', ' ', s)
     s = s.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
     return re.sub(r'−\s+(?=\d)', '−', s)            # 「− 5%」与「−5%」视为同一个数
 
 def tokens(s):
     out = set()
+    s = re.sub(r'B-\d{4}[A-Z]?(\s*[–\-]\s*B-\d{4}[A-Z]?)?', ' ', s)   # 飞机注册号段（SD-32）不当作数值
+    s = re.sub(r'第\s*\d+\s*条', ' ', s)                                  # 条目互引不当作数值
     for m in NUM.finditer(plain(s)):
         v = re.sub(r'\s', '', m.group(1)).replace('−', '-').replace('–', '-')
         u = (m.group(2) or '').replace('°C', '℃')
@@ -145,7 +148,7 @@ def main():
         key = (mp.group(1), mp.group(2))
         if key not in blocks:
             errs.append('第 %s 条：详见 %s %s 在正文里不存在' % (n, *key)); continue
-        mine = tokens(re.sub(r'(?m)^(来源|详见)[^\n]*\n', '', body))
+        mine = tokens(re.sub(r'<small>.*?</small>', ' ', re.sub(r'(?m)^(来源|详见|解释：|公司差异：)[^\n]*\n', '', body), flags=re.S))
         blk, whole = tokens(blocks[key]), tokens(secs[key[0]])
         bare_whole = {v for v, _ in whole}
         miss = sorted({'%s%s' % x for x in mine if x not in blk and x not in whole and x[0] not in bare_whole})
