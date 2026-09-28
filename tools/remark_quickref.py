@@ -19,8 +19,14 @@ def _arg(flag, default):
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
 SRC = os.path.abspath(_arg('--src', 'notes_src'))
 
-LIMIT_ITEMS = {46, 24, 3, 4, 5, 6, 8, 12, 15, 16, 17, 25, 26, 32, 33, 34, 47, 60, 63, 64, 72, 73, 87, 109}
-REF_ITEMS = {1, 2, 14, 27, 35, 37, 85, 86, 88, 105, 106, 107}
+# SD-26（2026-09-28 修订）：红色只给「必须遵守或不能超过的界限」
+# 限制类条目：表格里非首列的数值都是限制 / 门槛，一律标红
+LIMIT_ITEMS = {4, 5, 6, 8, 11, 12, 57, 15, 16, 17, 21, 24, 25, 26, 28, 32, 33, 34, 36, 40, 46, 47, 49, 53, 58, 59, 60, 63, 64, 69, 70, 71,
+               72, 73, 75, 76, 87, 89, 91, 93, 104, 109, 117, 121, 122}
+# 构造 / 性能 / 参考数据条目：数值一律不标（尺寸、转向角、转弯直径、机动速度、卸载速度、参考下降率、标准大气、统计）
+REF_ITEMS = {1, 2, 3, 14, 27, 35, 37, 85, 86, 88, 105, 106, 107, 111}
+# 其余条目：数值所在分句有门槛信号（比较符、最大 / 最小 / 至少 / 以上 / 以下、达到 / 等待 / 持续 / 超过 / 低于…）才标红
+SIG2 = re.compile(r'[<>≤≥＜＞\ue001\ue002]|最大|最小|最低|最高|最少|不少于|不低于|不高于|不小于|不大于|不超过|至少|以上|以下|以内|之内|超过|低于|高于|大于|小于|限制|极限|红线|上限|下限|间隔|持续|达到|等待|约需|后|时|内|之前|以前|之后|不晚于|不早于|最长|最短|最多|=|±|少于|多于|满|之间|更小|更大|余度|裕度|增加|直到|调定|设定')
 
 UNIT = r'(?:N1|N2|人|单位|个点|段|kt 地速|ft/min|°/s|ft|fpm|psi|nm|km|kg|LB|lb|mph|mbar|inHg|hPa|min|kt|Hz|m/s|℃|°|%|g|m|s|h|V|夸脱|次|nm)'
 NUMTOK = re.compile(
@@ -33,7 +39,7 @@ NUMTOK = re.compile(
     r'(?:\s?(?:及以上|及以下|以上|以下|以内))?')
 SIGNAL = re.compile(r'[<>≤≥＜＞\ue001\ue002]|最大|最小|最低|最高|不少于|不低于|不小于|不大于|不超过|至少|以上|以下|以内|超过|低于|高于|限制|极限|红线|上限|下限|间隔|持续')
 REQ = re.compile(r'(?<!非)(?<!不是)(?<!并非)(?<!无需)(?<!不需)(?<!不)(?:禁止|严禁|不得|不可(?!预|靠|见|用)|不能(?!保证)|不要|不应|无法|不提供|不适用|不包括|不代表|必须|立即|只能|只可|(?<!必)(?<!无)须(?!知)|(?<!不)仅(?!供|为|是|作|考虑|表示|限于)|切勿|不允许)[^，。；;,（）()「—\n]{0,30}')
-DANGER = re.compile(r'失速|失控|撞地|触地危险|不足以停住|超压状况|超轮速|无法放出|压力丧失')
+DANGER = re.compile(r'失速|失控|撞地|触地危险|不足以停住|超压状况|超轮速|无法放出|全压力丧失')
 PUNCT = '，。；;：:'
 
 def esc_plain(s):
@@ -99,12 +105,15 @@ def process_segment(seg, limit_mode, first_col):
             if not t: continue
             if first_col:      # 首列：只标带单位的数值（limit_mode 关），不标要求类短语
                 pieces = re.split('([%s])' % PUNCT, t)
-                buf.append(''.join(pc if (pc in PUNCT or not pc) else mark_text(pc, False, True, nreq=True) for pc in pieces)); continue
+                buf.append(''.join(pc if (pc in PUNCT or not pc) else mark_text(pc, False, bool(SIG2.search(pc)), nreq=True) for pc in pieces)); continue
             # 分句级信号
             pieces = re.split('([%s])' % PUNCT, t); o2 = []
             for pc in pieces:
                 if pc in PUNCT or not pc: o2.append(pc); continue
-                s2 = True
+                # 分句里有门槛信号；或整行较短（≤ 40 字，如「结构限制，41000ft」）且行内有信号
+                sent = next((x for x in re.split(r'(?<=[。；;])', t) if pc in x), t)      # 所在整句
+                s2 = (bool(SIG2.search(pc)) or (len(re.sub(r'\s', '', t)) <= 40 and bool(SIG2.search(t)))
+                      or (len(re.sub(r'\s', '', sent)) <= 70 and bool(SIG2.search(sent))))
                 o2.append(mark_text(pc, limit_mode, s2))
             buf.append(''.join(o2))
         res.append(''.join(buf))
