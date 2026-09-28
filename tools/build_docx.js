@@ -31,7 +31,7 @@ const unesc = (t) => t.replace(/&lt;/g,'<').replace(/&gt;/g,'>')
 function runs(text, o = {}) {
   text = unesc(text);
   const out = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>)/g;
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<small>[\s\S]*?<\/small>|〔待补来源〕)/g;
   let last = 0, m;
   const push = (t, kind) => {
     if (!t) return;
@@ -43,22 +43,24 @@ function runs(text, o = {}) {
     out.push(new TextRun({
       text: t,
       font: kind === 'code' ? { ascii: MONO, eastAsia: CN } : circ ? { ascii: CN, hAnsi: CN, eastAsia: CN } : { ascii: EN, eastAsia: CN },
-      size: o.size || 20,
-      bold: kind === 'bold' || kind === 'red' || o.bold,
-      color: kind === 'red' ? RED : (kind === 'code' ? '9C2A00' : (o.color || '000000'))
+      size: /^gray/.test(kind || '') ? (o.size || 20) - 2 : (o.size || 20),
+      bold: kind === 'bold' || kind === 'red' || kind === 'graybold' || o.bold,
+      color: kind === 'red' ? RED : (kind === 'code' ? '9C2A00' : (/^gray/.test(kind || '') ? GRAY : (o.color || '000000')))
     }));
   };
   /* 嵌套标记：<em> 与 <strong> 可互相嵌套，红色优先（红色本身已是粗体） */
   const walk = (s, kind) => {
-    const r = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>)/g;
+    const r = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<small>[\s\S]*?<\/small>|〔待补来源〕)/g;
     let l = 0, mm;
     while ((mm = r.exec(s)) !== null) {
       push(s.slice(l, mm.index), kind);
       const tk = mm[0];
-      if (tk.startsWith('**')) walk(tk.slice(2, -2), kind === 'red' ? 'red' : 'bold');
+      if (tk.startsWith('**')) walk(tk.slice(2, -2), kind === 'red' ? 'red' : (/^gray/.test(kind || '') ? 'graybold' : 'bold'));
       else if (tk.startsWith('`')) push(tk.slice(1, -1), 'code');
       else if (tk.startsWith('<em>')) walk(tk.slice(4, -5), 'red');
-      else walk(tk.slice(8, -9), kind === 'red' ? 'red' : 'bold');
+      else if (tk.startsWith('<small>')) walk(tk.slice(7, -8), 'gray');      /* SD-33 学习解释：灰色小字 */
+      else if (tk === '〔待补来源〕') push(tk, 'gray');                        /* SD-33 来源待补标记 */
+      else walk(tk.slice(8, -9), kind === 'red' ? 'red' : (/^gray/.test(kind || '') ? 'graybold' : 'bold'));
       l = mm.index + tk.length;
     }
     push(s.slice(l), kind);
@@ -710,6 +712,14 @@ while (i < src.length) {
     if (mn) { body.push(numbered(mn[2], Math.min(2, Math.floor(mn[1].length / 3)))); i++; continue; }
   }
   if (!ln.trim()) { i++; continue; }
+  if (/^(解释：|公司差异：)/.test(ln.trim())) {    // SD-33 学习解释（灰色小字）/ SD-34 公司差异（标签加粗）
+    const t = ln.trim(), exp = /^解释：/.test(t);
+    body.push(new Paragraph({
+      children: exp ? runs('<small>' + t + '</small>') : runs('<strong>公司差异：</strong>' + t.slice(5), { size: 18 }),
+      spacing: { before: 20, after: 100 }, indent: { left: 200 }
+    }));
+    i++; continue;
+  }
   if (/^(详见\s|来源：)/.test(ln.trim())) {     // 回查入口行 / 速查区标题下的出处行：小号灰字
     const under = /^来源：/.test(ln.trim()) || (COMPACT && /^详见\s/.test(ln.trim()));
     body.push(new Paragraph({
