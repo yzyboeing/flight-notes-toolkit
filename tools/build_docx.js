@@ -6,7 +6,7 @@
 const {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, TableOfContents,
   WidthType, ShadingType, BorderStyle, AlignmentType, VerticalAlign, HeadingLevel,
-  PageBreak, Footer, PageNumber, PageOrientation, Bookmark, PageReference, InternalHyperlink
+  PageBreak, Footer, PageNumber, PageOrientation, Bookmark, PageReference, InternalHyperlink, TableLayoutType
 } = require('docx');
 const fs = require('fs');
 
@@ -20,6 +20,7 @@ const CN   = process.env.DOC_FONT_CN   || 'PingFang SC',
       MONO = process.env.DOC_FONT_MONO || 'Menlo';
 const GRAY = '595959', LINE = 'BFBFBF', HDR = 'D9D9D9', ALT = 'F7F7F7', CODE = 'F2F2F2';
 const RED = 'C00000', PREMISE = 'EDEDED';
+const HIDE_TBD = process.env.SHOW_TBD !== '1';   // 成品默认不显示〔待补来源〕（用户要求：表格与正文内不标来源）
 // DOC_PORTRAIT=1：竖版 A4（iPad 阅读版）；默认横版
 const PORTRAIT = process.env.DOC_PORTRAIT === '1';
 const TOTAL = PORTRAIT ? 10000 : 14400; // A4 减页边距，DXA
@@ -31,7 +32,7 @@ const unesc = (t) => t.replace(/&lt;/g,'<').replace(/&gt;/g,'>')
 function runs(text, o = {}) {
   text = unesc(text);
   const out = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<small>[\s\S]*?<\/small>|〔待补来源〕)/g;
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
   let last = 0, m;
   const push = (t, kind) => {
     if (!t) return;
@@ -40,26 +41,33 @@ function runs(text, o = {}) {
       t.split(/([\u2460-\u2473]+)/).forEach(seg => push(seg, kind)); return;
     }
     const circ = /^[\u2460-\u2473]+$/.test(t);
+    if (kind === 'red' && o.noRed) kind = 'bold';
+    const grayK = /^gray/.test(kind || '');
     out.push(new TextRun({
       text: t,
       font: kind === 'code' ? { ascii: MONO, eastAsia: CN } : circ ? { ascii: CN, hAnsi: CN, eastAsia: CN } : { ascii: EN, eastAsia: CN },
-      size: /^gray/.test(kind || '') ? (o.size || 20) - 2 : (o.size || 20),
+      size: grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20),
       bold: kind === 'bold' || kind === 'red' || kind === 'graybold' || o.bold,
-      color: kind === 'red' ? RED : (kind === 'code' ? '9C2A00' : (/^gray/.test(kind || '') ? GRAY : (o.color || '000000')))
+      color: (kind === 'red' && !o.noRed) ? RED : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000')))
     }));
   };
   /* 嵌套标记：<em> 与 <strong> 可互相嵌套，红色优先（红色本身已是粗体） */
   const walk = (s, kind) => {
-    const r = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<small>[\s\S]*?<\/small>|〔待补来源〕)/g;
+    const r = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
     let l = 0, mm;
     while ((mm = r.exec(s)) !== null) {
       push(s.slice(l, mm.index), kind);
       const tk = mm[0];
       if (tk.startsWith('**')) walk(tk.slice(2, -2), kind === 'red' ? 'red' : (/^gray/.test(kind || '') ? 'graybold' : 'bold'));
       else if (tk.startsWith('`')) push(tk.slice(1, -1), 'code');
-      else if (tk.startsWith('<em>')) walk(tk.slice(4, -5), 'red');
+      else if (tk.startsWith('<em>')) {
+        /* 红色只标数值与关键禁令短语：整句（去标记后超过 28 字）改为黑色加粗 */
+        const inner = tk.slice(4, -5), plainLen = unesc(inner.replace(/<[^>]+>/g, '')).length;
+        walk(inner, plainLen > 28 ? (/^gray/.test(kind || '') ? 'graybold' : 'bold') : 'red');
+      }
+      else if (/^<br/.test(tk)) out.push(new TextRun({ break: 1 }));
       else if (tk.startsWith('<small>')) walk(tk.slice(7, -8), 'gray');      /* SD-33 学习解释：灰色小字 */
-      else if (tk === '〔待补来源〕') push(tk, 'gray');                        /* SD-33 来源待补标记 */
+      else if (tk === '〔待补来源〕') { if (!HIDE_TBD) push(tk, 'gray'); }      /* 来源待补标记：成品不显示，汇总到条目来源行 */
       else walk(tk.slice(8, -9), kind === 'red' ? 'red' : (/^gray/.test(kind || '') ? 'graybold' : 'bold'));
       l = mm.index + tk.length;
     }
@@ -86,6 +94,7 @@ function bmk(text) {
 function H(text, level, brk, forceId) {
   const sizes = { 1: 30, 2: 24, 3: 21, 4: 20 };
   const id = forceId || (level <= 2 ? bmk(text) : null);
+  text = unesc(String(text));
   const tr = new TextRun({ text, font: { ascii: EN, eastAsia: CN }, size: sizes[level], bold: true, color: '000000' });
   return new Paragraph({
     heading: level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : level === 3 ? HeadingLevel.HEADING_3 : HeadingLevel.HEADING_4,
@@ -223,6 +232,24 @@ function navTable(rows) {
   return new Table({ columnWidths: W, width: { size: W[0] + W[1] + W[2], type: WidthType.DXA }, rows: [hdr, ...body] });
 }
 
+/* 单元格按 <br> 分段排版前，把跨段的 <em>/<strong>/<small> 在每段首尾补齐，避免标签原样漏到成品里 */
+function balanceBr(text) {
+  const segs = String(text).split(/<br\s*\/?>/);
+  if (segs.length < 2) return text;
+  let open = [];
+  return segs.map(seg => {
+    const pre = open.map(t => '<' + t + '>').join('');
+    const st = open.slice();
+    const re = /<(\/?)(em|strong|small)>/g; let m;
+    while ((m = re.exec(seg)) !== null) {
+      if (!m[1]) st.push(m[2]);
+      else { const k = st.lastIndexOf(m[2]); if (k >= 0) st.splice(k, 1); }
+    }
+    open = st;
+    return pre + seg + st.slice().reverse().map(t => '</' + t + '>').join('');
+  }).join('<br>');
+}
+
 /* ---------- 内嵌 HTML 表格 ---------- */
 function parseHtmlTable(html) {
   const rows = [];
@@ -239,7 +266,7 @@ function parseHtmlTable(html) {
         head: c[1] === 'th',
         colspan: parseInt((at.match(/colspan="(\d+)"/) || [, 1])[1], 10),
         rowspan: parseInt((at.match(/rowspan="(\d+)"/) || [, 1])[1], 10),
-        text: c[3]
+        text: balanceBr(c[3])
       });
     }
     rows.push({ cls, cells });
@@ -256,7 +283,49 @@ function tableGap(src, i) {
   return P('', { before: 0, after: 60 });
 }
 
+/* 窄表 + 长通栏说明：说明行若在窄表里要折成 4 行以上，就移到表外（前提行放表前、注释 / 警示行放表后），
+   让表格保持按内容收窄，说明文字按正文宽度排，不再被挤成一长条 */
 function htmlTable(html) {
+  const parsed = parseHtmlTable(html);
+  if (!parsed.length || !(COMPACT || FIT_ALL)) return [htmlTableCore(html)];
+  const visC = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, ''))) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : 1.05; return n; };
+  const nCols = parsed[0].cells.reduce((a, c) => a + c.colspan, 0) || 2;
+  const need = new Array(nCols).fill(0);
+  parsed.forEach(r => {
+    if (/note|premise|warn/.test(r.cls)) return;
+    let ci = 0;
+    r.cells.forEach(c => { if (c.colspan === 1 && ci < nCols)
+      need[ci] = Math.max(need[ci], ...String(c.text).split(/<br\s*\/?>/).map(visC)); ci += c.colspan; });
+  });
+  const natural = need.reduce((a, n) => a + Math.min(n, 64) * 96 + 370, 0);
+  const tw = Math.min(TOTAL, natural);
+  const isFull = r => /note|premise|warn/.test(r.cls) && r.cells.length === 1;
+  const lines = r => String(r.cells[0].text).split(/<br\s*\/?>/).reduce((a, sg) => a + Math.max(1, Math.ceil(visC(sg) * 96 / Math.max(900, tw - 180))), 0);
+  const out = parsed.filter(r => isFull(r) && tw < TOTAL * 0.55 && lines(r) > 3);
+  if (!out.length) return [htmlTableCore(html)];
+  const firstData = parsed.findIndex(r => !/hdr|premise/.test(r.cls));
+  const pre = [], post = [];
+  const trRe = /<tr([^>]*)>([\s\S]*?)<\/tr>/g;
+  let idx = -1;
+  const kept = html.replace(trRe, (all) => { idx++; const r = parsed[idx];
+    if (!out.includes(r)) return all;
+    (idx < firstData ? pre : post).push(r); return ''; });
+  const para = (r) => new Paragraph({
+    children: runs(String(r.cells[0].text).replace(/<br\s*\/?>/g, '\n'), { size: 18 }).map(x => x),
+    spacing: { before: 60, after: 60, line: 270 }, indent: { left: 120 },
+    border: { left: { style: BorderStyle.SINGLE, size: 12, color: r.cls.includes('warn') ? RED : GRAY, space: 8 } },
+    keepNext: pre.includes(r)
+  });
+  const paras = (arr) => arr.flatMap(r => String(r.cells[0].text).split(/<br\s*\/?>/).filter(x => x.trim()).map((sg, k, a) => new Paragraph({
+    children: runs(sg.trim(), { size: 18 }),
+    spacing: { before: k ? 0 : 60, after: k === a.length - 1 ? 80 : 0, line: 270 }, indent: { left: 120 },
+    border: { left: { style: BorderStyle.SINGLE, size: 12, color: r.cls.includes('warn') ? RED : GRAY, space: 8 } },
+    keepNext: pre.includes(r)
+  })));
+  return [...paras(pre), htmlTableCore(kept), ...paras(post)];
+}
+
+function htmlTableCore(html) {
   const parsed = parseHtmlTable(html);
   if (!parsed.length) return null;
   const nCols = parsed[0].cells.reduce((a, c) => a + c.colspan, 0) || 2;
@@ -363,7 +432,7 @@ function htmlTable(html) {
         if (c.colspan !== 1) return;
         const ci2 = startCol[ri][ck];
         const lo = Math.max(...String(c.text).split(/<br\s*\/?>/).map(vis));
-        need2[ci2] = Math.max(need2[ci2], c.rowspan > 1 ? Math.max(8, Math.ceil(lo / c.rowspan)) : lo);
+        need2[ci2] = Math.max(need2[ci2], lo);   // 合并格也按一行排下计（不再按跨行数折算，避免被挤成细长条）
       });
     });
     /* 表头：短表头（如「737-NG」）不折行；长表头按 0.6 计，允许折行，避免把数字列撑空 */
@@ -406,7 +475,7 @@ function htmlTable(html) {
       const rowsC = [];
       parsed.forEach((r, ri) => {
         if (r.cls.includes('hdr') || r.cls.includes('note') || r.cls.includes('premise')) return;
-        rowsC.push(r.cells.map((c, ck) => ({ ci: startCol[ri][ck], span: c.colspan,
+        rowsC.push(r.cells.map((c, ck) => ({ ci: startCol[ri][ck], span: c.colspan, rs: c.rowspan || 1,
           segs: String(c.text).split(/<br\s*\/?>/).map(sg => vis(sg.trim())) })));
       });
       /* 评分 = 行高总和 × 10 + 各格折行数之和：先压表格高度，高度不变时也尽量少折行 */
@@ -416,7 +485,8 @@ function htmlTable(html) {
           const per = Math.max(4, (wd - 180) / UNIT);
           return c.segs.reduce((a2, v) => a2 + Math.max(1, Math.ceil(v / per)), 0);
         });
-        return h + Math.max(1, ...ls) * 10 + ls.reduce((a2, x) => a2 + x, 0);
+        const hs = row.map((c, k) => ls[k] / c.rs);          // 合并格的行数摊到所跨各行
+        return h + Math.max(1, ...hs) * 10 + ls.reduce((a2, x) => a2 + x, 0) * 2;
       }, 0);
       /* 被降级的短列（标签列）：括号前的主名称仍保证一行排下，只让括注部分折行 */
       const headVis = new Array(nCols).fill(0);
@@ -426,6 +496,8 @@ function htmlTable(html) {
           String(c.text).split(/<br\s*\/?>/).forEach(sg => { headVis[ci3] = Math.max(headVis[ci3], vis(sg.trim().split(/[（(]/)[0])); }); });
       });
       longIdx.forEach(i2 => { w[i2] = Math.min(oneLine(i2), Math.round(TOTAL * 0.23), Math.round(Math.max(8, demoted.has(i2) ? headVis[i2] : 0) * CHAR) + EXTRA); });    // 起点：约 4 个汉字，其余交给贪心分配
+      /* 长列下限：约 10 个汉字（放得下一行时取一行宽），避免某列被挤成每行几个字的细长条 */
+      longIdx.forEach(i2 => { w[i2] = Math.max(w[i2], Math.min(oneLine(i2), 20 * CHAR + EXTRA)); });
       const start = longIdx.reduce((a2, i2) => a2 + w[i2], 0);
       if (start > target) longIdx.forEach(i2 => { w[i2] = Math.max(FLOOR, Math.floor(w[i2] * target / start)); });
       let left = target - longIdx.reduce((a2, i2) => a2 + w[i2], 0);
@@ -473,7 +545,7 @@ function htmlTable(html) {
   if (estimate(FS) > BUDGET) {
     /* 只在「缩到某一号真的能塞进一页」时才缩；否则保持正常字号，让它自然分页
        ——避免既缩成小字又照样跨页的最差结果 */
-    const fit = [17, 16, 15, 14].find(c => estimate(c) <= BUDGET);
+    const fit = [17, 16].find(c => estimate(c) <= BUDGET);   // 最多缩一号半，不把整表缩成难读的小字
     if (fit) { FS = fit; LN = 250; CM = 40; }
   }
   /* 表格整体能放进一页时，让 Word 尽量不要在中间断开 */
@@ -497,22 +569,24 @@ function htmlTable(html) {
 
   /* 表格绝不跨页：能放进一页的一律整表保持（放不下时才允许自然分页） */
   /* 速查区：一列里过半的格是长句（很长或含多个分句）才整列左对齐；其余列（文字、数字、短句）居中 */
-  const longCols = new Set(), colCells = [], colLong = [];
+  /* 对齐（按内容判定）：一列里只要有格子要折行（首列标签除外：多个短标签分行仍居中），
+     或有多段且含长句的格子，整列左对齐；其余（序号、数值、短标签、短语）居中 */
+  const longCols = new Set();
   if (COMPACT || FIT_ALL) {
+    const unitW = 132 * FS / 20;
     parsed.forEach((r, ri) => {
-      if (r.cls.includes('note') || r.cls.includes('premise') || r.cls.includes('hdr')) return;
+      if (r.cls.includes('note') || r.cls.includes('premise') || r.cls.includes('hdr') || r.cls.includes('warn')) return;
       r.cells.forEach((c, ck) => {
         if (c.colspan !== 1 || c.head) return;
-        const pl = unesc(String(c.text).replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '')).trim();
-        const v = vis(pl);
-        const sentence = v > 60 || (/[。；]/.test(pl) && v > 30);     // 长句：很长，或由多个分句组成
         const ci2 = startCol[ri][ck];
-        colCells[ci2] = (colCells[ci2] || 0) + 1;
-        if (sentence) colLong[ci2] = (colLong[ci2] || 0) + 1;
+        const per = Math.max(4, (W[ci2] - 180) / unitW);
+        const segs = String(c.text).split(/<br\s*\/?>/).map(sg => vis(sg.trim())).filter(v => v > 0);
+        const wraps = segs.some(v => v > per);
+        const multiLong = segs.length > 1 && segs.some(v => v > 16);
+        if (wraps || (ci2 > 0 && multiLong)) longCols.add(ci2);
       });
     });
   }
-  if (COMPACT || FIT_ALL) for (let k3 = 0; k3 < nCols; k3++) if ((colLong[k3] || 0) * 2 >= (colCells[k3] || 1) && colLong[k3]) longCols.add(k3);
   /* 速查区：有合并单元格的表、或不到半页的表整表同页；其余大表允许分页（表头重复），避免整页留白 */
   const hasRowspan = parsed.some(r => r.cells.some(c => c.rowspan > 1));
   /* 一页放得下的表一律整表同页（宁可上一页留白，也不要拆开后多出一行重复表头） */
@@ -553,19 +627,24 @@ function htmlTable(html) {
         const v = vis(pl);
         return v <= 30 && !(/[，。；]/.test(pl) && v > 20);
       });
-      const center = (COMPACT || FIT_ALL)
+      const placeholder = /^\s*(—|－|-|\/|)\s*$/.test(unesc(String(c.text).replace(/<[^>]+>/g, '')));
+      /* 首列标签格：加粗、不标红（红色只留给数值与禁令） */
+      const labelCol = isFirstCol && !parallel && c.colspan === 1 && nCols > 1 && (COMPACT || FIT_ALL || shortCell(c.text));
+      const center = placeholder || ((COMPACT || FIT_ALL)
         ? (isHdr || c.head || (!isNote && !isPre && !isWarn &&
              (c.colspan === 1 ? !longCols.has(ci) : shortCell(c.text))))
         : (isHdr || c.head
            || (c.colspan === 1 && (centerCols.has(ci) || narrowSet.has(ci)))
-           || (isFirstCol && c.colspan === 1));
+           || (isFirstCol && c.colspan === 1)));
+      /* 首列序号格（只有一个圈码）：圈码字形在 Word 里常回退到无粗体的字体，改排为粗体阿拉伯数字 */
+      const serial = isFirstCol && /^\s*(<strong>)?\s*[\u2460-\u2473]\s*(<\/strong>)?\s*$/.test(String(c.text));
+      if (serial) c = Object.assign({}, c, { text: String(String(c.text).replace(/<[^>]+>/g, '').trim().charCodeAt(0) - 0x245F) });
       const paras = String(c.text).split(/<br\s*\/?>/).map(seg =>
         new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
-          children: runs(seg.trim(), { bold: isHdr || c.head ||
-            (isFirstCol && !parallel && c.colspan === 1 && nCols > 1 && (COMPACT || FIT_ALL || shortCell(c.text))), size: FS }),
+          children: runs(seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol, size: FS }),
           spacing: { before: 20, after: 20, line: LN },
-          keepNext: (keepTogether && ri < parsed.length - 1) || (tailNote && ri >= lastData && ri < parsed.length - 1),
+          keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (tailNote && ri >= lastData && ri < parsed.length - 1),
           alignment: center ? AlignmentType.CENTER : undefined
         }));
       const borders = {
@@ -589,7 +668,8 @@ function htmlTable(html) {
     });
     return new TableRow({ tableHeader: false, cantSplit: true, children: cells });   // 不重复表头（用户要求，2026-09-28）
   });
-  return new Table({ columnWidths: W, width: { size: W.reduce((a,b)=>a+b,0), type: WidthType.DXA }, rows: trs });
+  /* 固定列宽：Word 默认「根据内容自动调整」会改写按内容算好的列宽，导致首列等短列被拉宽 */
+  return new Table({ layout: TableLayoutType.FIXED, columnWidths: W, width: { size: W.reduce((a,b)=>a+b,0), type: WidthType.DXA }, rows: trs });
 }
 
 function mdTable(rows) {
@@ -660,8 +740,8 @@ while (i < src.length) {
     const buf = [];
     while (i < src.length && !/<\/table>/.test(src[i])) buf.push(src[i++]);
     buf.push(src[i++]);
-    const tb = htmlTable(buf.join('\n'));
-    if (tb) { body.push(tb); const g = tableGap(src, i); if (g) body.push(g); }
+    const tbs = htmlTable(buf.join('\n')).filter(Boolean);
+    if (tbs.length) { body.push(...tbs); const g = tableGap(src, i); if (g) body.push(g); }
     continue;
   }
   if (/^\s*\|/.test(ln)) {                     // markdown 表格
