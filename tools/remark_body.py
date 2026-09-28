@@ -21,9 +21,9 @@ def _arg(flag, default):
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
 SRC = os.path.abspath(_arg('--src', 'notes_src'))
 TARGET = sys.argv[1]
-LIMIT_HDR = re.compile(r'限制|极限|限值|最大|最小|阈值|门槛')
+LIMIT_HDR = re.compile(r'限制|极限|限值|最大|最小|阈值|门槛|标准')
 # 正文的门槛信号：比较符、限定词，以及「达到 / 等待 / 持续 / 超过 / 低于…」这类表示门槛或时限的词
-BODY_SIG = re.compile(B.SIGNAL.pattern + r'|达到|等待|约需|改设|设为|调定|调至|设定|暖车|需要|持续|间隔|超过|低于|高于|大于|小于|不足|以内|之内|内[，。；]|时[，。；：]?|后|设 ')
+BODY_SIG = re.compile(B.SIG2.pattern + r'|改设|设为|调至|暖车|设 ')      # 与速查区同一套门槛词（SD-26 / SD-27）
 EXAMPLE = re.compile(r'举例|示例|例如|例：|算例|比如')
 
 def old_em_to_strong(s):
@@ -52,7 +52,9 @@ def seg_mark(seg, limit_col):
             pieces = re.split('([%s])' % B.PUNCT, t); o2 = []
             for pc in pieces:
                 if pc in B.PUNCT or not pc: o2.append(pc); continue
-                sig = (bool(BODY_SIG.search(pc)) or limit_col) and not in_example
+                sent = next((x for x in re.split(r'(?<=[。；;])', t) if pc in x), t)
+                sig = (bool(BODY_SIG.search(pc)) or limit_col
+                       or (len(re.sub(r'\s', '', sent)) <= 70 and bool(BODY_SIG.search(sent)))) and not in_example
                 o2.append(B.mark_text(pc, limit_col, sig))
             buf.append(''.join(o2))
         res.append(''.join(buf))
