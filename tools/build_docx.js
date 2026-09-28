@@ -91,8 +91,16 @@ function H(text, level, brk, forceId) {
     spacing: { before: level === 1 ? 320 : 220, after: level === 1 ? 140 : 100 },
     border: level === 1 ? { bottom: { style: BorderStyle.SINGLE, size: 8, color: GRAY, space: 6 } } : undefined,
     /* 速查区竖版：排版预检发现会被拆页的表，其条目标题另起一页（BREAK_BEFORE=21,35） */
-    pageBreakBefore: !!brk || (COMPACT && BREAKS.has((String(text).match(/^(\d+)\. /) || [])[1]))
+    pageBreakBefore: !!brk || (COMPACT && BREAKS.has((String(text).match(/^(\d+)\. /) || [])[1])) || itemBreak(text)
   });
+}
+/* 全书预排版（book_break.py）：条目标题按出现顺序编号，BREAK_IDX 里的条目另起一页 */
+let ITEM_IDX = 0;
+const BREAK_IDX = new Set(String(process.env.BREAK_IDX || '').split(',').filter(Boolean).map(Number));
+function itemBreak(text) {
+  if (!/^(\d+\. |[A-Z]-\d+\u3000)/.test(String(text))) return false;
+  ITEM_IDX += 1;
+  return BREAK_IDX.has(ITEM_IDX);
 }
 const BREAKS = new Set(String(process.env.BREAK_BEFORE || '').split(',').filter(Boolean));
 
@@ -252,7 +260,7 @@ function htmlTable(html) {
 
   /* 列宽按内容长度加权：取每列最长单元格的视觉宽度（中日韩字符算 2） */
   const vis = (t) => {
-    const s = unesc(String(t)).replace(/<[^>]+>/g, '').replace(/\*\*/g, '');
+    const s = unesc(String(t).replace(/<[^>]+>/g, '')).replace(/\*\*/g, '');
     let n = 0;
     for (const ch of s) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : 1;
     return n;
@@ -337,7 +345,7 @@ function htmlTable(html) {
        空格与标点更窄），让列宽「刚好放下」而不是按粗估留大片空白 */
     const CHAR = 96;
     const vis = (t) => {
-      const s = unesc(String(t)).replace(/<[^>]+>/g, '').replace(/\*\*/g, '');
+      const s = unesc(String(t).replace(/<[^>]+>/g, '')).replace(/\*\*/g, '');
       let n = 0;
       for (const ch of s) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2
         : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1;
@@ -475,7 +483,7 @@ function htmlTable(html) {
       if (r.cls.includes('note') || r.cls.includes('premise') || r.cls.includes('hdr')) return;
       r.cells.forEach((c, ck) => {
         if (startCol[ri][ck] !== ci || c.colspan !== 1) return;
-        const plain = unesc(String(c.text)).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+        const plain = unesc(String(c.text).replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
         n++; const v = vis(plain); if (v > maxV) maxV = v;
         if (NUMRE.test(plain) || plain === '' || plain === '—' || plain === '/') num++;
       });
@@ -492,7 +500,7 @@ function htmlTable(html) {
       if (r.cls.includes('note') || r.cls.includes('premise') || r.cls.includes('hdr')) return;
       r.cells.forEach((c, ck) => {
         if (c.colspan !== 1 || c.head) return;
-        const pl = unesc(String(c.text)).replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '').trim();
+        const pl = unesc(String(c.text).replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '')).trim();
         const v = vis(pl);
         const sentence = v > 60 || (/[。；]/.test(pl) && v > 30);     // 长句：很长，或由多个分句组成
         const ci2 = startCol[ri][ck];
@@ -514,7 +522,7 @@ function htmlTable(html) {
   if (!parsed.slice(0, lead).some(r => r.cls.includes('hdr'))) lead = 0;
   /* 并列对比表（如「系统 A 供压组件 | 系统 B 供压组件」）：首列不是标签列，不加粗 */
   const hdrRow = parsed.find(r => r.cls.includes('hdr'));
-  const normH = s => unesc(String(s)).replace(/<[^>]+>/g, '').replace(/[A-Za-z0-9\-（）()\s项个]/g, '');
+  const normH = s => unesc(String(s).replace(/<[^>]+>/g, '')).replace(/[A-Za-z0-9\-（）()\s项个]/g, '');
   const parallel = !!(hdrRow && hdrRow.cells.length >= 2 && normH(hdrRow.cells[0].text) &&
     normH(hdrRow.cells[0].text) === normH(hdrRow.cells[1].text));
   /* 末尾的通栏注释 / 警示行不单独落到下一页：最后一行数据行与它们连在一起 */
@@ -538,7 +546,7 @@ function htmlTable(html) {
       const isFirstCol = (ci === 0) && !isPre && !isNote && !isWarn;
       /* 表头、数字列、项目 / 参数名称等短文本列整列居中；说明类长列左对齐 */
       const shortCell = (txt) => String(txt).split(/<br\s*\/?>/).every(seg => {
-        const pl = unesc(seg).replace(/<[^>]+>/g, '').trim();
+        const pl = unesc(seg.replace(/<[^>]+>/g, '')).trim();
         const v = vis(pl);
         return v <= 30 && !(/[，。；]/.test(pl) && v > 20);
       });
@@ -576,7 +584,7 @@ function htmlTable(html) {
         children: paras.length ? paras : [new Paragraph('')]
       });
     });
-    return new TableRow({ tableHeader: ri < lead, cantSplit: true, children: cells });
+    return new TableRow({ tableHeader: false, cantSplit: true, children: cells });   // 不重复表头（用户要求，2026-09-28）
   });
   return new Table({ columnWidths: W, width: { size: W.reduce((a,b)=>a+b,0), type: WidthType.DXA }, rows: trs });
 }
