@@ -148,7 +148,7 @@ def check_numbered(name, body):
     dup = {x for x in titles if titles.count(x) > 1}
     if dup: errs.append('%s：条目标题重复 %s' % (name, sorted(dup)))
     if NEST.search(body): errs.append('%s：<strong>/<em> 嵌套' % name)
-    stale = re.findall(r'(?<![0-9A-Za-z.\-])[A-H]-\d+(?!\d)', re.sub(r'(?m)^#.*$', '', strip_tags(body)))
+    stale = re.findall(r'(?<![0-9A-Za-z.\-])[A-H]-\d{1,2}(?!\d)', re.sub(r'(?m)^#.*$', '', strip_tags(body)))   # 4 位数的 B-xxxx 是飞机注册号（SD-32），不算块编号
     if stale: warns.append('%s：正文里还有块编号式引用 %s（第 4、5 章已改为「第 N 条」）' % (name, sorted(set(stale))[:5]))
     return errs, warns
 
