@@ -111,13 +111,19 @@ if [ "$BUILD" = 1 ]; then
   # 没设才退回 user.name。
   DOC_AUTHOR="${DOC_AUTHOR:-$(git config --get notes.docAuthor || git config user.name)}"
   export DOC_AUTHOR
+  # 封面版次与声明（可选）：git config notes.docEdition "2026 年 9 月版"；git config notes.docNotice "…"
+  DOC_EDITION="${DOC_EDITION:-$(git config --get notes.docEdition)}"; export DOC_EDITION
+  DOC_NOTICE="${DOC_NOTICE:-$(git config --get notes.docNotice)}"; export DOC_NOTICE
 
   echo; info "[4/5] 渲染 docx"
   if [ "$FULL" = 1 ]; then
     out="build/737理论知识笔记_全书.docx"
     python3 "$TOOLKIT/make_book.py" || die "拼合订本失败"
-    node "$TOOLKIT/build_docx.js" build/book.md "$out" || die "全书渲染失败"
-    BUILT="$out"
+    node "$TOOLKIT/build_docx.js" build/book.md "$out" || die "全书渲染失败（横版）"
+    # 同一份原稿同时出竖版（印刷 / 装订用，2026-09-29 用户要求横竖两版都要）
+    outp="build/737理论知识笔记_全书_竖版.docx"
+    DOC_PORTRAIT=1 node "$TOOLKIT/build_docx.js" build/book.md "$outp" || die "全书渲染失败（竖版）"
+    BUILT="$out"$'\n'"$outp"
   else
     for n in $CHANGED; do
       if [ ! -f "build/mod$n.md" ]; then warn "build/mod$n.md 不存在，跳过"; continue; fi

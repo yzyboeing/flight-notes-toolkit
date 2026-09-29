@@ -6,7 +6,7 @@
 const {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, TableOfContents,
   WidthType, ShadingType, BorderStyle, AlignmentType, VerticalAlign, HeadingLevel,
-  PageBreak, Footer, PageNumber, PageOrientation, Bookmark, PageReference, InternalHyperlink, TableLayoutType
+  PageBreak, Footer, Header, SimpleField, TabStopType, PageNumber, PageOrientation, Bookmark, PageReference, InternalHyperlink, TableLayoutType
 } = require('docx');
 const fs = require('fs');
 
@@ -44,7 +44,7 @@ function runs(text, o = {}) {
     if (kind === 'red' && o.noRed) kind = 'bold';
     const grayK = /^gray/.test(kind || '');
     /* 比较符 / 「约」与后面的数值之间用不换行空格，避免「<」在行尾、数值折到下一行 */
-    t = t.replace(/【[^】]*】/g, m0 => m0.replace(/ /g, '\u00A0')).replace(/(\d{1,2}:\d{2}) ([—–-]) (\d{1,2}:\d{2})/g, '$1\u00A0$2\u00A0$3');
+    t = t.replace(/【[^】]*】/g, m0 => m0.replace(/ /g, '\u00A0')).replace(/(\d{1,2}:\d{2}) ([—–-]) (\d{1,2}:\d{2})/g, '$1\u00A0$2\u00A0$3').replace(/(\d{1,2}:\d{2}) ?～ ?(\d{1,2}:\d{2})/g, '$1⁠～⁠$2');
     t = t.replace(/([<>≤≥=＜＞≈约±]) (?=[\d−\-+.])/g, '$1\u00A0').replace(/(\d) (?=(kg|ft|kt|nm|NM|m|km|psi|psid|fpm|min|s|h|%|°|℃)(?![A-Za-z]))/g, '$1\u00A0');
     out.push(new TextRun({
       text: t,
@@ -99,19 +99,29 @@ function bmk(text) {
   const m = String(text).match(/^(\d+(?:\.\d+)*)[\s\u3000]/);
   return m ? 'SEC_' + m[1].replace(/\./g, '_') : null;
 }
+let AFTER_H1 = false;
+const NO_SEC_BREAK = !!process.env.NO_SEC_BREAK;   // 速查区单独成册等场合可关掉「每节另起一页」
 function H(text, level, brk, forceId) {
   const sizes = { 1: 30, 2: 24, 3: 21, 4: 20 };
   const id = forceId || (level <= 2 ? bmk(text) : null);
   text = unesc(String(text));
+  const isItem = /^(\d+\. |[A-Z]-\d+\u3000)/.test(text);
+  const secBreak = level === 2 && /^\d+\.\d+[\s\u3000]/.test(text) && !AFTER_H1 && !NO_SEC_BREAK;
+  AFTER_H1 = level === 1;
   const tr = new TextRun({ text, font: { ascii: EN, eastAsia: CN }, size: sizes[level], bold: true, color: '000000' });
   return new Paragraph({
     heading: level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : level === 3 ? HeadingLevel.HEADING_3 : HeadingLevel.HEADING_4,
     children: id ? [new Bookmark({ id, children: [tr] })] : [tr],
     spacing: { before: level === 1 ? 320 : 220, after: level === 1 ? 140 : 100 },
-    border: level === 1 ? { bottom: { style: BorderStyle.SINGLE, size: 8, color: GRAY, space: 6 } } : undefined,
+    /* 印刷版层级（2026-09-29）：章标题下粗黑线；节标题下细线；条目标题左侧竖条 */
+    border: level === 1 ? { bottom: { style: BorderStyle.SINGLE, size: 12, color: '000000', space: 6 } }
+          : level === 2 ? { bottom: { style: BorderStyle.SINGLE, size: 6, color: '404040', space: 4 } }
+          : (level === 3 && isItem) ? { left: { style: BorderStyle.SINGLE, size: 18, color: '404040', space: 6 } } : undefined,
+    indent: (level === 3 && isItem) ? { left: 60 } : undefined,
     keepNext: true,                                  // 标题永远与下文同页
-    /* 速查区竖版：排版预检发现会被拆页的表，其条目标题另起一页（BREAK_BEFORE=21,35） */
-    pageBreakBefore: !!brk || (COMPACT && BREAKS.has((String(text).match(/^(\d+)\. /) || [])[1])) || itemBreak(text)
+    /* 速查区竖版：排版预检发现会被拆页的表，其条目标题另起一页（BREAK_BEFORE=21,35）；
+       印刷版：每个 x.y 节另起一页（紧跟章标题的第一节除外） */
+    pageBreakBefore: !!brk || secBreak || (COMPACT && BREAKS.has((String(text).match(/^(\d+)\. /) || [])[1])) || itemBreak(text)
   });
 }
 /* 全书预排版（book_break.py）：条目标题按出现顺序编号，BREAK_IDX 里的条目另起一页 */
@@ -647,7 +657,7 @@ function htmlTableCore(html) {
   if (estimate(FS) > BUDGET) {
     /* 只在「缩到某一号真的能塞进一页」时才缩；否则保持正常字号，让它自然分页
        ——避免既缩成小字又照样跨页的最差结果 */
-    const fit = [17, 16].find(c => estimate(c) <= BUDGET);   // 最多缩一号半，不把整表缩成难读的小字
+    const fit = (process.env.ALLOW_SHRINK ? [17, 16] : []).find(c => estimate(c) <= BUDGET);   // 印刷版（2026-09-29）：表格不再缩字，最小 9pt；需要时 ALLOW_SHRINK=1 恢复
     if (fit) { FS = fit; LN = 250; CM = 40; }
   }
   /* 表格整体能放进一页时，让 Word 尽量不要在中间断开 */
@@ -692,8 +702,8 @@ function htmlTableCore(html) {
         const segs = String(c.text).split(/<br\s*\/?>/).map(sg => vis(sg.trim())).filter(v => v > 0);
         /* ===== 表格对齐固定规则（2026-09-29 用户：按内容判断，写成固定规则，全书统一） =====
            R1 表头一律居中。R2 首列标签列整列居中加粗。
-           R3 「段落型」格子左对齐：分条列举（≥ 2 条 ①② / 1. 2.），或估算排版后 ≥ 4 行，
-              或去标记后总长 > 90（约 45 个汉字），或含 ≥ 2 个句读（，。；）且总长 > 60。
+           R3 「段落型」格子左对齐：分条列举（≥ 3 行 ①② / 1. 2.），或估算排版后 ≥ 4 行，
+              或去标记后总长 > 100（约 50 个汉字），或含句读（，。；）且总长 > 40（约 20 个汉字）。
               其余（数值、短语、一两行的短句）居中。
            R4 一列里段落型格子过半 → 整列左对齐（长文字列统一左齐）；否则整列居中，个别段落型格子单独左对齐。
            R5 「—」占位一律居中；所有格子纵向居中。 */
@@ -705,16 +715,18 @@ function htmlTableCore(html) {
         const puncts = (rawSegs.join('').match(/[，。；]/g) || []).length;
         /* 2026-09-29 终检：防同列「锯齿」——多行且带句读的也算段落型；段落型占三分之一以上整列左齐 */
         /* 段落型：分条列举（≥ 3 行）、排版后 ≥ 4 行、或总长超过约 70 个汉字；三行以内的短句（如 1.4 C-1 俯仰 / 横滚方式）居中 */
-        const para = listy || lines >= 4 || total > 140;
+        /* 2026-09-29 印刷版：带句读、约 20 字以上的整句，或约 50 字以上的长格，也算段落型（左齐）；
+           长句居中在印刷品里显得散乱（2.2 C-2 例）。短语、数值、一两行短句仍居中（1.4 C-1 例） */
+        const para = listy || lines >= 4 || total > 100 || (puncts >= 1 && total > 40);
         colN[ci2] = (colN[ci2] || 0) + 1;
         if (total > 30) colT[ci2] = (colT[ci2] || 0) + 1;   // 句子型格（约 15 字以上）
-        if (para) { colL[ci2] = (colL[ci2] || 0) + 1; paraCells.push([ci2, c, listy || lines >= 4]); }
+        if (para) { colL[ci2] = (colL[ci2] || 0) + 1; paraCells.push([ci2, c, listy || lines >= 4 || total > 100]); }
       });
     });
     /* 有段落型格子，且（段落型占三分之一以上，或多数格子是句子）→ 整列左齐，防同列锯齿 */
     for (let k3 = 0; k3 < nCols; k3++) if (colL[k3] && ((colL[k3] || 0) * 3 >= (colN[k3] || 1) || (colT[k3] || 0) * 2 > (colN[k3] || 1))) longCols.add(k3);
     /* 居中列里只有很长（≥ 4 行）或分条列举的格子单独左齐 */
-    paraCells.forEach(([k3, c]) => longCell.add(c));
+    paraCells.forEach(([k3, c, strong]) => { if (strong) longCell.add(c); });   // 居中列里一两句的中等长句不单独左齐，防锯齿
     /* 块索引 / 章索引的「条目」列一律左对齐（全书统一，不随条目多少变化） */
     { const hr = parsed.find(r => r.cls.includes('hdr'));
       if (hr) hr.cells.forEach((c, k4) => { if (/^(条目|本节条目|条目与主题)$/.test(unesc(String(c.text).replace(/<[^>]+>/g, '')).trim())) longCols.add(k4); }); }
@@ -1002,13 +1014,16 @@ while (i < src.length) {
     if (mn) { body.push(numbered(mn[2], Math.min(2, Math.floor(mn[1].length / 3)))); i++; continue; }
   }
   if (!ln.trim()) { i++; continue; }
-  if (/^(解释：|公司差异：)/.test(ln.trim())) {    // SD-33 学习解释（灰色小字）/ SD-34 公司差异（标签加粗）
+  /* 表后说明块（2026-09-29 印刷版统一）：注 / 公司差异 / 解释 / 出处 同一缩进、同一字号、左侧细线，连续几行成一块 */
+  const TAIL = { indent: { left: 240 }, border: { left: { style: BorderStyle.SINGLE, size: 6, color: LINE, space: 8 } } };
+  if (/^(注：|解释：|公司差异：)/.test(ln.trim())) {    // SD-33 解释（灰色）/ SD-34 公司差异、注（标签加粗）
     let t = ln.trim();
     const exp = /^解释：/.test(t);
-    { const m = t.match(/^(解释：|公司差异：)([^——]{1,30})——\s*(?:<[^>]+>)*\2[：:]/); if (m) t = t.replace(m[2] + '——', ''); }
+    { const m = t.match(/^(解释：|公司差异：|注：)([^——]{1,30})——\s*(?:<[^>]+>)*\2[：:]/); if (m) t = t.replace(m[2] + '——', ''); }
+    const lab = t.match(/^(注：|公司差异：)/);
     body.push(new Paragraph({
-      children: exp ? runs('<small>' + t + '</small>') : runs('<strong>公司差异：</strong>' + t.slice(5), { size: 18 }),
-      spacing: { before: 20, after: 100 }, indent: { left: 200 }
+      children: exp ? runs('<small>' + t + '</small>') : runs('<strong>' + lab[1] + '</strong>' + t.slice(lab[1].length), { size: 18 }),
+      spacing: { before: 10, after: 50, line: 280 }, ...TAIL
     }));
     i++; continue;
   }
@@ -1016,7 +1031,7 @@ while (i < src.length) {
     const t = ln.trim().replace(/<[^>]+>/g, '');
     body.push(new Paragraph({
       children: [new TextRun({ text: t, font: { ascii: EN, eastAsia: CN }, size: 16, color: GRAY })],
-      spacing: { before: 20, after: 140 }, indent: { left: 200 }
+      spacing: { before: 10, after: 50, line: 260 }, ...TAIL
     }));
     i++; continue;
   }
@@ -1060,7 +1075,7 @@ const rule = (o) => new Paragraph({
 });
 const front = [
   /* ---------- 封面 ---------- */
-  new Paragraph({ spacing: { before: 2200 }, children: [] }),
+  new Paragraph({ spacing: { before: 1700 }, children: [] }),
   rule({ size: 18, color: '000000', after: 60 }),          // 主标题上方粗线
   new Paragraph({
     children: [new TextRun({ text: docTitle, font: { ascii: EN, eastAsia: CN }, size: 72, bold: true, color: '000000' })],
@@ -1075,6 +1090,14 @@ const front = [
     children: [new TextRun({ text: AUTHOR, font: { ascii: EN, eastAsia: CN }, size: 22, color: GRAY })],
     alignment: AlignmentType.CENTER, spacing: { before: 520, after: 0, line: 300 }
   })] : []),
+  new Paragraph({
+    children: [new TextRun({ text: process.env.DOC_EDITION || '', font: { ascii: EN, eastAsia: CN }, size: 22, color: GRAY })],
+    alignment: AlignmentType.CENTER, spacing: { before: 700, after: 80 }
+  }),
+  new Paragraph({
+    children: [new TextRun({ text: process.env.DOC_NOTICE || '', font: { ascii: EN, eastAsia: CN }, size: 18, color: GRAY })],
+    alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0 }
+  }),
   new Paragraph({ children: [new PageBreak()] }),
   new Paragraph({
     children: [new TextRun({ text: '目　　录', font: { ascii: EN, eastAsia: CN }, size: 36, bold: true, characterSpacing: 40 })],
@@ -1128,6 +1151,21 @@ const doc = new Document({
         margin: { top: 900, bottom: 900, left: 900, right: 900 }
       },
       titlePage: true
+    },
+    headers: {
+      first: new Header({ children: [new Paragraph({ children: [] })] }),
+      /* 页眉：左书名、右当前章名（STYLEREF 域），下细线 */
+      default: new Header({
+        children: [new Paragraph({
+          tabStops: [{ type: TabStopType.RIGHT, position: (PORTRAIT ? 11906 : 16838) - 1800 }],
+          border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: LINE, space: 4 } },
+          children: [
+            new TextRun({ text: docTitle, font: { ascii: EN, eastAsia: CN }, size: 16, color: GRAY }),
+            new TextRun({ text: '\t', size: 16 }),
+            new TextRun({ children: [new SimpleField('STYLEREF "Heading 1"', '')], font: { ascii: EN, eastAsia: CN }, size: 16, color: GRAY })
+          ]
+        })]
+      })
     },
     footers: {
       /* 封面不显示页码；正文页码在右下角，小五号（9pt），仅「第 X 页」 */
