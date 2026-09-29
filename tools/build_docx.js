@@ -48,7 +48,12 @@ const NOTE_BAR = C(INK2, GRAY), PRE_BAR_C = C(INK2, GRAY);
    蓝 INK 专门留给「要记的数值」（行内 <b>），红留给限制与禁令（<em>）。 */
 const H1_C = '000000', H2_C = '000000', H3_C = '000000';
 const H1_LINE = '000000', H2_LINE = '404040', H3_BAR = C('595959', '404040');
-const KEY_C = C(process.env.DOC_KEYCOLOR || INK, '000000');   // 要记的数值（黑白版回落为黑体）；可用 DOC_KEYCOLOR 覆盖
+/* SD-65 数值强调色＝墨绿 1B6B4C（2026-09-29 用户选定）。
+   深蓝 1F4E79 在正文字号下与黑太接近；橙与红在同页并存时几乎分不开，会稀释红色的警示作用。
+   墨绿与黑、红、链接蓝三者都分得开，形成四路分工：黑＝正文、红＝禁令、绿＝数值、蓝＝可点击。
+   可用 DOC_KEYCOLOR 覆盖；黑白版回落为黑体加粗。 */
+const KEY = '1B6B4C';
+const KEY_C = C(process.env.DOC_KEYCOLOR || KEY, '000000');
 const M_IN = DUPLEX ? 1100 : 900, M_OUT = DUPLEX ? 800 : 900;   // 内侧 / 外侧页边距（DXA）
 const HIDE_TBD = process.env.SHOW_TBD !== '1';   // 成品默认不显示〔待补来源〕（用户要求：表格与正文内不标来源）
 // DOC_PORTRAIT=1：竖版 A4（iPad 阅读版）；默认横版
