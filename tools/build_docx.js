@@ -546,9 +546,15 @@ function htmlTableCore(html) {
         r.cells.forEach((c, ck) => { const ci3 = startCol[ri][ck]; if (c.colspan === 1 && demoted.has(ci3))
           String(c.text).split(/<br\s*\/?>/).forEach(sg => { headVis[ci3] = Math.max(headVis[ci3], vis(sg.trim().split(/[（(]/)[0])); }); });
       });
-      longIdx.forEach(i2 => { w[i2] = Math.min(oneLine(i2), Math.round(TOTAL * 0.23), Math.round(Math.max(8, demoted.has(i2) ? headVis[i2] : 0) * CHAR) + EXTRA); });    // 起点：约 4 个汉字，其余交给贪心分配
-      /* 长列下限：约 10 个汉字（放得下一行时取一行宽），避免某列被挤成每行几个字的细长条 */
-      longIdx.forEach(i2 => { w[i2] = Math.max(w[i2], Math.min(oneLine(i2), 28 * CHAR + EXTRA)); });
+      /* 「轻列」：非首列、内容很少（不到最重长句列的 1/5）却因一两句短语被撑宽的列（如速查区第 47 条「目视警戒」列、
+         跨行合并的一句话）——允许折成两行，把宽度让给说明列，减少说明列的折行（用户 2026-09-29） */
+      const heaviest = Math.max(1, ...longIdx.map(i2 => amount[i2]));
+      const light = new Set(heavy ? longIdx.filter(i2 => i2 > 0 && demoted.has(i2) && amount[i2] <= 0.2 * heaviest) : []);   // 只在有长句列（用满页宽）的表里做
+      const twoLine = i2 => Math.round(Math.max(14, Math.ceil(full[i2] / 2) + 1, tokMin[i2]) * CHAR) + EXTRA;
+      if (process.env.W_LOG && light.size) console.error('LIGHT', [...light].join(','), String(parsed[0].cells.map(c => c.text).join('/')).replace(/<[^>]+>/g, '').slice(0, 40));
+      longIdx.forEach(i2 => { w[i2] = light.has(i2) ? Math.min(oneLine(i2), twoLine(i2)) : Math.min(oneLine(i2), Math.round(TOTAL * 0.23), Math.round(Math.max(8, demoted.has(i2) ? headVis[i2] : 0) * CHAR) + EXTRA); });    // 起点：约 4 个汉字，其余交给贪心分配
+      /* 长列下限：约 10 个汉字（放得下一行时取一行宽），避免某列被挤成每行几个字的细长条；轻列下限为两行宽 */
+      longIdx.forEach(i2 => { w[i2] = Math.max(w[i2], light.has(i2) ? Math.min(oneLine(i2), twoLine(i2)) : Math.min(oneLine(i2), 28 * CHAR + EXTRA)); });
       const start = longIdx.reduce((a2, i2) => a2 + w[i2], 0);
       if (start > target) longIdx.forEach(i2 => { w[i2] = Math.max(FLOOR, Math.floor(w[i2] * target / start)); });
       let left = target - longIdx.reduce((a2, i2) => a2 + w[i2], 0);
