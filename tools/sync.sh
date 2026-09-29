@@ -114,6 +114,9 @@ if [ "$BUILD" = 1 ]; then
   # 封面版次与声明（可选）：git config notes.docEdition "2026 年 9 月版"；git config notes.docNotice "…"
   DOC_EDITION="${DOC_EDITION:-$(git config --get notes.docEdition)}"; export DOC_EDITION
   DOC_NOTICE="${DOC_NOTICE:-$(git config --get notes.docNotice)}"; export DOC_NOTICE
+  # 印刷方式（可选）：git config notes.docBW 1（黑白：限制值改黑色加粗 + 下划线）；git config notes.docDuplex 1（双面：镜像页边距、奇偶页页眉页脚、每章从右页开始）
+  DOC_BW="${DOC_BW:-$(git config --get notes.docBW)}"; export DOC_BW
+  DOC_DUPLEX="${DOC_DUPLEX:-$(git config --get notes.docDuplex)}"; export DOC_DUPLEX
 
   echo; info "[4/5] 渲染 docx"
   if [ "$FULL" = 1 ]; then

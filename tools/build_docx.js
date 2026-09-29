@@ -6,7 +6,7 @@
 const {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, TableOfContents,
   WidthType, ShadingType, BorderStyle, AlignmentType, VerticalAlign, HeadingLevel,
-  PageBreak, Footer, Header, SimpleField, TabStopType, PageNumber, PageOrientation, Bookmark, PageReference, InternalHyperlink, TableLayoutType
+  PageBreak, Footer, Header, SimpleField, TabStopType, SectionType, PageNumber, PageOrientation, Bookmark, PageReference, InternalHyperlink, TableLayoutType
 } = require('docx');
 const fs = require('fs');
 
@@ -20,10 +20,17 @@ const CN   = process.env.DOC_FONT_CN   || 'PingFang SC',
       MONO = process.env.DOC_FONT_MONO || 'Menlo';
 const GRAY = '595959', LINE = 'BFBFBF', HDR = 'D9D9D9', ALT = 'F7F7F7', CODE = 'F2F2F2';
 const RED = 'C00000', PREMISE = 'EDEDED';
+/* 印刷选项（2026-09-29 用户：黑白双面印刷）
+   DOC_BW=1：黑白印刷——限制值由红色改为黑色加粗 + 下划线，警告条改黑色（红色在黑白印刷中与黑色几乎无法区分）
+   DOC_DUPLEX=1：双面印刷——镜像页边距（内侧加宽装订）、奇偶页页眉页脚左右对调（页码在外侧）、封面与每章从右页（奇数页）开始 */
+const BW = process.env.DOC_BW === '1';
+const DUPLEX = process.env.DOC_DUPLEX === '1';
+const WARN_C = BW ? '000000' : RED;
+const M_IN = DUPLEX ? 1100 : 900, M_OUT = DUPLEX ? 800 : 900;   // 内侧 / 外侧页边距（DXA）
 const HIDE_TBD = process.env.SHOW_TBD !== '1';   // 成品默认不显示〔待补来源〕（用户要求：表格与正文内不标来源）
 // DOC_PORTRAIT=1：竖版 A4（iPad 阅读版）；默认横版
 const PORTRAIT = process.env.DOC_PORTRAIT === '1';
-const TOTAL = PORTRAIT ? 10000 : 14400; // A4 减页边距，DXA
+const TOTAL = (PORTRAIT ? 10000 : 14400) - (M_IN + M_OUT - 1800); // A4 减页边距，DXA
 const SC = (w) => Math.round(w * TOTAL / 14400);
 
 /* ---------- 行内解析：**bold** `code` <em>红</em> <strong>粗</strong> ---------- */
@@ -51,7 +58,8 @@ function runs(text, o = {}) {
       font: kind === 'code' ? { ascii: MONO, eastAsia: CN } : circ ? { ascii: CN, hAnsi: CN, eastAsia: CN } : { ascii: EN, eastAsia: CN },
       size: grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20),
       bold: kind === 'bold' || kind === 'red' || kind === 'graybold' || o.bold,
-      color: (kind === 'red' && !o.noRed) ? RED : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000')))
+      underline: (BW && kind === 'red' && !o.noRed) ? {} : undefined,
+      color: (kind === 'red' && !o.noRed) ? (BW ? '000000' : RED) : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000')))
     }));
   };
   /* 嵌套标记：<em> 与 <strong> 可互相嵌套，红色优先（红色本身已是粗体） */
@@ -360,7 +368,7 @@ function htmlTable(html) {
   const para = (r) => new Paragraph({
     children: runs(String(r.cells[0].text).replace(/<br\s*\/?>/g, '\n'), { size: 18 }).map(x => x),
     spacing: { before: 60, after: 60, line: 270 }, indent: { left: 120 },
-    border: { left: { style: BorderStyle.SINGLE, size: 12, color: r.cls.includes('warn') ? RED : GRAY, space: 8 } },
+    border: { left: { style: BorderStyle.SINGLE, size: 12, color: r.cls.includes('warn') ? WARN_C : GRAY, space: 8 } },
     keepNext: pre.includes(r)
   });
   const paras = (arr) => arr.flatMap(r => balanceBr(rowText(r)).split(/<br\s*\/?>/).filter(x => x.trim()).map((sg, k, a) => new Paragraph({
@@ -368,7 +376,7 @@ function htmlTable(html) {
     spacing: { before: k ? 20 : 100, after: k === a.length - 1 ? 100 : 20, line: 290 },
     /* 警示行移出表格后保留左侧红竖条 */
     indent: r.cls.includes('warn') ? { left: 120 } : undefined,
-    border: r.cls.includes('warn') ? { left: { style: BorderStyle.SINGLE, size: 14, color: RED, space: 8 } } : undefined,
+    border: r.cls.includes('warn') ? { left: { style: BorderStyle.SINGLE, size: 14, color: WARN_C, space: 8 } } : undefined,
     keepNext: pre.includes(r)
   })));
   if (!mids.length) return [...paras(pre), htmlTableCore(kept), ...paras(post)];
@@ -825,7 +833,7 @@ function htmlTableCore(html) {
       const borders = {
         top: { style: BorderStyle.SINGLE, size: 2, color: LINE },
         bottom: { style: BorderStyle.SINGLE, size: 2, color: LINE },
-        left: isWarn ? { style: BorderStyle.SINGLE, size: 14, color: RED }
+        left: isWarn ? { style: BorderStyle.SINGLE, size: 14, color: WARN_C }
              : isPre  ? { style: BorderStyle.SINGLE, size: 14, color: GRAY }
                       : { style: BorderStyle.SINGLE, size: 2, color: LINE },
         right: { style: BorderStyle.SINGLE, size: 2, color: LINE }
@@ -944,6 +952,7 @@ let COMPACT = false;          // 第零章速查区：表格按内容收宽、�
   widths.forEach((w, k) => { TBL_TARGET[k] = (cnt[items[k]] > 1 && w && mx[items[k]] > w) ? mx[items[k]] : 0; });
 }
 const body = [];
+const CHAP_IDX = [];   // 双面印刷：每章起点（分节，从奇数页开始）
 const modules = [];          // 分册（## 级标题），供目录页的「章节快速跳转」表使用
 let i = 0, docTitle = '', pendingBreak = false;
 
@@ -990,7 +999,9 @@ while (i < src.length) {
     const t = ln.replace(/^##\s+/, '');
     const cid = 'CHAP_' + modules.length;
     modules.push({ id: cid, text: t });
-    body.push(H(t, 1, pendingBreak || HEAD_BREAK.has(i), cid)); pendingBreak = false; i++; continue;
+    if (DUPLEX) { CHAP_IDX.push(body.length); body.push(H(t, 1, false, cid)); }
+    else body.push(H(t, 1, pendingBreak || HEAD_BREAK.has(i), cid));
+    pendingBreak = false; i++; continue;
   }
   if (/^#####\s+/.test(ln)) { body.push(H(ln.replace(/^#####\s+/, ''), 4, pendingBreak || HEAD_BREAK.has(i))); pendingBreak = false; i++; continue; }
   if (/^####\s+/.test(ln)) { body.push(H(ln.replace(/^####\s+/, ''), 3, pendingBreak || HEAD_BREAK.has(i))); pendingBreak = false; i++; continue; }
@@ -1073,7 +1084,7 @@ const rule = (o) => new Paragraph({
   children: [new TextRun({ text: '', size: 2 })],
   border: { bottom: { style: BorderStyle.SINGLE, size: o.size || 6, color: o.color || LINE, space: 2 } }
 });
-const front = [
+const cover = [
   /* ---------- 封面 ---------- */
   new Paragraph({ spacing: { before: 1700 }, children: [] }),
   rule({ size: 18, color: '000000', after: 60 }),          // 主标题上方粗线
@@ -1098,7 +1109,9 @@ const front = [
     children: [new TextRun({ text: process.env.DOC_NOTICE || '', font: { ascii: EN, eastAsia: CN }, size: 18, color: GRAY })],
     alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0 }
   }),
-  new Paragraph({ children: [new PageBreak()] }),
+  ...(DUPLEX ? [] : [new Paragraph({ children: [new PageBreak()] })])
+];
+const toc = [
   new Paragraph({
     children: [new TextRun({ text: '目　　录', font: { ascii: EN, eastAsia: CN }, size: 36, bold: true, characterSpacing: 40 })],
     alignment: AlignmentType.CENTER, spacing: { before: 200, after: 360 }
@@ -1116,8 +1129,65 @@ const front = [
     }),
     chapterJump(modules)
   ] : []),
-  new Paragraph({ children: [new PageBreak()] })
+  ...(DUPLEX ? [] : [new Paragraph({ children: [new PageBreak()] })])
 ];
+const front = cover.concat(toc);
+
+/* ---------- 分节与页眉页脚 ---------- */
+const PAGE = {
+  size: PORTRAIT ? { width: 11906, height: 16838, orientation: PageOrientation.PORTRAIT }
+                 : { width: 11906, height: 16838, orientation: PageOrientation.LANDSCAPE },
+  margin: { top: 900, bottom: 900, left: M_IN, right: M_OUT }
+};
+const CONTENT_W = (PORTRAIT ? 11906 : 16838) - M_IN - M_OUT;
+const hdrFont = { ascii: EN, eastAsia: CN };
+const emptyHF = () => ({ header: new Header({ children: [new Paragraph({ children: [] })] }),
+                         footer: new Footer({ children: [new Paragraph({ children: [] })] }) });
+/* 页眉：书名 + 当前章名（STYLEREF 域），下细线。单面：左书名右章名；双面：奇数页（右页）章名靠外（右），偶数页（左页）书名靠外（左） */
+const hdrPara = (left, right) => new Paragraph({
+  tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_W }],
+  border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: LINE, space: 4 } },
+  children: [
+    ...(left ? [left()] : []),
+    new TextRun({ text: '\t', size: 16 }),
+    ...(right ? [right()] : [])
+  ]
+});
+const titleRun = () => new TextRun({ text: docTitle, font: hdrFont, size: 16, color: GRAY });
+const chapRun = () => new TextRun({ children: [new SimpleField('STYLEREF "Heading 1"', '')], font: hdrFont, size: 16, color: GRAY });
+const pageRun = () => new TextRun({ children: ['第 ', PageNumber.CURRENT, ' 页'], font: hdrFont, size: 18, color: GRAY });
+const footPara = (align) => new Paragraph({ alignment: align, children: [pageRun()] });
+let SECTIONS;
+if (!DUPLEX) {
+  SECTIONS = [{
+    properties: { page: PAGE, titlePage: true },
+    headers: { first: emptyHF().header, default: new Header({ children: [hdrPara(titleRun, chapRun)] }) },
+    /* 封面不显示页码；正文页码在右下角，小五号（9pt），仅「第 X 页」 */
+    footers: { first: emptyHF().footer, default: new Footer({ children: [footPara(AlignmentType.RIGHT)] }) },
+    children: front.concat(body)
+  }];
+} else {
+  const HF = {
+    headers: { default: new Header({ children: [hdrPara(null, chapRun)] }),      // 奇数页（右页）：章名靠外侧
+               even: new Header({ children: [hdrPara(titleRun, null)] }) },       // 偶数页（左页）：书名靠外侧
+    footers: { default: new Footer({ children: [footPara(AlignmentType.RIGHT)] }),
+               even: new Footer({ children: [footPara(AlignmentType.LEFT)] }) }
+  };
+  const e = emptyHF(), e2 = emptyHF();
+  const starts = CHAP_IDX.length ? CHAP_IDX : [body.length];
+  SECTIONS = [
+    /* 封面：单独一节，无页眉页脚（背面空白页同样无页眉页脚） */
+    { properties: { page: PAGE, titlePage: true },
+      headers: { first: e.header, default: e.header, even: e2.header },
+      footers: { first: e.footer, default: e.footer, even: e2.footer },
+      children: cover },
+    /* 目录：从右页开始 */
+    { properties: { page: PAGE, type: SectionType.ODD_PAGE }, ...HF, children: toc.concat(body.slice(0, starts[0])) },
+    /* 每章一节，从右页开始 */
+    ...starts.map((st, k) => ({ properties: { page: PAGE, type: SectionType.ODD_PAGE }, ...HF,
+                                children: body.slice(st, k + 1 < starts.length ? starts[k + 1] : body.length) }))
+  ];
+}
 
 const doc = new Document({
   features: { updateFields: true },
@@ -1143,42 +1213,23 @@ const doc = new Document({
         run: { size: 20, bold: true, color: '000000', font: { ascii: EN, eastAsia: CN } } }
     ]
   },
-  sections: [{
-    properties: {
-      page: {
-        size: PORTRAIT ? { width: 11906, height: 16838, orientation: PageOrientation.PORTRAIT }
-                       : { width: 11906, height: 16838, orientation: PageOrientation.LANDSCAPE },
-        margin: { top: 900, bottom: 900, left: 900, right: 900 }
-      },
-      titlePage: true
-    },
-    headers: {
-      first: new Header({ children: [new Paragraph({ children: [] })] }),
-      /* 页眉：左书名、右当前章名（STYLEREF 域），下细线 */
-      default: new Header({
-        children: [new Paragraph({
-          tabStops: [{ type: TabStopType.RIGHT, position: (PORTRAIT ? 11906 : 16838) - 1800 }],
-          border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: LINE, space: 4 } },
-          children: [
-            new TextRun({ text: docTitle, font: { ascii: EN, eastAsia: CN }, size: 16, color: GRAY }),
-            new TextRun({ text: '\t', size: 16 }),
-            new TextRun({ children: [new SimpleField('STYLEREF "Heading 1"', '')], font: { ascii: EN, eastAsia: CN }, size: 16, color: GRAY })
-          ]
-        })]
-      })
-    },
-    footers: {
-      /* 封面不显示页码；正文页码在右下角，小五号（9pt），仅「第 X 页」 */
-      first: new Footer({ children: [new Paragraph({ children: [] })] }),
-      default: new Footer({
-        children: [new Paragraph({
-          alignment: AlignmentType.RIGHT,
-          children: [new TextRun({ children: ['第 ', PageNumber.CURRENT, ' 页'], font: { ascii: EN, eastAsia: CN }, size: 18, color: GRAY })]
-        })]
-      })
-    },
-    children: front.concat(body)
-  }]
+  evenAndOddHeaderAndFooters: DUPLEX,
+  sections: SECTIONS
 });
 
-Packer.toBuffer(doc).then(b => { fs.writeFileSync(OUT, b); console.log('written ' + OUT + '  (' + body.length + ' blocks)'); });
+Packer.toBuffer(doc).then(async b => {
+  if (DUPLEX) {
+    /* docx 库不支持镜像页边距：生成后在 settings.xml 里补 <w:mirrorMargins/>（内侧 = left，外侧 = right） */
+    const JSZip = require('jszip');
+    const zip = await JSZip.loadAsync(b);
+    let st = await zip.file('word/settings.xml').async('string');
+    if (!/<w:mirrorMargins/.test(st)) {
+      const after = /<w:(defaultTabStop|evenAndOddHeaders|characterSpacingControl|compat|updateFields|rsids|mathPr|themeFontLang|clrSchemeMapping|decimalSymbol|listSeparator|trackRevisions|doNotTrackMoves|documentProtection|autoFormatOverride|styleLockTheme|styleLockQFSet|defaultTableStyle|bookFoldPrinting|bookFoldRevPrinting|bookFoldPrintingSheets|gutterAtTop|hideSpellingErrors|hideGrammaticalErrors|activeWritingStyle|proofState|formsDesign|attachedTemplate|linkStyles|stylePaneFormatFilter|stylePaneSortMethod|documentType|mailMerge|revisionView)\b/;
+      const m = st.match(after);
+      st = m ? st.replace(m[0], '<w:mirrorMargins/>' + m[0]) : st.replace(/(<w:settings[^>]*>)/, '$1<w:mirrorMargins/>');
+      zip.file('word/settings.xml', st);
+    }
+    b = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  }
+  fs.writeFileSync(OUT, b); console.log('written ' + OUT + '  (' + body.length + ' blocks)' + (BW ? ' [黑白]' : '') + (DUPLEX ? ' [双面]' : ''));
+});
