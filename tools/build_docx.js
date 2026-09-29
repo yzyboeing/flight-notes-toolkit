@@ -58,6 +58,8 @@ const M_IN = DUPLEX ? 1100 : 900, M_OUT = DUPLEX ? 800 : 900;   // 内侧 / 外�
 const HIDE_TBD = process.env.SHOW_TBD !== '1';   // 成品默认不显示〔待补来源〕（用户要求：表格与正文内不标来源）
 // DOC_PORTRAIT=1：竖版 A4（iPad 阅读版）；默认横版
 const PORTRAIT = process.env.DOC_PORTRAIT === '1';
+/* DOC_SINGLE=1：单册（单章成书，如「机型基础知识速查」）——封面重排、章首页改为纯目录页 */
+const SINGLE = process.env.DOC_SINGLE === '1';
 const TOTAL = (PORTRAIT ? 10000 : 14400) - (M_IN + M_OUT - 1800); // A4 减页边距，DXA
 const SC = (w) => Math.round(w * TOTAL / 14400);
 
@@ -1034,10 +1036,42 @@ function colsTable(cols, colW, gap) {
   return new Table({ rows: [new TableRow({ children: cells })], alignment: AlignmentType.CENTER, borders: TableBorders.NONE,
     layout: TableLayoutType.FIXED, width: { size: widths.reduce((a, b) => a + b, 0), type: WidthType.DXA }, columnWidths: widths });
 }
+/* 单册目录页（DOC_SINGLE=1）：不出章序号与章名，整页就是一张目录——
+   「目录」标题 + 双线 → 简介一行 → 主题两栏、点线连页码。 */
+function singleToc(ch, brk) {
+  const n = ch.secs.length;
+  const out = [new Paragraph({ pageBreakBefore: true, spacing: { before: PORTRAIT ? 600 : 200, after: 0 }, children: [] })];
+  out.push(new Paragraph({
+    heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, keepNext: true,
+    spacing: { before: 0, after: 120 },
+    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: '目录', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C })] })]
+  }));
+  const hr = (sz, col, after) => new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after, line: 20 },
+    children: [new TextRun({ text: '', size: 2 })],
+    border: { bottom: { style: BorderStyle.SINGLE, size: sz, color: col, space: 2 } } });
+  out.push(hr(24, H1_LINE, 40), hr(4, C(INK2, '000000'), 0));
+  if (ch.desc) out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200, after: 0, line: 300 },
+    children: [new TextRun({ text: ch.desc, font: FF, size: 19, color: GRAY })] }));
+  out.push(new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 560 : 300 }, children: [] }));
+  if (n) {
+    const nc = n <= 12 ? 1 : 2, GAP = 700;
+    const colW = nc === 1 ? Math.min(TOTAL, 8400) : Math.floor((TOTAL - GAP) / 2);
+    const per = Math.ceil(n / nc), cols = [];
+    /* 主题本身没有编号，这里按顺序补 01…N，便于口头指引「看第 12 条」 */
+    const lines = ch.secs.map((sec, k) => {
+      const [, t] = splitSec(sec.text);
+      return { id: sec.id, num: String(k + 1).padStart(2, '0'), text: t };
+    });
+    for (let c = 0; c < nc; c++) cols.push(lines.slice(c * per, (c + 1) * per).map(l => tocLine(l, colW, { numW: 560 })));
+    out.push(colsTable(cols, colW, GAP));
+  }
+  return out;
+}
 /* 章首页：大号章序号 → 章名（Heading 1，页眉 STYLEREF 取它）+ 粗线 → 本章简介 → 本章各节与页码 */
 function chapterOpener(ch, brk) {
   const [cn] = splitChap(ch.text);
   const no = chapNo(cn), n = ch.secs.length;
+  if (SINGLE) return singleToc(ch, brk);
   const out = [new Paragraph({ pageBreakBefore: !!brk, spacing: { before: 0, after: PORTRAIT ? 2400 : 500 }, children: [] })];
   if (no) out.push(new Paragraph({ spacing: { before: 0, after: 0 }, keepNext: true,
     children: [new TextRun({ text: no, font: FF, size: 150, bold: true, color: C('C9D8E8', '000000') })] }));
@@ -1242,7 +1276,35 @@ function coverOverview() {
                       width: { size: BOXW, type: WidthType.DXA }, columnWidths: W })];
 }
 const sideInd = Math.max(0, Math.round(((PORTRAIT ? 11906 : 16838) - M_IN - M_OUT - BOXW) / 2));
-const cover = [
+/* 单册封面（DOC_SINGLE=1）：题名组落在视觉中心偏上，版次与声明压到页面下部，
+   声明不用方框，改细线 + 灰字，整页只有两组粗细双线作为骨架。 */
+const NOTE_IND = sideInd + (PORTRAIT ? 900 : 1600);
+const coverSingle = [
+  new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 2600 : 600 }, children: [] }),
+  rule({ size: 24, color: '000000', after: 50 }),
+  rule({ size: 4, color: '000000', after: 0 }),
+  coverTxt(process.env.DOC_LABEL || 'B737-NG　/　B737-8', 24, { before: PORTRAIT ? 520 : 280, bold: true, color: '404040', cs: 80 }),
+  coverTxt(docTitle, 72, { before: 140, after: 140, bold: true, outline: true }),
+  coverTxt(process.env.DOC_SUBTITLE || '', 26, { after: PORTRAIT ? 520 : 280, color: GRAY, cs: 60 }),
+  rule({ size: 4, color: '000000', after: 50 }),
+  rule({ size: 24, color: '000000', after: 0 }),
+  new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 5200 : 1500 }, children: [] }),
+  ...(process.env.DOC_NOTICE ? [
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: 20 },
+      indent: { left: NOTE_IND, right: NOTE_IND },
+      children: [new TextRun({ text: '', size: 2 })],
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '808080', space: 2 } } }),
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200, after: 200, line: 300 },
+      indent: { left: NOTE_IND, right: NOTE_IND },
+      children: [new TextRun({ text: process.env.DOC_NOTICE, font: FF, size: 18, color: '595959' })] }),
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: 20 },
+      indent: { left: NOTE_IND, right: NOTE_IND },
+      children: [new TextRun({ text: '', size: 2 })],
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '808080', space: 2 } } }),
+  ] : []),
+  ...(process.env.DOC_EDITION ? [coverTxt(process.env.DOC_EDITION, 18, { before: 360, color: '808080', cs: 30 })] : []),
+];
+const coverFull = [
   new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 900 : 150 }, children: [] }),
   rule({ size: 24, color: '000000', after: 50 }),
   rule({ size: 4, color: '000000', after: 0 }),
@@ -1263,6 +1325,7 @@ const cover = [
   })] : []),
   ...(DUPLEX ? [] : [new Paragraph({ children: [new PageBreak()] })])
 ];
+const cover = SINGLE ? coverSingle : coverFull;
 /* 目录（2026-09-29 改版）：不用 Word TOC 域，按大纲自行生成——章为灰底粗体行（左粗竖条），节缩进、点线连页码；
    页码为 PAGEREF 域（Word 中全选 F9 刷新），标题可点击跳转。速查区只列章行，31 个主题清单在第零章首页。
    整章成栏：竖版每页一栏，横版每页两栏；一栏放不下的章换到下一栏。 */
