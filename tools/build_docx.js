@@ -636,25 +636,24 @@ function htmlTableCore(html) {
         const ci2 = startCol[ri][ck];
         const per = Math.max(4, (W[ci2] - 180) / unitW);
         const segs = String(c.text).split(/<br\s*\/?>/).map(sg => vis(sg.trim())).filter(v => v > 0);
-        const wraps = segs.some(v => v > per * 1.04);   // 估算误差留 4% 余量，避免刚好一行的格子被判成折行
-        /* 2026-09-29 用户（速查区第 75 条）：VIS / RVR 这类「数值 + 短条件」即使折成两行也应居中；
-           只有长句（含句读、分条列举或单行很长）才左对齐 */
+        /* ===== 表格对齐固定规则（2026-09-29 用户：按内容判断，写成固定规则，全书统一） =====
+           R1 表头一律居中。R2 首列标签列整列居中加粗。
+           R3 「段落型」格子左对齐：分条列举（≥ 2 条 ①② / 1. 2.），或估算排版后 ≥ 4 行，
+              或去标记后总长 > 90（约 45 个汉字），或含 ≥ 2 个句读（，。；）且总长 > 60。
+              其余（数值、短语、一两行的短句）居中。
+           R4 一列里段落型格子过半 → 整列左对齐（长文字列统一左齐）；否则整列居中，个别段落型格子单独左对齐。
+           R5 「—」占位一律居中；所有格子纵向居中。 */
         const rawSegs = String(c.text).split(/<br\s*\/?>/).map(sg => unesc(sg.replace(/<[^>]+>/g, '')).replace(/〔待补来源〕/g, '').trim()).filter(Boolean);
-        const listy = rawSegs.length > 1 && rawSegs.filter(sg => /^([①-⑳]|\d+[.、)）]|[a-z][)）])/.test(sg)).length >= 2;
-        const multiLong = listy || segs.some(v => v > 50);
+        const listy = rawSegs.length > 1 && rawSegs.filter(sg => /^([①-⑳]|\d+[.、)）]|[a-z][)）]|[A-Z]-\d+\s|第 ?\d+ ?[条步])/.test(sg)).length >= 2;
+        const lines = segs.reduce((a2, v) => a2 + Math.max(1, Math.ceil(v / (per * 1.04))), 0);
+        const total = segs.reduce((a2, v) => a2 + v, 0);
+        const puncts = (rawSegs.join('').match(/[，。；]/g) || []).length;
+        const para = listy || lines >= 4 || total > 90 || (puncts >= 2 && total > 60);
         colN[ci2] = (colN[ci2] || 0) + 1;
-        const plainV = unesc(String(c.text).replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '')).trim();
-        if (NUMRE.test(plainV) || vis(plainV) <= 10 || /^(—|－|-|\/)?$/.test(plainV)) colV[ci2] = (colV[ci2] || 0) + 1;
-        const sentence = /[，。；]/.test(plainV) && vis(plainV) > 24;
-        if (sentence || multiLong || (wraps && ci2 === 0 && vis(plainV) > 40)) { colL[ci2] = (colL[ci2] || 0) + 1; longCell.add(c); }
+        if (para) { colL[ci2] = (colL[ci2] || 0) + 1; longCell.add(c); }
       });
     });
-    /* 一列里约 3 成以上的格子是长句才整列左对齐；个别长格在居中列里单独左对齐 */
-    /* 数值列（七成以上是数值 / 短值）整列居中，个别长格单独左对齐；其余列只要有长句或折行就整列左对齐 */
-    for (let k3 = 0; k3 < nCols; k3++) {
-      const valueCol = (colV[k3] || 0) >= 0.7 * (colN[k3] || 1);
-      if (!valueCol && (colL[k3] || 0) > 0) longCols.add(k3);
-    }
+    for (let k3 = 0; k3 < nCols; k3++) if ((colL[k3] || 0) * 2 > (colN[k3] || 1)) longCols.add(k3);
   }
   if (process.env.A_LOG && !PROBE) {
     const cols = [];
@@ -721,7 +720,7 @@ function htmlTableCore(html) {
       const placeholder = /^\s*(—|－|-|\/|)\s*$/.test(unesc(String(c.text).replace(/<[^>]+>/g, '')));
       /* 首列标签格：加粗、不标红（红色只留给数值与禁令） */
       const labelCol = isFirstCol && !parallel && c.colspan === 1 && nCols > 1 && firstIsLabel;
-      const center = placeholder || labelCol || ((COMPACT || FIT_ALL)
+      const center = placeholder || (labelCol && !longCell.has(c)) || ((COMPACT || FIT_ALL)
         ? (isHdr || c.head || (!isNote && !isPre && !isWarn &&
              (c.colspan === 1 ? (!longCols.has(ci) && !longCell.has(c)) : shortCell(c.text))))
         : (isHdr || c.head
