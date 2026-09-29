@@ -63,7 +63,23 @@ def main():
 
     os.makedirs(OUT, exist_ok=True)
     out = os.path.join(OUT, 'book.md')
-    io.open(out, 'w', encoding='utf-8').write('\n'.join(parts))
+    text = '\n'.join(parts)
+    # 章首页简介（2026-09-29）：取各章「_N … 目录.md」front matter 的 blurb 字段，
+    # 以 %%CHAPDESC%% 行跟在章标题后，供 build_docx.js 排章首页；没有 blurb 的章不加
+    CN = '零一二三四五六七八九'
+    def blurb(n):
+        for d in os.listdir(SRC):
+            if re.match(r'%d\s' % n, d) and os.path.isdir(os.path.join(SRC, d)):
+                for f in os.listdir(os.path.join(SRC, d)):
+                    if f.startswith('_') and f.endswith('.md'):
+                        m = re.search(r'(?m)^blurb:\s*"?(.*?)"?\s*$', io.open(os.path.join(SRC, d, f), encoding='utf-8').read())
+                        if m: return m.group(1)
+        return None
+    def addb(m):
+        k = CN.find(m.group(1)); b = blurb(k) if k >= 0 else None
+        return m.group(0) + ('\n\n%%CHAPDESC%% ' + b if b else '')
+    text = re.sub(r'(?m)^## 第(.)章[^\n]*$', addb, text)
+    io.open(out, 'w', encoding='utf-8').write(text)
     mods = re.findall(r'(?m)^## (.+)$', io.open(out, encoding='utf-8').read())
     print('book.md 已生成：%d 个分册 -> %s' % (len(mods), out))
     for k, m in enumerate(mods, 1): print('  %d. %s' % (k, m))
