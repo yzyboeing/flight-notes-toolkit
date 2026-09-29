@@ -1113,7 +1113,7 @@ while (i < src.length) {
     i++; continue;
   }
   if (/^出处：/.test(ln.trim())) {                 // 表后出处（手册佐证）：灰色小字，紧跟表格
-    const t = ln.trim().replace(/<[^>]+>/g, '');
+    const t = unesc(ln.trim().replace(/<[^>]+>/g, ''));   // 实体（&lt; &gt;）还原
     body.push(new Paragraph({
       children: [new TextRun({ text: t, font: { ascii: EN, eastAsia: CN }, size: 16, color: GRAY })],
       spacing: { before: 10, after: 50, line: 260 }, ...TAIL
