@@ -44,6 +44,7 @@ function runs(text, o = {}) {
     if (kind === 'red' && o.noRed) kind = 'bold';
     const grayK = /^gray/.test(kind || '');
     /* 比较符 / 「约」与后面的数值之间用不换行空格，避免「<」在行尾、数值折到下一行 */
+    t = t.replace(/【[^】]*】/g, m0 => m0.replace(/ /g, '\u00A0')).replace(/(\d{1,2}:\d{2}) ([—–-]) (\d{1,2}:\d{2})/g, '$1\u00A0$2\u00A0$3');
     t = t.replace(/([<>≤≥=＜＞≈约±]) (?=[\d−\-+.])/g, '$1\u00A0').replace(/(\d) (?=(kg|ft|kt|nm|NM|m|km|psi|psid|fpm|min|s|h|%|°|℃)(?![A-Za-z]))/g, '$1\u00A0');
     out.push(new TextRun({
       text: t,
@@ -65,8 +66,12 @@ function runs(text, o = {}) {
       else if (tk.startsWith('<em>')) {
         /* 红色只标数值与关键禁令短语：整句（去标记后超过 28 字）改为黑色加粗 */
         const inner = tk.slice(4, -5), plainLen = unesc(inner.replace(/<[^>]+>/g, '')).length;
-        const hasNum = /\d/.test(inner.replace(/<[^>]+>/g, ''));
-        walk(inner, (plainLen > 20 || (!hasNum && plainLen > 12)) ? (/^gray/.test(kind || '') ? 'graybold' : 'bold') : 'red');
+        const plainIn = unesc(inner.replace(/<[^>]+>/g, ''));
+        const hasNum = /\d/.test(plainIn);
+        const ban = /不得|禁止|严禁|不要|必须|不能|不可|只能|仅|立即|切勿|不准/.test(plainIn);
+        /* 红色只给：含数值的短语（≤ 20 字）或禁令短语（≤ 12 字）；解释段里不用红色 */
+        const redOk = (hasNum && plainLen <= 20) || (ban && plainLen <= 12);
+        walk(inner, /^gray/.test(kind || '') ? 'graybold' : (redOk ? 'red' : 'bold'));
       }
       else if (/^<br/.test(tk)) out.push(new TextRun({ break: 1 }));
       else if (tk.startsWith('<small>')) walk(tk.slice(7, -8), 'gray');      /* SD-33 学习解释：灰色小字 */
@@ -283,6 +288,7 @@ function tableGap(src, i) {
   while (j < src.length && !src[j].trim()) j++;
   const nxt = j < src.length ? src[j].trim() : '';
   if (!nxt || nxt.startsWith('#') || nxt === '%%PAGEBREAK%%' || nxt === '---') return null;
+  if (/^(解释：|公司差异：|注：|<strong>注)/.test(nxt)) return null;   // 表后解释 / 差异 / 注紧跟表格
   return P('', { before: 0, after: 60 });
 }
 
@@ -323,7 +329,16 @@ function htmlTable(html) {
     }));
     return outP;
   }
-  if (!out.length) return [htmlTableCore(html)];
+  /* 表格中间的通栏注释 / 警示行：把表拆成「表 → 段落 → 表（带表头）」，不在表中间夹整行说明（2026-09-29 终检）。
+     跨越该行的合并单元格存在时不拆。 */
+  const spans = [];
+  { const occ2 = []; parsed.forEach((r, ri) => { let ci = 0; r.cells.forEach(c => { while (occ2[ri] && occ2[ri][ci]) ci++;
+      if (c.rowspan > 1) spans.push([ri, ri + c.rowspan - 1]);
+      for (let rr = ri; rr < ri + c.rowspan; rr++) { occ2[rr] = occ2[rr] || []; for (let cc = ci; cc < ci + c.colspan; cc++) occ2[rr][cc] = true; }
+      ci += c.colspan; }); }); }
+  const mids = parsed.map((r, k) => k).filter(k => isFull(parsed[k]) && /note|warn/.test(parsed[k].cls) && k > fd && k < lastD
+    && !spans.some(([a0, b0]) => a0 < k && b0 > k));
+  if (!out.length && !mids.length) return [htmlTableCore(html)];
   const firstData = parsed.findIndex(r => !/hdr|premise/.test(r.cls));
   const pre = [], post = [];
   const trRe = /<tr([^>]*)>([\s\S]*?)<\/tr>/g;
@@ -345,7 +360,20 @@ function htmlTable(html) {
     border: r.cls.includes('warn') ? { left: { style: BorderStyle.SINGLE, size: 14, color: RED, space: 8 } } : undefined,
     keepNext: pre.includes(r)
   })));
-  return [...paras(pre), htmlTableCore(kept), ...paras(post)];
+  if (!mids.length) return [...paras(pre), htmlTableCore(kept), ...paras(post)];
+  const rowsHtml = []; html.replace(trRe, (all) => { rowsHtml.push(all); return all; });
+  const hdrIdx = parsed.map((r, k) => k).filter(k => k < firstData && parsed[k].cls.includes('hdr'));
+  const hdrHtml = hdrIdx.map(k => rowsHtml[k]).join('\n');
+  const partsOut = [...paras(pre)];
+  let cur = [];
+  const flush = () => { if (cur.length) partsOut.push(htmlTableCore('<table class="ftn">\n' + hdrHtml + '\n' + cur.join('\n') + '\n</table>')); cur = []; };
+  parsed.forEach((r, k) => {
+    if (k < firstData || out.includes(r)) return;
+    if (mids.includes(k)) { flush(); partsOut.push(...paras([r])); return; }
+    cur.push(rowsHtml[k]);
+  });
+  flush();
+  return [...partsOut, ...paras(post)];
 }
 
 function htmlTableCore(html) {
@@ -619,7 +647,7 @@ function htmlTableCore(html) {
   /* 速查区：一列里过半的格是长句（很长或含多个分句）才整列左对齐；其余列（文字、数字、短句）居中 */
   /* 对齐（按内容判定）：一列里只要有格子要折行（首列标签除外：多个短标签分行仍居中），
      或有多段且含长句的格子，整列左对齐；其余（序号、数值、短标签、短语）居中 */
-  const longCols = new Set(), longCell = new Set(), colN = [], colL = [], colV = [];
+  const longCols = new Set(), longCell = new Set(), colN = [], colL = [], colV = [], paraCells = [];
   if (COMPACT || FIT_ALL) {
     const unitW = 96 * FS / 18;   // 与列宽模型同一套字宽（紧凑模式 9pt 汉字 ≈ 2 × 96 DXA）
     const vis = (t) => {
@@ -644,16 +672,20 @@ function htmlTableCore(html) {
            R4 一列里段落型格子过半 → 整列左对齐（长文字列统一左齐）；否则整列居中，个别段落型格子单独左对齐。
            R5 「—」占位一律居中；所有格子纵向居中。 */
         const rawSegs = String(c.text).split(/<br\s*\/?>/).map(sg => unesc(sg.replace(/<[^>]+>/g, '')).replace(/〔待补来源〕/g, '').trim()).filter(Boolean);
-        const listy = rawSegs.length > 1 && rawSegs.filter(sg => /^([①-⑳]|\d+[.、)）]|[a-z][)）]|[A-Z]-\d+\s|第 ?\d+ ?[条步])/.test(sg)).length >= 2;
+        const listy = rawSegs.length > 1 && (rawSegs.filter(sg => /^([①-⑳]|\d+[.、)）]|[a-z][)）]|[A-Z]-\d+\s|第 ?\d+ ?[条步])/.test(sg)).length >= 2
+          || rawSegs.filter(sg => /[；;]$/.test(sg)).length >= 1 && rawSegs.length >= 2);
         const lines = segs.reduce((a2, v) => a2 + Math.max(1, Math.ceil(v / (per * 1.04))), 0);
         const total = segs.reduce((a2, v) => a2 + v, 0);
         const puncts = (rawSegs.join('').match(/[，。；]/g) || []).length;
-        const para = listy || lines >= 4 || total > 90 || (puncts >= 2 && total > 60);
+        /* 2026-09-29 终检：防同列「锯齿」——多行且带句读的也算段落型；段落型占三分之一以上整列左齐 */
+        const para = listy || lines >= 3 || total > 90 || (lines >= 2 && puncts >= 1 && total > 40);
         colN[ci2] = (colN[ci2] || 0) + 1;
-        if (para) { colL[ci2] = (colL[ci2] || 0) + 1; longCell.add(c); }
+        if (para) { colL[ci2] = (colL[ci2] || 0) + 1; paraCells.push([ci2, c, listy || lines >= 4]); }
       });
     });
-    for (let k3 = 0; k3 < nCols; k3++) if ((colL[k3] || 0) * 2 > (colN[k3] || 1)) longCols.add(k3);
+    for (let k3 = 0; k3 < nCols; k3++) if ((colL[k3] || 0) * 3 >= (colN[k3] || 1) && colL[k3]) longCols.add(k3);
+    /* 居中列里只有很长（≥ 4 行）或分条列举的格子单独左齐 */
+    paraCells.forEach(([k3, c, strong]) => { if (longCols.has(k3) || strong) longCell.add(c); });
   }
   if (process.env.A_LOG && !PROBE) {
     const cols = [];
@@ -692,8 +724,10 @@ function htmlTableCore(html) {
     parsed.forEach(r => { if (/premise|note|warn/.test(r.cls)) console.error('ROWLINES', r.cls, Math.ceil(vis(r.cells[0].text) * 90 / (tw - 180)), Math.round(tw * 100 / TOTAL) + '%', unesc(String(r.cells[0].text)).replace(/<[^>]+>/g, '').trim().slice(0, 24)); }); }
   /* 首列是否为标签列（整列判定，避免同一列有的加粗有的不加粗）：六成以上的格是短标签即整列加粗 */
   const shortTxt = (txt) => String(txt).split(/<br\s*\/?>/).every(seg => {
-    const pl = unesc(seg.replace(/<[^>]+>/g, '')).trim(); const v = vis(pl);
-    return v <= 30 && !(/[，。；]/.test(pl) && v > 20);
+    const pl = unesc(seg.replace(/<[^>]+>/g, '')).replace(/〔待补来源〕/g, '').trim();
+    const main = /^[（(]/.test(pl) ? '' : pl.split(/[（(]/)[0];   // 只看括号前的名称；括注允许折行
+    const v = vis(main);
+    return v <= 30 && !(/[，。；]/.test(main) && v > 20);
   });
   let fcN = 0, fcS = 0;
   parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
@@ -908,7 +942,9 @@ while (i < src.length) {
   }
   if (!ln.trim()) { i++; continue; }
   if (/^(解释：|公司差异：)/.test(ln.trim())) {    // SD-33 学习解释（灰色小字）/ SD-34 公司差异（标签加粗）
-    const t = ln.trim(), exp = /^解释：/.test(t);
+    let t = ln.trim();
+    const exp = /^解释：/.test(t);
+    { const m = t.match(/^(解释：|公司差异：)([^——]{1,30})——\s*(?:<[^>]+>)*\2[：:]/); if (m) t = t.replace(m[2] + '——', ''); }
     body.push(new Paragraph({
       children: exp ? runs('<small>' + t + '</small>') : runs('<strong>公司差异：</strong>' + t.slice(5), { size: 18 }),
       spacing: { before: 20, after: 100 }, indent: { left: 200 }
@@ -918,7 +954,11 @@ while (i < src.length) {
   if (/^(详见\s|来源：)/.test(ln.trim())) {     // 回查入口行 / 速查区标题下的出处行：小号灰字
     const under = /^来源：/.test(ln.trim()) || (COMPACT && /^详见\s/.test(ln.trim()));
     body.push(new Paragraph({
-      children: [new TextRun({ text: ln.trim(), font: { ascii: EN, eastAsia: CN }, size: 16, color: GRAY })],
+      children: [new TextRun({ text: (() => {
+        let t = ln.trim().replace(/^来源：部分内容待补来源$/, '来源：待补');
+        /* 「详见 x.y A-n」内部不断行 */
+        t = t.replace(/详见 ([^｜]+)$/, (m0, r) => '详见\u00A0' + r.replace(/ /g, '\u00A0'));
+        return t; })(), font: { ascii: EN, eastAsia: CN }, size: 16, color: GRAY })],
       spacing: under ? { before: 0, after: 80 } : { before: 20, after: 160 },
       keepNext: true          // 来源 / 详见行与下文同页，不孤立在页底
     }));
