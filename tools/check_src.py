@@ -34,6 +34,7 @@ TABLE   = re.compile(r'<table[^>]*>[\s\S]*?</table>', re.I)
 TR      = re.compile(r'<tr([^>]*)>([\s\S]*?)</tr>')
 CELL    = re.compile(r'<(td|th)([^>]*)>([\s\S]*?)</\1>')
 COLSPAN = re.compile(r'colspan="(\d+)"')
+FORBIDDEN_MARKS = re.compile(r'〔待补来源〕|\[待补来源\]|〔待确认〕|\[待确认\]')
 
 
 def table_widths(block):
@@ -95,6 +96,10 @@ def main():
                 ln_no = body[:m2.start()].count('\n') + 1
                 errors.append('行首项目符号 %s:%d 「%s」'
                               % (rel(f), ln_no, body[m2.start():m2.start() + 20].strip()))
+            for m2 in FORBIDDEN_MARKS.finditer(body):
+                ln_no = body[:m2.start()].count('\n') + 1
+                errors.append('SD-48 废弃标记残留 %s:%d 「%s」'
+                              % (rel(f), ln_no, m2.group(0)))
 
         # 标签配对
         for tag in TAGS:

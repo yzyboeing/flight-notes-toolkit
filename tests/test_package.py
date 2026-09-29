@@ -35,6 +35,14 @@ class PackageTest(unittest.TestCase):
             path.write_text(text + '\n[[Missing note]]\n')
             self.assertNotEqual(subprocess.run(cmd, capture_output=True).returncode, 0)
 
+    def test_source_rejects_sd48_forbidden_marks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / '1.1 Example.md'
+            text = '---\nid: "1.1"\n---\n# 1.1 Example\n\nFictional format fixture with 〔待补来源〕.\n'
+            path.write_text(text)
+            cmd = [sys.executable, str(ROOT / 'tools/check_src.py'), '--src', tmp, '--quiet']
+            self.assertNotEqual(subprocess.run(cmd, capture_output=True).returncode, 0)
+
 
 if __name__ == '__main__':
     unittest.main()
