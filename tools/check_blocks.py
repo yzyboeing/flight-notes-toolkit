@@ -205,6 +205,8 @@ def check_numbering(files):
             errs.append('MANIFEST 与实际笔记不符：表内多出 %s，表内缺 %s' % (only_mf or '无', only_rl or '无'))
     # 000 总目录
     toc = os.path.join(SRC, '000 总目录.md')
+    if not os.path.exists(toc):   # 2026-09-29 起总目录移到仓库根目录「整理规范/全库总目录.md」
+        toc = os.path.join(os.path.dirname(SRC), '整理规范', '全库总目录.md')
     if os.path.exists(toc):
         t = io.open(toc, encoding='utf-8').read()
         listed = set(re.findall(r'<tr><td><strong>([0-9]+(?:\.[0-9]+)?)</strong>', t))
