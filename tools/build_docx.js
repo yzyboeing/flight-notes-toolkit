@@ -1243,7 +1243,31 @@ const toc = [
   ...buildToc(),
   ...(DUPLEX ? [] : [new Paragraph({ children: [new PageBreak()] })])
 ];
-const front = cover.concat(toc);
+/* 前言（SD-51）：封面之后、目录之前一页。文字来自 DOC_PREFACE 指向的文件（gh-private/前言.md），
+   段落首行缩进两字；以「【特别提示】」开头的段落加粗；末尾右对齐署名（取封面作者）。 */
+function buildPreface() {
+  const pf = process.env.DOC_PREFACE;
+  if (!pf || !fs.existsSync(pf)) return [];
+  const paras = fs.readFileSync(pf, 'utf8').split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+  const out = [];
+  out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: PORTRAIT ? 600 : 200, after: 120 },
+    children: [new TextRun({ text: '前　　言', font: FF, size: 40, bold: true, characterSpacing: 60 })] }));
+  out.push(rule({ size: 24, color: '000000', after: 40 }), rule({ size: 4, color: '000000', after: 0 }));
+  out.push(new Paragraph({ spacing: { before: 0, after: 360 }, children: [] }));
+  const ind = PORTRAIT ? 600 : 1800;
+  paras.forEach(t => {
+    const tip = /^【特别提示】/.test(t);
+    out.push(new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { before: 0, after: 200, line: 400 },
+      indent: { left: ind, right: ind, firstLine: tip ? 0 : 440 },
+      children: [new TextRun({ text: t, font: FF, size: 22, bold: tip })] }));
+  });
+  if (AUTHOR) out.push(new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 600, after: 0 }, indent: { right: ind },
+    children: [new TextRun({ text: AUTHOR, font: FF, size: 22, color: '404040' })] }));
+  if (!DUPLEX) out.push(new Paragraph({ children: [new PageBreak()] }));
+  return out;
+}
+const preface = buildPreface();
+const front = cover.concat(preface, toc);
 
 /* ---------- 分节与页眉页脚 ---------- */
 const PAGE = {
@@ -1269,6 +1293,7 @@ const titleRun = () => new TextRun({ text: docTitle, font: hdrFont, size: 16, co
 const chapRun = () => new TextRun({ children: [new SimpleField('STYLEREF "Heading 1"', '')], font: hdrFont, size: 16, color: GRAY });
 const pageRun = () => new TextRun({ children: ['第 ', PageNumber.CURRENT, ' 页'], font: hdrFont, size: 18, color: GRAY });
 const tocRun = () => new TextRun({ text: '目　录', font: hdrFont, size: 16, color: GRAY });
+const prefRun = () => new TextRun({ text: '前　言', font: hdrFont, size: 16, color: GRAY });
 const footPara = (align) => new Paragraph({ alignment: align, children: [pageRun()] });
 let SECTIONS;
 if (!DUPLEX) {
@@ -1294,6 +1319,10 @@ if (!DUPLEX) {
       headers: { first: e.header, default: e.header, even: e2.header },
       footers: { first: e.footer, default: e.footer, even: e2.footer },
       children: cover },
+    /* 前言：从右页开始，页眉写「前言」 */
+    ...(preface.length ? [{ properties: { page: PAGE, type: SectionType.ODD_PAGE },
+      headers: { default: new Header({ children: [hdrPara(null, prefRun)] }), even: new Header({ children: [hdrPara(prefRun, null)] }) },
+      footers: HF.footers, children: preface }] : []),
     /* 目录：从右页开始；页眉外侧固定写「目录」（STYLEREF 在目录页会取到第零章，不用） */
     { properties: { page: PAGE, type: SectionType.ODD_PAGE },
       headers: { default: new Header({ children: [hdrPara(null, tocRun)] }), even: new Header({ children: [hdrPara(tocRun, null)] }) },

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# sync.sh —— 笔记库一键同步：校验 → 重建 docx → 提交 → 推送
+# sync.sh —— 笔记库一键同步：校验 → 重建 docx → 本地提交（默认不推送）
 #
 # 在 vault（＝ git 仓库）里任意位置执行：
 #     ./sync.sh "改了什么"          只重建有改动的模块
 #     ./sync.sh --full "改了什么"   重建全书（页数随字体环境变化，PingFang SC 下约 370 页）
 #     ./sync.sh --check             只跑校验，不构建不提交
-#     ./sync.sh --no-push "..."     构建并提交，但不推送
+#     ./sync.sh --push "..."        构建、提交并推送（唯一会推送的方式；默认只本地提交）
+#     ./sync.sh --no-push "..."     与默认相同，保留以兼容旧用法
 #     ./sync.sh --no-build "..."    只提交推送，不重建 docx
 #
-# 任一校验失败即中止，不会把有问题的内容推上去。
+# 任一校验失败即中止。SD-50：脚本默认绝不推送，只有显式 --push 才推。
 # 工具链默认取本脚本所在目录，可用环境变量 TOOLKIT 覆盖。
 
 set -uo pipefail
@@ -20,7 +21,7 @@ info() { printf '%s·%s %s\n' "$DIM" "$RST" "$*"; }
 warn() { printf '%s!%s %s\n' "$YEL" "$RST" "$*"; }
 
 # ---------- 参数 ----------
-FULL=0; PUSH=1; EXPLICIT_PUSH=0; CHECK_ONLY=0; BUILD=1; MSG=""
+FULL=0; PUSH=0; EXPLICIT_PUSH=0; CHECK_ONLY=0; BUILD=1; MSG=""
 BUILT=""                        # 换行分隔的成品清单（bash 3.2 下比数组稳）
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -43,9 +44,8 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "当前目录不在�
 cd "$ROOT" || die "无法进入 $ROOT"
 [ -d notes_src ] || die "仓库根目录没有 notes_src/，这不是笔记库"
 
-if [ "$EXPLICIT_PUSH" -ne 1 ] && [ "$(git config --bool notes.noPush 2>/dev/null)" = "true" ]; then
-  PUSH=0
-fi
+# 推送只由显式 --push 打开（SD-50 脚本级防呆；notes.noPush 配置不再需要，保留兼容）
+[ "$EXPLICIT_PUSH" -eq 1 ] || PUSH=0
 
 TOOLKIT="${TOOLKIT:-$SELF_DIR}"
 [ -f "$TOOLKIT/assemble.py" ] || TOOLKIT="$ROOT/../pub/tools"
@@ -119,6 +119,7 @@ if [ "$BUILD" = 1 ]; then
   # 封面版次与声明（可选）：git config notes.docEdition "2026 年 9 月版"；git config notes.docNotice "…"
   DOC_EDITION="${DOC_EDITION:-$(git config --get notes.docEdition)}"; export DOC_EDITION
   DOC_NOTICE="${DOC_NOTICE:-$(git config --get notes.docNotice)}"; export DOC_NOTICE
+  DOC_PREFACE="${DOC_PREFACE:-$ROOT/前言.md}"; export DOC_PREFACE   # SD-51 前言页（文件不存在则不出前言）
   # 印刷方式（可选）：git config notes.docBW 1（黑白：限制值改黑色加粗 + 下划线）；git config notes.docDuplex 1（双面：镜像页边距、奇偶页页眉页脚、每章从右页开始）
   DOC_BW="${DOC_BW:-$(git config --get notes.docBW)}"; export DOC_BW
   DOC_DUPLEX="${DOC_DUPLEX:-$(git config --get notes.docDuplex)}"; export DOC_DUPLEX
