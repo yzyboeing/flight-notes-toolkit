@@ -120,6 +120,7 @@ if [ "$BUILD" = 1 ]; then
   DOC_EDITION="${DOC_EDITION:-$(git config --get notes.docEdition)}"; export DOC_EDITION
   DOC_NOTICE="${DOC_NOTICE:-$(git config --get notes.docNotice)}"; export DOC_NOTICE
   DOC_PREFACE="${DOC_PREFACE:-$ROOT/前言.md}"; export DOC_PREFACE   # SD-51 前言页（文件不存在则不出前言）
+  DOC_TOPICINDEX="${DOC_TOPICINDEX:-$ROOT/主题线索引.md}"; export DOC_TOPICINDEX   # SD-61 主题线索引页（文件不存在则不出）
   # 印刷方式（可选）：git config notes.docBW 1（黑白：限制值改黑色加粗 + 下划线）；git config notes.docDuplex 1（双面：镜像页边距、奇偶页页眉页脚、每章从右页开始）
   DOC_BW="${DOC_BW:-$(git config --get notes.docBW)}"; export DOC_BW
   DOC_DUPLEX="${DOC_DUPLEX:-$(git config --get notes.docDuplex)}"; export DOC_DUPLEX

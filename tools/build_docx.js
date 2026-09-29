@@ -1279,6 +1279,35 @@ function buildToc() {
   }
   return out;
 }
+/* 主题线索引（SD-61）：总目录之后、正文之前一页。文件由 DOC_TOPICINDEX 指定（gh-private/主题线索引.md）。
+   内容用与正文相同的解析器渲染，因此可以直接写 <table class="ftn">。 */
+function buildTopicIndex() {
+  const tp = process.env.DOC_TOPICINDEX;
+  if (!tp || !fs.existsSync(tp)) return [];
+  const out = [new Paragraph({ pageBreakBefore: true, alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 },
+    outlineLevel: 0,
+    children: [new TextRun({ text: '主题线索引', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C })] })];
+  out.push(rule({ size: 24, color: H1_LINE, after: 40 }), rule({ size: 4, color: C(INK2, '000000'), after: 0 }));
+  out.push(new Paragraph({ spacing: { before: 0, after: 200 }, children: [] }));
+  const lines = fs.readFileSync(tp, 'utf8').split(/\r?\n/);
+  let k = 0;
+  while (k < lines.length) {
+    const ln = lines[k];
+    if (/^\s*<table/.test(ln)) {
+      const buf = [];
+      while (k < lines.length && !/<\/table>/.test(lines[k])) buf.push(lines[k++]);
+      buf.push(lines[k++]);
+      out.push(...htmlTable(buf.join('\n')));
+      out.push(new Paragraph({ spacing: { before: 0, after: 120 }, children: [] }));
+      continue;
+    }
+    if (ln.trim()) out.push(new Paragraph({ spacing: { before: 60, after: 60, line: 300 },
+      children: runs(ln.trim(), { size: 19 }) }));
+    k++;
+  }
+  if (!DUPLEX) out.push(new Paragraph({ children: [new PageBreak()] }));
+  return out;
+}
 const toc = [
   ...buildToc(),
   ...(DUPLEX ? [] : [new Paragraph({ children: [new PageBreak()] })])
@@ -1308,7 +1337,7 @@ function buildPreface() {
   return out;
 }
 const preface = buildPreface();
-const front = cover.concat(preface, toc);
+const front = cover.concat(preface, toc, buildTopicIndex());
 
 /* ---------- 分节与页眉页脚 ---------- */
 const PAGE = {
