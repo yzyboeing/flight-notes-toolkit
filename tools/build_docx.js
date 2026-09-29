@@ -25,7 +25,10 @@ const PALETTES = {
   blue: { key: '0B5CAD', keyBg: '',       note: 'EEF4FB', noteBar: '0B5CAD', warn: 'FDECEA', hdr: 'DCE6F1', alt: 'F7F9FC', tail: '' },
   teal: { key: '00806A', keyBg: 'E3F4EF', note: 'F1F7F5', noteBar: '00806A', warn: 'FDECEA', hdr: 'E4EDEA', alt: 'F8FBFA', tail: '' },
 };
-const PAL = PALETTES[process.env.DOC_PALETTE] || {};
+/* SD-68（2026-09-29 用户选 B）：默认配色＝亮蓝统一方案。
+   DOC_PALETTE=green 可回到 SD-65 墨绿方案；hl / teal 为比选留档。 */
+PALETTES.green = { key: '1B6B4C', keyBg: '', note: 'EAF1F8', noteBar: '2E74B5', warn: 'FDECEA', hdr: 'EBEBEB', alt: 'F7F7F7', tail: '' };
+const PAL = PALETTES[process.env.DOC_PALETTE || 'blue'] || PALETTES.blue;
 const GRAY = '595959', LINE = 'BFBFBF', ALT = PAL.alt || 'F7F7F7', CODE = 'F2F2F2';
 const RED = 'C00000';
 /* ---------- 彩色版配色（2026-09-29 用户：整本按彩色设计）----------
