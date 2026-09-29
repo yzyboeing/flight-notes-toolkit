@@ -121,7 +121,7 @@ def do_file(f, report):
             res.append(do_table(p, report, os.path.basename(f).split(' ')[0] + ' ' + item)); continue
         ls = []
         for ln in p.split('\n'):
-            mm = re.match(r'^#### ([A-Z]-\d+)', ln)
+            mm = re.match(r'^#{3,4} ([A-Z]-\d+)', ln)
             if mm: item = mm.group(1)
             if (not ln.strip() or ln.startswith('#') or re.match(r'^(来源|详见|<!--|>|---)', ln.strip())
                     or '[[' in ln and len(re.sub(r'\[\[[^\]]*\]\]', '', ln).strip()) < 12):

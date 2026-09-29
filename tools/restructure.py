@@ -78,7 +78,7 @@ for sec, item, how, *rest in plan:
     idx = rest[0] if rest else 0
     f = [x for x in glob.glob(os.path.join(SRC, '[1-5]*', '*.md')) if os.path.basename(x).startswith(sec + ' ')][0]
     t = files.get(f) or io.open(f, encoding='utf-8').read()
-    m = re.search(r'(?ms)^#### ' + re.escape(item) + r'　[^\n]*\n(.*?)(?=^#### |^### |\Z)', t)
+    m = re.search(r'(?ms)^#{3,4} ' + re.escape(item) + r'　[^\n]*\n(.*?)(?=^#{3,4} |\Z)', t)
     body = m.group(1)
     tbm = list(re.finditer(r'(?s)<table\b.*?</table>', body))[idx]
     before, newtb, after = act(tbm.group(0), how)

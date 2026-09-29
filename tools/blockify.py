@@ -61,12 +61,13 @@ def main():
 
     out, codes = [], {}
     for L, btitle, ts in P.PLAN:
-        out.append('### %s　%s\n' % (L, btitle))
+        # SD-43：正文不写块标题，块主题只在块索引；条目直接写「### A-1　标题」
         bn = getattr(P, 'BLOCK_NOTE', {}).get(L)
-        if bn: out.append(bn.strip() + '\n')
         for n, t in enumerate(ts, 1):
             code = '%s-%d' % (L, n); codes[t] = code
-            out.append('#### %s　%s\n%s' % (code, t, items[t].rstrip() + '\n\n'))
+            body_t = items[t].rstrip()
+            if n == 1 and bn: body_t = bn.strip() + '\n\n' + body_t
+            out.append('### %s　%s\n%s' % (code, t, body_t + '\n\n'))
 
     def table(letters):
         o = ['<table class="ftn">',

@@ -29,7 +29,7 @@ ONLY = _arg('--only')
 
 FM   = re.compile(r'\A---\n(.*?)\n---\n', re.S)
 BLK  = re.compile(r'(?m)^### ([A-Z])　(.+)$')
-ITEM = re.compile(r'(?m)^#### ([A-Z])-(\d+)　(.+)$')
+ITEM = re.compile(r'(?m)^#{3,4} ([A-Z])-(\d+)　(.+)$')   # SD-43：条目直接用 ### A-1（不再有块标题）
 IDXE = re.compile(r'<strong>([A-Z]-\d+)</strong>\s*([^<]*)')
 SRCE = re.compile(r'<td>((?:[A-Z]-\d+)(?:\s*[·、]\s*[A-Z]-\d+)*)</td>\s*</tr>')
 NEST = re.compile(r'<(strong|em)\b[^>]*>(?:(?!</?\1\b).)*<\1\b', re.S)
@@ -55,8 +55,9 @@ def check(path):
 
     blocks = BLK.findall(body)
     items  = ITEM.findall(body)
-    if not blocks:
-        if items: errs.append('%s：有 #### 条目却没有 ### 块标题（层级缺失）' % name)
+    if blocks: errs.append('%s：正文里不再写「### A　块主题」块标题，块主题只在块索引里（SD-43）' % name)
+    if re.search(r'(?m)^#### [A-Z]-\d+　', body): errs.append('%s：条目标题应为「### A-1　…」（SD-43）' % name)
+    if not items:
         return errs, warns                       # 单表节（SD-19），不再往下查
 
     # 1 块字母连续
