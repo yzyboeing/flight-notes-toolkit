@@ -148,7 +148,7 @@ def main():
         key = (mp.group(1), mp.group(2))
         if key not in blocks:
             errs.append('第 %s 条：详见 %s %s 在正文里不存在' % (n, *key)); continue
-        mine = tokens(re.sub(r'<small>.*?</small>', ' ', re.sub(r'(?m)^(来源|详见|解释：|公司差异：)[^\n]*\n', '', body), flags=re.S))
+        mine = tokens(re.sub(r'<small>.*?</small>', ' ', re.sub(r'(?m)^(来源|详见|出处：|解释：|公司差异：)[^\n]*\n', '', body), flags=re.S))
         blk, whole = tokens(blocks[key]), tokens(secs[key[0]])
         bare_whole = {v for v, _ in whole}
         miss = sorted({'%s%s' % x for x in mine if x not in blk and x not in whole and x[0] not in bare_whole})
