@@ -448,16 +448,28 @@ function htmlTableCore(html) {
     };
     const SHORT = 36, CAP = 64, MINL = 22, EXTRA = PAD + 200;
     /* 跨行合并的格子纵向空间多，可折成几行而不增加表高：按「最长一行 ÷ 跨行数」计 */
-    const need2 = new Array(nCols).fill(0);
+    const need2 = new Array(nCols).fill(0), segL = [];
     parsed.forEach((r, ri) => {
       if (r.cls.includes('hdr') || r.cls.includes('note') || r.cls.includes('premise')) return;
       r.cells.forEach((c, ck) => {
         if (c.colspan !== 1) return;
         const ci2 = startCol[ri][ck];
-        const lo = Math.max(...String(c.text).split(/<br\s*\/?>/).map(vis));
-        need2[ci2] = Math.max(need2[ci2], lo);   // 合并格也按一行排下计（不再按跨行数折算，避免被挤成细长条）
+        const sgs = String(c.text).split(/<br\s*\/?>/);
+        const hasMain = sgs.some(sg => !/^\s*(<[^>]+>)*\s*[（(]/.test(sg) && vis(sg) > 0);
+        sgs.forEach(sg => { let v = vis(sg); if (v <= 0) return;
+          /* 名称下另起一行的括注（补充说明）允许折行：按不超过约 10 个汉字计宽 */
+          if (hasMain && /^\s*(<[^>]+>)*\s*[（(]/.test(sg)) v = Math.min(v, 20);
+          (segL[ci2] = segL[ci2] || []).push(v); });
       });
     });
+    /* 每列所需宽度：以多数行一行排下为准；个别特别长的行（超过该列第 75 百分位长度的 1.5 倍）允许折行，
+       避免一两行长括注把整列撑宽、其余行两侧留白（用户 2026-09-29：第 36 条首列仍有空白） */
+    for (let k = 0; k < nCols; k++) {
+      const a = (segL[k] || []).slice().sort((x, y) => x - y);
+      if (!a.length) continue;
+      const mx = a[a.length - 1], p75 = a[Math.min(a.length - 1, Math.floor(a.length * 0.75))];
+      need2[k] = mx;   // （曾试过按第 75 百分位封顶，会把个别长格挤成细长条，已取消；只对名称下的括注放宽）
+    }
     /* 表头：短表头（如「737-NG」）不折行；长表头按 0.6 计，允许折行，避免把数字列撑空 */
     const hdrV = new Array(nCols).fill(0);
     parsed.forEach((r, ri) => { if (r.cls.includes('hdr')) r.cells.forEach((c, ck) => {
@@ -545,7 +557,8 @@ function htmlTableCore(html) {
   /* 同一条目里有多张表：统一到其中最宽者的宽度（多出的宽度按比例分给首列以外的各列） */
   {
     const tgt = TBL_TARGET[TBL_IDX] || 0, sumW = W.reduce((a2, b2) => a2 + b2, 0);
-    if (tgt > sumW + 200) {
+    /* 只做小幅对齐（本表已达目标宽度 85% 以上时）；差得多就保持按内容的宽度——表格不留空白优先（用户 2026-09-29） */
+    if (tgt > sumW + 200 && sumW >= 0.85 * tgt) {
       const idxs = nCols > 1 ? [...Array(nCols).keys()].slice(1) : [0];
       const base = idxs.reduce((a2, k2) => a2 + W[k2], 0) || 1;
       idxs.forEach(k2 => { W[k2] += Math.floor((tgt - sumW) * W[k2] / base); });
@@ -606,7 +619,14 @@ function htmlTableCore(html) {
      或有多段且含长句的格子，整列左对齐；其余（序号、数值、短标签、短语）居中 */
   const longCols = new Set(), longCell = new Set(), colN = [], colL = [], colV = [];
   if (COMPACT || FIT_ALL) {
-    const unitW = 132 * FS / 20;
+    const unitW = 96 * FS / 18;   // 与列宽模型同一套字宽（紧凑模式 9pt 汉字 ≈ 2 × 96 DXA）
+    const vis = (t) => {
+      const s0 = unesc(String(t).replace(/<[^>]+>/g, '')).replace(/\*\*/g, '');
+      let n = 0;
+      for (const ch of s0) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2
+        : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1;
+      return n;
+    };
     parsed.forEach((r, ri) => {
       if (r.cls.includes('note') || r.cls.includes('premise') || r.cls.includes('hdr') || r.cls.includes('warn')) return;
       r.cells.forEach((c, ck) => {
@@ -614,7 +634,7 @@ function htmlTableCore(html) {
         const ci2 = startCol[ri][ck];
         const per = Math.max(4, (W[ci2] - 180) / unitW);
         const segs = String(c.text).split(/<br\s*\/?>/).map(sg => vis(sg.trim())).filter(v => v > 0);
-        const wraps = segs.some(v => v > per);
+        const wraps = segs.some(v => v > per * 1.04);   // 估算误差留 4% 余量，避免刚好一行的格子被判成折行
         const multiLong = segs.length > 1 && segs.some(v => v > 16);
         colN[ci2] = (colN[ci2] || 0) + 1;
         const plainV = unesc(String(c.text).replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '')).trim();
@@ -629,6 +649,19 @@ function htmlTableCore(html) {
       const valueCol = (colV[k3] || 0) >= 0.7 * (colN[k3] || 1);
       if (!valueCol && (colL[k3] || 0) > 0) longCols.add(k3);
     }
+  }
+  if (process.env.A_LOG && !PROBE) {
+    const cols = [];
+    for (let k = 0; k < nCols; k++) {
+      let mx = 0, n = 0, multi = 0;
+      parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+        r.cells.forEach((c, ck) => { if (startCol[ri][ck] !== k || c.colspan !== 1 || c.head) return; n++;
+          const segs = String(c.text).split(/<br\s*\/?>/);
+          if (segs.length > 1) multi++;
+          segs.forEach(sg => { let v = 0; for (const ch of unesc(sg.replace(/<[^>]+>/g, ''))) v += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; mx = Math.max(mx, v); }); }); });
+      cols.push({ w: W[k], need: Math.round(mx * 96 * FS / 18 + 180), n, multi, left: longCols.has(k) });
+    }
+    console.error('ALOG ' + JSON.stringify({ t: TBL_IDX, h: (hdrRowA => hdrRowA ? hdrRowA.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('|') : '')(parsed.find(r => r.cls.includes('hdr'))), cols }));
   }
   /* 速查区：有合并单元格的表、或不到半页的表整表同页；其余大表允许分页（表头重复），避免整页留白 */
   const hasRowspan = parsed.some(r => r.cells.some(c => c.rowspan > 1));
