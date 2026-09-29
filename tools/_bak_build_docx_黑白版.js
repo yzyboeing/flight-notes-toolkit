@@ -18,34 +18,14 @@ const OUT = process.argv[3] || 'prompt.docx';
 const CN   = process.env.DOC_FONT_CN   || 'PingFang SC',
       EN   = process.env.DOC_FONT_EN   || 'Helvetica Neue',
       MONO = process.env.DOC_FONT_MONO || 'Menlo';
-const GRAY = '595959', LINE = 'BFBFBF', ALT = 'F7F7F7', CODE = 'F2F2F2';
-const RED = 'C00000';
-/* ---------- 彩色版配色（2026-09-29 用户：整本按彩色设计）----------
-   只用三个色相，各自含义固定，避免「五颜六色但看不出层级」：
-     红  C00000  限制值、禁令、必须句（正文强调色，仅此一处用红）
-     蓝  1F4E79 / 2E74B5  结构色：标题、分隔线、注解条（不表示危险，只表示层级）
-     琥珀 BF8F00  前提 / 适用条件（提醒「先看条件再看结论」）
-   底色一律取同色相的最浅一档，打印不糊、iPad 上长时间看不刺眼。 */
-const INK   = '1F4E79',            // 标题与粗分隔线（深蓝）
-      INK2  = '2E74B5',            // 次级线条、注解竖条（中蓝）
-      HDR   = 'E7EDF3',            // 表头底（冷灰蓝）
-      NOTE_BG = 'EAF1F8',          // 注 / 补充说明底
-      WARN_BG = 'FDECEA',          // 警示 / 禁令底
-      PRE_BG  = 'FBF2E3',          // 前提 / 适用条件底
-      PRE_BAR = 'BF8F00';          // 前提竖条（琥珀）
-const PREMISE = PRE_BG;
+const GRAY = '595959', LINE = 'BFBFBF', HDR = 'D9D9D9', ALT = 'F7F7F7', CODE = 'F2F2F2';
+const RED = 'C00000', PREMISE = 'EDEDED';
 /* 印刷选项（2026-09-29 用户：黑白双面印刷）
    DOC_BW=1：黑白印刷——限制值由红色改为黑色加粗 + 下划线，警告条改黑色（红色在黑白印刷中与黑色几乎无法区分）
    DOC_DUPLEX=1：双面印刷——镜像页边距（内侧加宽装订）、奇偶页页眉页脚左右对调（页码在外侧）、封面与每章从右页（奇数页）开始 */
 const BW = process.env.DOC_BW === '1';
 const DUPLEX = process.env.DOC_DUPLEX === '1';
 const WARN_C = BW ? '000000' : RED;
-/* 黑白印刷时所有底色回落为灰阶，线条回落为黑 / 深灰 */
-const C = (color, bw) => (BW ? bw : color);
-const HDR_F = C(HDR, 'D9D9D9'), NOTE_F = C(NOTE_BG, 'FFFFFF'), WARN_F = C(WARN_BG, 'FFFFFF'), PRE_F = C(PRE_BG, 'EDEDED');
-const NOTE_BAR = C(INK2, GRAY), PRE_BAR_C = C(PRE_BAR, GRAY);
-const H1_C = C(INK, '000000'), H2_C = C(INK, '000000'), H3_C = C(INK, '000000');
-const H1_LINE = C(INK, '000000'), H2_LINE = C(INK2, '404040'), H3_BAR = C(INK2, '404040');
 const M_IN = DUPLEX ? 1100 : 900, M_OUT = DUPLEX ? 800 : 900;   // 内侧 / 外侧页边距（DXA）
 const HIDE_TBD = process.env.SHOW_TBD !== '1';   // 成品默认不显示〔待补来源〕（用户要求：表格与正文内不标来源）
 // DOC_PORTRAIT=1：竖版 A4（iPad 阅读版）；默认横版
@@ -136,16 +116,15 @@ function H(text, level, brk, forceId) {
   const isItem = /^(\d+\. |[A-Z]-\d+\u3000)/.test(text);
   const secBreak = level === 2 && /^\d+\.\d+[\s\u3000]/.test(text) && !AFTER_H1 && !NO_SEC_BREAK;
   AFTER_H1 = level === 1;
-  const HC = { 1: H1_C, 2: H2_C, 3: H3_C, 4: H3_C }[level];
-  const tr = new TextRun({ text, font: { ascii: EN, eastAsia: CN }, size: sizes[level], bold: true, color: HC });
+  const tr = new TextRun({ text, font: { ascii: EN, eastAsia: CN }, size: sizes[level], bold: true, color: '000000' });
   return new Paragraph({
     heading: level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : level === 3 ? HeadingLevel.HEADING_3 : HeadingLevel.HEADING_4,
     children: id ? [new Bookmark({ id, children: [tr] })] : [tr],
     spacing: { before: level === 1 ? 320 : 220, after: level === 1 ? 140 : 100 },
     /* 印刷版层级（2026-09-29）：章标题下粗黑线；节标题下细线；条目标题左侧竖条 */
-    border: level === 1 ? { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 6 } }
-          : level === 2 ? { bottom: { style: BorderStyle.SINGLE, size: 6, color: H2_LINE, space: 4 } }
-          : (level === 3 && isItem) ? { left: { style: BorderStyle.SINGLE, size: 18, color: H3_BAR, space: 6 } } : undefined,
+    border: level === 1 ? { bottom: { style: BorderStyle.SINGLE, size: 12, color: '000000', space: 6 } }
+          : level === 2 ? { bottom: { style: BorderStyle.SINGLE, size: 6, color: '404040', space: 4 } }
+          : (level === 3 && isItem) ? { left: { style: BorderStyle.SINGLE, size: 18, color: '404040', space: 6 } } : undefined,
     indent: (level === 3 && isItem) ? { left: 60 } : undefined,
     keepNext: true,                                  // 标题永远与下文同页
     /* 速查区竖版：排版预检发现会被拆页的表，其条目标题另起一页（BREAK_BEFORE=21,35）；
@@ -221,7 +200,7 @@ function navTable(rows) {
     children: ['编　号', '知　识　点', '页　码'].map((t, i) => cell(
       [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 4, after: 4, line: 205 },
         children: [new TextRun({ text: t, font: { ascii: EN, eastAsia: CN }, size: 18, bold: true })] })],
-      { w: W[i], fill: HDR_F }))
+      { w: W[i], fill: HDR }))
   });
   const body = rows.map((r, ri) => {
     const fill = ri % 2 ? ALT : 'FFFFFF';
@@ -347,23 +326,18 @@ function htmlTable(html) {
   const kept = html.replace(trRe, (all) => { idx++; const r = parsed[idx];
     if (!out.includes(r)) return all;
     (idx < firstData ? pre : post).push(r); return ''; });
-  /* 表外注解段：底色与竖条按类别（警示红 / 前提琥珀 / 注蓝），与表内同一套语义 */
-  const barOf = (cls) => cls.includes('warn') ? WARN_C : cls.includes('premise') ? PRE_BAR_C : NOTE_BAR;
-  const fillOf = (cls) => cls.includes('warn') ? WARN_F : cls.includes('premise') ? PRE_F : NOTE_F;
   const para = (r) => new Paragraph({
     children: runs(String(r.cells[0].text).replace(/<br\s*\/?>/g, '\n'), { size: 18 }).map(x => x),
-    spacing: { before: 60, after: 60, line: 270 }, indent: { left: 120, right: 80 },
-    shading: { type: ShadingType.CLEAR, color: 'auto', fill: fillOf(r.cls) },
-    border: { left: { style: BorderStyle.SINGLE, size: 12, color: barOf(r.cls), space: 8 } },
+    spacing: { before: 60, after: 60, line: 270 }, indent: { left: 120 },
+    border: { left: { style: BorderStyle.SINGLE, size: 12, color: r.cls.includes('warn') ? WARN_C : GRAY, space: 8 } },
     keepNext: pre.includes(r)
   });
   const paras = (arr) => arr.flatMap(r => balanceBr(rowText(r)).split(/<br\s*\/?>/).filter(x => x.trim()).map((sg, k, a) => new Paragraph({
     children: runs(sg.trim(), { size: 19 }),
     spacing: { before: k ? 20 : 100, after: k === a.length - 1 ? 100 : 20, line: 290 },
-    /* 警示 / 前提 / 注 行移出表格后保留左侧竖条与淡底色 */
-    indent: /warn|premise|note/.test(r.cls) ? { left: 120, right: 80 } : undefined,
-    shading: /warn|premise|note/.test(r.cls) ? { type: ShadingType.CLEAR, color: 'auto', fill: fillOf(r.cls) } : undefined,
-    border: /warn|premise|note/.test(r.cls) ? { left: { style: BorderStyle.SINGLE, size: 14, color: barOf(r.cls), space: 8 } } : undefined,
+    /* 警示行移出表格后保留左侧红竖条 */
+    indent: r.cls.includes('warn') ? { left: 120 } : undefined,
+    border: r.cls.includes('warn') ? { left: { style: BorderStyle.SINGLE, size: 14, color: WARN_C, space: 8 } } : undefined,
     keepNext: pre.includes(r)
   })));
   if (!mids.length) return [...paras(pre), htmlTableCore(kept), ...paras(post)];
@@ -785,7 +759,7 @@ function htmlTableCore(html) {
     const isPre = r.cls.includes('premise');
     const isWarn = r.cls.includes('warn');
     /* 警告行：白底 + 左侧红竖条。不用红底——红色是强调色，不是背景色 */
-    const fill = isHdr ? HDR_F : isWarn ? WARN_F : isPre ? PRE_F : isNote ? NOTE_F : (ri % 2 ? ALT : 'FFFFFF');
+    const fill = isHdr ? HDR : isWarn ? 'FFFFFF' : isPre ? PREMISE : isNote ? 'FFFFFF' : (ri % 2 ? ALT : 'FFFFFF');
     const cells = r.cells.map((c, ck) => {
       const ci = startCol[ri][ck];
       let w = 0;
@@ -827,8 +801,7 @@ function htmlTableCore(html) {
         top: { style: BorderStyle.SINGLE, size: 2, color: LINE },
         bottom: { style: BorderStyle.SINGLE, size: 2, color: LINE },
         left: isWarn ? { style: BorderStyle.SINGLE, size: 14, color: WARN_C }
-             : isPre  ? { style: BorderStyle.SINGLE, size: 14, color: PRE_BAR_C }
-             : isNote ? { style: BorderStyle.SINGLE, size: 14, color: NOTE_BAR }
+             : isPre  ? { style: BorderStyle.SINGLE, size: 14, color: GRAY }
                       : { style: BorderStyle.SINGLE, size: 2, color: LINE },
         right: { style: BorderStyle.SINGLE, size: 2, color: LINE }
       };
@@ -857,7 +830,7 @@ function mdTable(rows) {
     tableHeader: ri === 0, cantSplit: true,
     children: Array.from({ length: n }, (_, ci) => new TableCell({
       width: { size: W[ci], type: WidthType.DXA },
-      shading: { type: ShadingType.CLEAR, color: 'auto', fill: ri === 0 ? HDR_F : (ri % 2 ? ALT : 'FFFFFF') },
+      shading: { type: ShadingType.CLEAR, color: 'auto', fill: ri === 0 ? HDR : (ri % 2 ? ALT : 'FFFFFF') },
       borders: {
         top: { style: BorderStyle.SINGLE, size: 2, color: LINE }, bottom: { style: BorderStyle.SINGLE, size: 2, color: LINE },
         left: { style: BorderStyle.SINGLE, size: 2, color: LINE }, right: { style: BorderStyle.SINGLE, size: 2, color: LINE }
@@ -1024,20 +997,20 @@ function chapterOpener(ch, brk) {
   const no = chapNo(cn), n = ch.secs.length;
   const out = [new Paragraph({ pageBreakBefore: !!brk, spacing: { before: 0, after: PORTRAIT ? 2400 : 500 }, children: [] })];
   if (no) out.push(new Paragraph({ spacing: { before: 0, after: 0 }, keepNext: true,
-    children: [new TextRun({ text: no, font: FF, size: 150, bold: true, color: C('C9D8E8', '000000') })] }));
+    children: [new TextRun({ text: no, font: FF, size: 150, bold: true, color: '000000' })] }));
   out.push(new Paragraph({
     heading: HeadingLevel.HEADING_1, keepNext: true,
-    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: unesc(ch.text), font: FF, size: 44, bold: true, color: H1_C })] })],
+    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: unesc(ch.text), font: FF, size: 44, bold: true, color: '000000' })] })],
     spacing: { before: 60, after: 160 },
-    border: { bottom: { style: BorderStyle.SINGLE, size: 24, color: H1_LINE, space: 8 } }
+    border: { bottom: { style: BorderStyle.SINGLE, size: 24, color: '000000', space: 8 } }
   }));
   if (ch.desc) out.push(new Paragraph({ spacing: { before: 60, after: 0, line: 340 },
     children: [new TextRun({ text: ch.desc, font: FF, size: 22, color: '404040' })] }));
   if (n) {
     const quick = ch.secs.every(s => /^QRB_/.test(s.id));
     out.push(new Paragraph({ keepNext: true, spacing: { before: PORTRAIT ? 900 : 480, after: 120 },
-      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: C(INK2, '000000'), space: 4 } },
-      children: [new TextRun({ text: quick ? '本章速查主题' : '本章内容', color: H1_C, font: FF, size: 20, bold: true, characterSpacing: 40 })] }));
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '000000', space: 4 } },
+      children: [new TextRun({ text: quick ? '本章速查主题' : '本章内容', font: FF, size: 20, bold: true, characterSpacing: 40 })] }));
     const nc = n <= 10 ? 1 : (PORTRAIT ? 2 : (n > 20 ? 3 : 2)), GAP = 600;
     const colW = nc === 1 ? Math.min(TOTAL, 9000) : Math.floor((TOTAL - GAP * (nc - 1)) / nc);
     const per = Math.ceil(n / nc), cols = [];
