@@ -20,13 +20,14 @@ info() { printf '%s·%s %s\n' "$DIM" "$RST" "$*"; }
 warn() { printf '%s!%s %s\n' "$YEL" "$RST" "$*"; }
 
 # ---------- 参数 ----------
-FULL=0; PUSH=1; CHECK_ONLY=0; BUILD=1; MSG=""
+FULL=0; PUSH=1; EXPLICIT_PUSH=0; CHECK_ONLY=0; BUILD=1; MSG=""
 BUILT=""                        # 换行分隔的成品清单（bash 3.2 下比数组稳）
 while [ $# -gt 0 ]; do
   case "$1" in
     --full)     FULL=1 ;;
     --check)    CHECK_ONLY=1 ;;
-    --no-push)  PUSH=0 ;;
+    --no-push)  PUSH=0; EXPLICIT_PUSH=0 ;;
+    --push)     PUSH=1; EXPLICIT_PUSH=1 ;;
     --no-build) BUILD=0 ;;
     -m)         shift; MSG="${1:-}" ;;
     -h|--help)  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -41,6 +42,10 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "当前目录不在任何 git 仓库里"
 cd "$ROOT" || die "无法进入 $ROOT"
 [ -d notes_src ] || die "仓库根目录没有 notes_src/，这不是笔记库"
+
+if [ "$EXPLICIT_PUSH" -ne 1 ] && [ "$(git config --bool notes.noPush 2>/dev/null)" = "true" ]; then
+  PUSH=0
+fi
 
 TOOLKIT="${TOOLKIT:-$SELF_DIR}"
 [ -f "$TOOLKIT/assemble.py" ] || TOOLKIT="$ROOT/../pub/tools"
