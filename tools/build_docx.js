@@ -294,7 +294,7 @@ function htmlTable(html) {
   if (!PROBE) TBL_IDX++;
   const parsed = parseHtmlTable(html);
   if (!parsed.length || !(COMPACT || FIT_ALL)) return [htmlTableCore(html)];
-  const visC = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, ''))) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : 1.05; return n; };
+  const visC = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '').replace(HIDE_TBD ? /〔待补来源〕/g : /(?!)/g, ''))) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : 1.05; return n; };
   const nCols = parsed[0].cells.reduce((a, c) => a + c.colspan, 0) || 2;
   const need = new Array(nCols).fill(0);
   parsed.forEach(r => {
@@ -355,7 +355,7 @@ function htmlTableCore(html) {
 
   /* 列宽按内容长度加权：取每列最长单元格的视觉宽度（中日韩字符算 2） */
   const vis = (t) => {
-    const s = unesc(String(t).replace(/<[^>]+>/g, '')).replace(/\*\*/g, '');
+    const s = unesc(String(t).replace(/<[^>]+>/g, '').replace(HIDE_TBD ? /〔待补来源〕/g : /(?!)/g, '')).replace(/\*\*/g, '');
     let n = 0;
     for (const ch of s) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : 1;
     return n;
@@ -440,7 +440,7 @@ function htmlTableCore(html) {
        空格与标点更窄），让列宽「刚好放下」而不是按粗估留大片空白 */
     const CHAR = 96;
     const vis = (t) => {
-      const s = unesc(String(t).replace(/<[^>]+>/g, '')).replace(/\*\*/g, '');
+      const s = unesc(String(t).replace(/<[^>]+>/g, '').replace(HIDE_TBD ? /〔待补来源〕/g : /(?!)/g, '')).replace(/\*\*/g, '');
       let n = 0;
       for (const ch of s) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2
         : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1;
@@ -459,6 +459,8 @@ function htmlTableCore(html) {
         sgs.forEach(sg => { let v = vis(sg); if (v <= 0) return;
           /* 名称下另起一行的括注（补充说明）允许折行：按不超过约 10 个汉字计宽 */
           if (hasMain && /^\s*(<[^>]+>)*\s*[（(]/.test(sg)) v = Math.min(v, 20);
+          /* 「A / B」并列的较长格：允许在「 / 」处折行，按最长一段计宽（用户 2026-09-29：1.3 A-2 数值列过宽） */
+          if (v > 30 && / \/ /.test(sg)) v = Math.min(v, Math.max(...sg.split(/ \/ /).map(x => vis(x))) + 2);
           (segL[ci2] = segL[ci2] || []).push(v); });
       });
     });
@@ -621,7 +623,7 @@ function htmlTableCore(html) {
   if (COMPACT || FIT_ALL) {
     const unitW = 96 * FS / 18;   // 与列宽模型同一套字宽（紧凑模式 9pt 汉字 ≈ 2 × 96 DXA）
     const vis = (t) => {
-      const s0 = unesc(String(t).replace(/<[^>]+>/g, '')).replace(/\*\*/g, '');
+      const s0 = unesc(String(t).replace(/<[^>]+>/g, '').replace(HIDE_TBD ? /〔待补来源〕/g : /(?!)/g, '')).replace(/\*\*/g, '');
       let n = 0;
       for (const ch of s0) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2
         : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1;
@@ -635,12 +637,16 @@ function htmlTableCore(html) {
         const per = Math.max(4, (W[ci2] - 180) / unitW);
         const segs = String(c.text).split(/<br\s*\/?>/).map(sg => vis(sg.trim())).filter(v => v > 0);
         const wraps = segs.some(v => v > per * 1.04);   // 估算误差留 4% 余量，避免刚好一行的格子被判成折行
-        const multiLong = segs.length > 1 && segs.some(v => v > 16);
+        /* 2026-09-29 用户（速查区第 75 条）：VIS / RVR 这类「数值 + 短条件」即使折成两行也应居中；
+           只有长句（含句读、分条列举或单行很长）才左对齐 */
+        const rawSegs = String(c.text).split(/<br\s*\/?>/).map(sg => unesc(sg.replace(/<[^>]+>/g, '')).replace(/〔待补来源〕/g, '').trim()).filter(Boolean);
+        const listy = rawSegs.length > 1 && rawSegs.filter(sg => /^([①-⑳]|\d+[.、)）]|[a-z][)）])/.test(sg)).length >= 2;
+        const multiLong = listy || segs.some(v => v > 50);
         colN[ci2] = (colN[ci2] || 0) + 1;
         const plainV = unesc(String(c.text).replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '')).trim();
         if (NUMRE.test(plainV) || vis(plainV) <= 10 || /^(—|－|-|\/)?$/.test(plainV)) colV[ci2] = (colV[ci2] || 0) + 1;
         const sentence = /[，。；]/.test(plainV) && vis(plainV) > 24;
-        if (wraps || sentence || (ci2 > 0 && multiLong)) { colL[ci2] = (colL[ci2] || 0) + 1; longCell.add(c); }
+        if (sentence || multiLong || (wraps && ci2 === 0 && vis(plainV) > 40)) { colL[ci2] = (colL[ci2] || 0) + 1; longCell.add(c); }
       });
     });
     /* 一列里约 3 成以上的格子是长句才整列左对齐；个别长格在居中列里单独左对齐 */
@@ -747,7 +753,7 @@ function htmlTableCore(html) {
         shading: { type: ShadingType.CLEAR, color: 'auto', fill },
         borders,
         margins: { top: CM, bottom: CM, left: 90, right: 90 },
-        verticalAlign: (COMPACT || (center && c.rowspan > 1)) ? VerticalAlign.CENTER : VerticalAlign.TOP,
+        verticalAlign: VerticalAlign.CENTER,   // 用户 2026-09-29：内容尽量靠表格中心（纵向居中），排版更舒服
         children: paras.length ? paras : [new Paragraph('')]
       });
     });
