@@ -33,7 +33,7 @@ const INK   = '1F4E79',            // 标题与粗分隔线（深蓝）
       WARN_BG = 'FDECEA',          // 警示 / 禁令底
       PRE_BG  = 'FBF2E3',          // 前提 / 适用条件底
       PRE_BAR = 'BF8F00';          // 前提竖条（琥珀）
-const PREMISE = PRE_BG;
+const PREMISE = NOTE_BG;   /* SD-64：注解条由三色收敛为两色，前提条并入注解蓝 */
 /* 印刷选项（2026-09-29 用户：黑白双面印刷）
    DOC_BW=1：黑白印刷——限制值由红色改为黑色加粗 + 下划线，警告条改黑色（红色在黑白印刷中与黑色几乎无法区分）
    DOC_DUPLEX=1：双面印刷——镜像页边距（内侧加宽装订）、奇偶页页眉页脚左右对调（页码在外侧）、封面与每章从右页（奇数页）开始 */
@@ -42,8 +42,8 @@ const DUPLEX = process.env.DOC_DUPLEX === '1';
 const WARN_C = BW ? '000000' : RED;
 /* 黑白印刷时所有底色回落为灰阶，线条回落为黑 / 深灰 */
 const C = (color, bw) => (BW ? bw : color);
-const HDR_F = C(HDR, 'D9D9D9'), NOTE_F = C(NOTE_BG, 'FFFFFF'), WARN_F = C(WARN_BG, 'FFFFFF'), PRE_F = C(PRE_BG, 'EDEDED');
-const NOTE_BAR = C(INK2, GRAY), PRE_BAR_C = C(PRE_BAR, GRAY);
+const HDR_F = C(HDR, 'D9D9D9'), NOTE_F = C(NOTE_BG, 'FFFFFF'), WARN_F = C(WARN_BG, 'FFFFFF'), PRE_F = C(NOTE_BG, 'EDEDED');
+const NOTE_BAR = C(INK2, GRAY), PRE_BAR_C = C(INK2, GRAY);
 /* SD-63「颜色让给内容」：标题与线条一律黑 / 深灰，层级靠字号、字重、线条、缩进表达；
    蓝 INK 专门留给「要记的数值」（行内 <b>），红留给限制与禁令（<em>）。 */
 const H1_C = '000000', H2_C = '000000', H3_C = '000000';
@@ -95,14 +95,16 @@ function runs(text, o = {}) {
       if (tk.startsWith('**')) walk(tk.slice(2, -2), kind === 'red' ? 'red' : (/^gray/.test(kind || '') ? 'graybold' : 'bold'));
       else if (tk.startsWith('`')) push(tk.slice(1, -1), 'code');
       else if (tk.startsWith('<em>')) {
-        /* 红色只标数值与关键禁令短语：整句（去标记后超过 28 字）改为黑色加粗 */
+        /* SD-64 红蓝分工：红＝禁令 / 强制要求（文字性警示），蓝＝数值（要背的）。
+           本书绝大多数内容本身就是限制，若「凡限制皆红」红色会失去警示力；
+           数值是要背的、不是要警惕的，故数值一律走蓝，红色只留给「不许做 / 必须做」。 */
         const inner = tk.slice(4, -5), plainLen = unesc(inner.replace(/<[^>]+>/g, '')).length;
         const plainIn = unesc(inner.replace(/<[^>]+>/g, ''));
         const hasNum = /\d/.test(plainIn);
-        const ban = /不得|禁止|严禁|不要|必须|不能|不可|只能|仅|立即|切勿|不准/.test(plainIn);
-        /* 红色只给：含数值的短语（≤ 20 字）或禁令短语（≤ 12 字）；解释段里不用红色 */
-        const redOk = (hasNum && plainLen <= 20) || (ban && plainLen <= 12);
-        walk(inner, /^gray/.test(kind || '') ? 'graybold' : (redOk ? 'red' : 'bold'));
+        const ban = /不得|禁止|严禁|不要|必须|不能|不可|只能|立即|切勿|不准|务必/.test(plainIn);
+        const redOk = ban && plainLen <= 16;                  /* 禁令 / 强制要求短语 → 红 */
+        const keyOk = !ban && hasNum && plainLen <= 20;        /* 纯数值短语 → 蓝 */
+        walk(inner, /^gray/.test(kind || '') ? 'graybold' : (redOk ? 'red' : (keyOk ? 'key' : 'bold')));
       }
       /* <b>…</b>＝要记的数值：深蓝加粗（SD-63）。红色优先，灰色解释段内不变蓝 */
       else if (/^<b>/.test(tk)) walk(tk.slice(3, -4), kind === 'red' ? 'red' : (/^gray/.test(kind || '') ? 'graybold' : 'key'));
