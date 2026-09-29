@@ -288,7 +288,7 @@ function tableGap(src, i) {
   while (j < src.length && !src[j].trim()) j++;
   const nxt = j < src.length ? src[j].trim() : '';
   if (!nxt || nxt.startsWith('#') || nxt === '%%PAGEBREAK%%' || nxt === '---') return null;
-  if (/^(解释：|公司差异：|注：|<strong>注)/.test(nxt)) return null;   // 表后解释 / 差异 / 注紧跟表格
+  if (/^(解释：|公司差异：|注：|<strong>注|出处：)/.test(nxt)) return null;   // 表后解释 / 差异 / 注紧跟表格
   return P('', { before: 0, after: 60 });
 }
 
@@ -951,6 +951,14 @@ while (i < src.length) {
     body.push(new Paragraph({
       children: exp ? runs('<small>' + t + '</small>') : runs('<strong>公司差异：</strong>' + t.slice(5), { size: 18 }),
       spacing: { before: 20, after: 100 }, indent: { left: 200 }
+    }));
+    i++; continue;
+  }
+  if (/^出处：/.test(ln.trim())) {                 // 表后出处（手册佐证）：灰色小字，紧跟表格
+    const t = ln.trim().replace(/<[^>]+>/g, '');
+    body.push(new Paragraph({
+      children: [new TextRun({ text: t, font: { ascii: EN, eastAsia: CN }, size: 16, color: GRAY })],
+      spacing: { before: 20, after: 140 }, indent: { left: 200 }
     }));
     i++; continue;
   }
