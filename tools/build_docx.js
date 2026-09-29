@@ -28,7 +28,7 @@ const RED = 'C00000';
    底色一律取同色相的最浅一档，打印不糊、iPad 上长时间看不刺眼。 */
 const INK   = '1F4E79',            // 标题与粗分隔线（深蓝）
       INK2  = '2E74B5',            // 次级线条、注解竖条（中蓝）
-      HDR   = 'E7EDF3',            // 表头底（冷灰蓝）
+      HDR   = 'EBEBEB',            // 表头底（中性灰，结构不占色相）
       NOTE_BG = 'EAF1F8',          // 注 / 补充说明底
       WARN_BG = 'FDECEA',          // 警示 / 禁令底
       PRE_BG  = 'FBF2E3',          // 前提 / 适用条件底
@@ -44,8 +44,11 @@ const WARN_C = BW ? '000000' : RED;
 const C = (color, bw) => (BW ? bw : color);
 const HDR_F = C(HDR, 'D9D9D9'), NOTE_F = C(NOTE_BG, 'FFFFFF'), WARN_F = C(WARN_BG, 'FFFFFF'), PRE_F = C(PRE_BG, 'EDEDED');
 const NOTE_BAR = C(INK2, GRAY), PRE_BAR_C = C(PRE_BAR, GRAY);
-const H1_C = C(INK, '000000'), H2_C = C(INK, '000000'), H3_C = C(INK, '000000');
-const H1_LINE = C(INK, '000000'), H2_LINE = C(INK2, '404040'), H3_BAR = C(INK2, '404040');
+/* SD-63「颜色让给内容」：标题与线条一律黑 / 深灰，层级靠字号、字重、线条、缩进表达；
+   蓝 INK 专门留给「要记的数值」（行内 <b>），红留给限制与禁令（<em>）。 */
+const H1_C = '000000', H2_C = '000000', H3_C = '000000';
+const H1_LINE = '000000', H2_LINE = '404040', H3_BAR = C('595959', '404040');
+const KEY_C = C(INK, '000000');          // 要记的数值（黑白版回落为黑体）
 const M_IN = DUPLEX ? 1100 : 900, M_OUT = DUPLEX ? 800 : 900;   // 内侧 / 外侧页边距（DXA）
 const HIDE_TBD = process.env.SHOW_TBD !== '1';   // 成品默认不显示〔待补来源〕（用户要求：表格与正文内不标来源）
 // DOC_PORTRAIT=1：竖版 A4（iPad 阅读版）；默认横版
@@ -59,7 +62,7 @@ const unesc = (t) => t.replace(/&lt;/g,'<').replace(/&gt;/g,'>')
 function runs(text, o = {}) {
   text = unesc(text);
   const out = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
   let last = 0, m;
   const push = (t, kind) => {
     if (!t) return;
@@ -77,14 +80,14 @@ function runs(text, o = {}) {
       text: t,
       font: kind === 'code' ? { ascii: MONO, eastAsia: CN } : circ ? { ascii: CN, hAnsi: CN, eastAsia: CN } : { ascii: EN, eastAsia: CN },
       size: grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20),
-      bold: kind === 'bold' || kind === 'red' || kind === 'graybold' || o.bold,
+      bold: kind === 'bold' || kind === 'red' || kind === 'key' || kind === 'graybold' || o.bold,
       underline: (BW && kind === 'red' && !o.noRed) ? {} : undefined,
-      color: (kind === 'red' && !o.noRed) ? (BW ? '000000' : RED) : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000')))
+      color: (kind === 'red' && !o.noRed) ? (BW ? '000000' : RED) : (kind === 'key' ? KEY_C : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000'))))
     }));
   };
   /* 嵌套标记：<em> 与 <strong> 可互相嵌套，红色优先（红色本身已是粗体） */
   const walk = (s, kind) => {
-    const r = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
+    const r = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
     let l = 0, mm;
     while ((mm = r.exec(s)) !== null) {
       push(s.slice(l, mm.index), kind);
@@ -101,6 +104,8 @@ function runs(text, o = {}) {
         const redOk = (hasNum && plainLen <= 20) || (ban && plainLen <= 12);
         walk(inner, /^gray/.test(kind || '') ? 'graybold' : (redOk ? 'red' : 'bold'));
       }
+      /* <b>…</b>＝要记的数值：深蓝加粗（SD-63）。红色优先，灰色解释段内不变蓝 */
+      else if (/^<b>/.test(tk)) walk(tk.slice(3, -4), kind === 'red' ? 'red' : (/^gray/.test(kind || '') ? 'graybold' : 'key'));
       else if (/^<br/.test(tk)) out.push(new TextRun({ break: 1 }));
       else if (tk.startsWith('<small>')) walk(tk.slice(7, -8), 'gray');      /* SD-33 学习解释：灰色小字 */
       else if (tk === '〔待补来源〕') { if (!HIDE_TBD) push(tk, 'gray'); }      /* 来源待补标记：成品不显示，汇总到条目来源行 */
