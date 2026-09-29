@@ -604,7 +604,7 @@ function htmlTableCore(html) {
   /* 速查区：一列里过半的格是长句（很长或含多个分句）才整列左对齐；其余列（文字、数字、短句）居中 */
   /* 对齐（按内容判定）：一列里只要有格子要折行（首列标签除外：多个短标签分行仍居中），
      或有多段且含长句的格子，整列左对齐；其余（序号、数值、短标签、短语）居中 */
-  const longCols = new Set(), longCell = new Set(), colN = [], colL = [];
+  const longCols = new Set(), longCell = new Set(), colN = [], colL = [], colV = [];
   if (COMPACT || FIT_ALL) {
     const unitW = 132 * FS / 20;
     parsed.forEach((r, ri) => {
@@ -617,11 +617,18 @@ function htmlTableCore(html) {
         const wraps = segs.some(v => v > per);
         const multiLong = segs.length > 1 && segs.some(v => v > 16);
         colN[ci2] = (colN[ci2] || 0) + 1;
-        if (wraps || (ci2 > 0 && multiLong)) { colL[ci2] = (colL[ci2] || 0) + 1; longCell.add(c); }
+        const plainV = unesc(String(c.text).replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '')).trim();
+        if (NUMRE.test(plainV) || vis(plainV) <= 10 || /^(—|－|-|\/)?$/.test(plainV)) colV[ci2] = (colV[ci2] || 0) + 1;
+        const sentence = /[，。；]/.test(plainV) && vis(plainV) > 24;
+        if (wraps || sentence || (ci2 > 0 && multiLong)) { colL[ci2] = (colL[ci2] || 0) + 1; longCell.add(c); }
       });
     });
     /* 一列里约 3 成以上的格子是长句才整列左对齐；个别长格在居中列里单独左对齐 */
-    for (let k3 = 0; k3 < nCols; k3++) if ((colL[k3] || 0) > 0.3 * (colN[k3] || 1)) longCols.add(k3);
+    /* 数值列（七成以上是数值 / 短值）整列居中，个别长格单独左对齐；其余列只要有长句或折行就整列左对齐 */
+    for (let k3 = 0; k3 < nCols; k3++) {
+      const valueCol = (colV[k3] || 0) >= 0.7 * (colN[k3] || 1);
+      if (!valueCol && (colL[k3] || 0) > 0) longCols.add(k3);
+    }
   }
   /* 速查区：有合并单元格的表、或不到半页的表整表同页；其余大表允许分页（表头重复），避免整页留白 */
   const hasRowspan = parsed.some(r => r.cells.some(c => c.rowspan > 1));
@@ -675,7 +682,7 @@ function htmlTableCore(html) {
       const placeholder = /^\s*(—|－|-|\/|)\s*$/.test(unesc(String(c.text).replace(/<[^>]+>/g, '')));
       /* 首列标签格：加粗、不标红（红色只留给数值与禁令） */
       const labelCol = isFirstCol && !parallel && c.colspan === 1 && nCols > 1 && firstIsLabel;
-      const center = placeholder || ((COMPACT || FIT_ALL)
+      const center = placeholder || labelCol || ((COMPACT || FIT_ALL)
         ? (isHdr || c.head || (!isNote && !isPre && !isWarn &&
              (c.colspan === 1 ? (!longCols.has(ci) && !longCell.has(c)) : shortCell(c.text))))
         : (isHdr || c.head
