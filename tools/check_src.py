@@ -34,7 +34,7 @@ TABLE   = re.compile(r'<table[^>]*>[\s\S]*?</table>', re.I)
 TR      = re.compile(r'<tr([^>]*)>([\s\S]*?)</tr>')
 CELL    = re.compile(r'<(td|th)([^>]*)>([\s\S]*?)</\1>')
 COLSPAN = re.compile(r'colspan="(\d+)"')
-FORBIDDEN_MARKS = re.compile(r'〔待补来源〕|\[待补来源\]|〔待确认〕|\[待确认\]')
+FORBIDDEN_MARKS = re.compile(r'〔待补[^〕]{0,12}〕|\[待补[^\]]{0,12}\]|〔待确认〕|\[待确认\]|【缺失[^】]{0,20}】|待核实|待核对|待原件补充|待补充来源|部分内容待补来源|手册未写|手册中未见|原文未收录')   # SD-48 / SD-50：终稿不允许任何待补、待核类备注
 
 
 def table_widths(block):
