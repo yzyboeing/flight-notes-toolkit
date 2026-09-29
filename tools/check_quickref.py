@@ -135,7 +135,7 @@ def main():
     for f in glob.glob(os.path.join(SRC, '[1-5]*', '*.md')):
         t = io.open(f, encoding='utf-8').read(); sid = os.path.basename(f).split(' ')[0]
         secs[sid] = t
-        for m in re.finditer(r'(?ms)^#### ([A-Z]-\d+)　[^\n]*\n(.*?)(?=^#### |^### |\Z)', t):
+        for m in re.finditer(r'(?ms)^#{3,4} ([A-Z]-\d+)　[^\n]*\n(.*?)(?=^#{3,4} |\Z)', t):
             blocks[(sid, m.group(1))] = m.group(2)
         if sid.split('.')[0] in ('4', '5'):          # 第 4、5 章条目「### N. 标题」，地址写「第 N 条」（SD-30）
             for m in re.finditer(r'(?ms)^### (\d+)\. [^\n]*\n(.*?)(?=^### |\Z)', t):
