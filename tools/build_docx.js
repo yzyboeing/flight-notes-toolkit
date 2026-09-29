@@ -776,7 +776,13 @@ function htmlTableCore(html) {
       const placeholder = /^\s*(—|－|-|\/|)\s*$/.test(unesc(String(c.text).replace(/<[^>]+>/g, '')));
       /* 首列标签格：加粗、不标红（红色只留给数值与禁令） */
       const labelCol = isFirstCol && !parallel && c.colspan === 1 && nCols > 1 && firstIsLabel;
-      const center = placeholder || (labelCol && !longCell.has(c)) || ((COMPACT || FIT_ALL)
+      /* R2：首列短标签（括号前名称短）一律居中，括注折成多行也不改左对齐（用户 2026-09-29：速查区第 93 条 MOC / OCA） */
+      const labelShort = labelCol && (() => {
+        let t = unesc(String(c.text).replace(/<br\s*\/?>/g, '').replace(/<[^>]+>/g, '')).replace(/〔待补来源〕/g, '');
+        for (let k = 0; k < 3; k++) t = t.replace(/[（(][^（）()]*[）)]/g, '');
+        return vis(t.trim()) <= 30 && !/[，。；]/.test(t); })();
+      if (process.env.L_LOG && labelShort && longCell.has(c)) console.error('LBLFIX', unesc(String(c.text).replace(/<[^>]+>/g, '')).slice(0, 40));
+      const center = placeholder || labelShort || (labelCol && !longCell.has(c)) || ((COMPACT || FIT_ALL)
         ? (isHdr || c.head || (!isNote && !isPre && !isWarn &&
              (c.colspan === 1 ? (!longCols.has(ci) && !longCell.has(c)) : shortCell(c.text))))
         : (isHdr || c.head
