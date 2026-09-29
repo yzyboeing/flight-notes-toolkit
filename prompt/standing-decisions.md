@@ -154,11 +154,12 @@
 ## SD-53 基准下降率速算统一（2026-09-29 用户）
 - 五边基准下降率一律写「下降率 ≈ 地速 × 梯度百分数」（5.2% → ×5.2），不另给 3° 的 5.3 系数、不写 318ft/NM ÷ 60；例值用进近图 / 局方下降率表值并注明。
 
-## SD-54 成品交付格式：只交 .docx，不交 PDF（2026-09-29 用户）
-- 每轮成品只把 `build/737理论知识笔记_全书_终校版_横版.docx` 与 `_竖版.docx` 交给用户，用户在 Word 里自行另存为 PDF。
-- 原因：LibreOffice headless 转出的 PDF 不更新目录域、也不写书签，成品无目录无法跳转；Word 转换会更新目录域并生成 PDF 书签。
-- 例外：用户明确要 PDF 时才转，并在交付时说明该 PDF 无目录。
-- 仍然照常把 .docx 写回设备 `build/`，并按需抽看渲染页（抽页检查可在容器内转 PDF，属中间产物，不交付）。
+## SD-54 成品交付：.docx 与带书签的 PDF 都可以交（2026-09-29 用户，同日修订）
+- 起因：用户的 Word 提示文件过大无法转 PDF，需要由这边直接出 PDF。
+- 根因已定位并修复：`build_docx.js` 的 Heading1～4 段落样式没有 `outlineLevel`，LibreOffice 无从生成 PDF 书签，所以此前导出的 PDF 只有正文目录页、没有阅读器左侧的目录列表。**目录页的页码一直是正常的**（PAGEREF 域 LibreOffice 能算），此前判断「目录域不更新」有误。
+- 修复：`build_docx.js` 给 Heading1～4 加 `paragraph: { outlineLevel: 0/1/2/3 }`（pub 32e2642）。此后重建的 docx 转 PDF 自动带 858 条书签。
+- 出 PDF 的标准做法：`soffice --headless --convert-to pdf`，转完用 pikepdf 把 `/Root/PageMode` 设为 `/UseOutlines`（打开即展开目录面板）。交付前用 PyMuPDF 核对书签条数与抽查跳转页码。
+- 两种成品都写回设备 `build/`。用户若自己用 Word 转，结果同样带书签。
 
 ## 历史决策
 
