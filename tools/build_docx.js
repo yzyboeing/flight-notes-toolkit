@@ -1014,7 +1014,7 @@ function tocLine(e, w, o = {}) {
     tabStops: [...(e.num ? [{ type: TabStopType.LEFT, position: NUMW }] : []),
                { type: TabStopType.RIGHT, position: w, leader: LeaderType.DOT }],
     indent: e.num ? { left: NUMW, hanging: NUMW } : undefined,
-    spacing: { before: 20, after: 20, line: 240 },
+    spacing: o.loose ? { before: 60, after: 60, line: 300 } : { before: 20, after: 20, line: 240 },
     children: [
       new InternalHyperlink({ anchor: e.id, children: [
         ...(e.num ? [new TextRun({ text: e.num + '\t', font: FF, size: 20, color: '000000' })] : []),
@@ -1050,19 +1050,18 @@ function singleToc(ch, brk) {
     children: [new TextRun({ text: '', size: 2 })],
     border: { bottom: { style: BorderStyle.SINGLE, size: sz, color: col, space: 2 } } });
   out.push(hr(24, H1_LINE, 40), hr(4, C(INK2, '000000'), 0));
-  if (ch.desc) out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200, after: 0, line: 300 },
-    children: [new TextRun({ text: ch.desc, font: FF, size: 19, color: GRAY })] }));
-  out.push(new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 560 : 300 }, children: [] }));
+  /* 2026-09-29 用户：目录页不出简介行；主题单栏竖排 */
+  out.push(new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 400 : 240 }, children: [] }));
   if (n) {
-    const nc = n <= 12 ? 1 : 2, GAP = 700;
-    const colW = nc === 1 ? Math.min(TOTAL, 8400) : Math.floor((TOTAL - GAP) / 2);
+    const nc = 1, GAP = 700;
+    const colW = Math.min(TOTAL, PORTRAIT ? 7600 : 9000);
     const per = Math.ceil(n / nc), cols = [];
     /* 主题本身没有编号，这里按顺序补 01…N，便于口头指引「看第 12 条」 */
     const lines = ch.secs.map((sec, k) => {
       const [, t] = splitSec(sec.text);
       return { id: sec.id, num: String(k + 1).padStart(2, '0'), text: t };
     });
-    for (let c = 0; c < nc; c++) cols.push(lines.slice(c * per, (c + 1) * per).map(l => tocLine(l, colW, { numW: 560 })));
+    for (let c = 0; c < nc; c++) cols.push(lines.slice(c * per, (c + 1) * per).map(l => tocLine(l, colW, { numW: 560, loose: true })));
     out.push(colsTable(cols, colW, GAP));
   }
   return out;
