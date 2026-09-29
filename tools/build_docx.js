@@ -944,7 +944,7 @@ const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
 const splitChap = (t) => { const m = unesc(String(t)).match(/^(第.{1,3}章)[\s　]+(.*)$/); return m ? [m[1], m[2]] : ['', unesc(String(t))]; };
 const splitSec = (t) => { const m = String(t).match(/^(\d+(?:\.\d+)*)[\s　]+(.*)$/); return m ? [m[1], m[2]] : ['', String(t)]; };
 const chapNo = (cn) => { const k = '零一二三四五六七八九'.indexOf(String(cn).charAt(1)); return k >= 0 ? String(k).padStart(2, '0') : ''; };
-/* 目录 / 章首页的一行：编号 + 标题（可点击跳转）+ 点线 + 页码（PAGEREF，Word 中 F9 刷新） */
+/* 目录 / 章首页的一行：整行（编号 + 标题 + 点线 + 页码）都在一个内部超链接里，点哪儿都能跳；页码用 PAGEREF，Word 中 F9 刷新 */
 function tocLine(e, w, o = {}) {
   const NUMW = o.numW || 640;
   if (e.chap) return new Paragraph({
@@ -956,8 +956,8 @@ function tocLine(e, w, o = {}) {
     spacing: { before: o.first ? 0 : 200, after: 60, line: 280 },
     children: [
       new InternalHyperlink({ anchor: e.id, children: [
-        new TextRun({ text: e.cn + (e.cn ? '　' : '') + e.ct, font: FF, size: 22, bold: true, color: '000000' }) ] }),
-      new TextRun({ text: '\t', size: 22 }), new PageReference(e.id)
+        new TextRun({ text: e.cn + (e.cn ? '　' : '') + e.ct, font: FF, size: 22, bold: true, color: '000000' }),
+        new TextRun({ text: '\t', size: 22 }), new PageReference(e.id) ] })
     ]
   });
   if (e.note) return new Paragraph({
@@ -971,9 +971,10 @@ function tocLine(e, w, o = {}) {
     indent: e.num ? { left: NUMW, hanging: NUMW } : undefined,
     spacing: { before: 20, after: 20, line: 240 },
     children: [
-      ...(e.num ? [new TextRun({ text: e.num + '\t', font: FF, size: 20, color: '000000' })] : []),
-      new InternalHyperlink({ anchor: e.id, children: [new TextRun({ text: e.text, font: FF, size: 20, color: '000000' })] }),
-      new TextRun({ text: '\t', size: 20 }), new PageReference(e.id)
+      new InternalHyperlink({ anchor: e.id, children: [
+        ...(e.num ? [new TextRun({ text: e.num + '\t', font: FF, size: 20, color: '000000' })] : []),
+        new TextRun({ text: e.text, font: FF, size: 20, color: '000000' }),
+        new TextRun({ text: '\t', size: 20 }), new PageReference(e.id) ] })
     ]
   });
 }
