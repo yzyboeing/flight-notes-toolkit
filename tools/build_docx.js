@@ -735,7 +735,8 @@ function htmlTableCore(html) {
   /* 速查区：有合并单元格的表、或不到半页的表整表同页；其余大表允许分页（表头重复），避免整页留白 */
   const hasRowspan = parsed.some(r => r.cells.some(c => c.rowspan > 1));
   /* 一页放得下的表一律整表同页（宁可上一页留白，也不要拆开后多出一行重复表头） */
-  const keepTogether = estimate(FS) <= BUDGET;
+  /* 半页以内的表整表同页；超过半页的表允许在行间分页，避免上一页大片空白（2026-09-29 用户授权按最优处理） */
+  const keepTogether = estimate(FS) <= BUDGET * 0.5;
   if (process.env.FIT_LOG) console.error('TBL rows=%d est=%d fs=%d keep=%s', parsed.length, estimate(FS), FS, keepTogether);
 
   /* 顶部连续的通栏前提行 + 表头行一起作「重复标题行」（Word 要求标题行从第一行起连续） */
