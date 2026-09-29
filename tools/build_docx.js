@@ -647,7 +647,7 @@ function htmlTableCore(html) {
   /* 速查区：一列里过半的格是长句（很长或含多个分句）才整列左对齐；其余列（文字、数字、短句）居中 */
   /* 对齐（按内容判定）：一列里只要有格子要折行（首列标签除外：多个短标签分行仍居中），
      或有多段且含长句的格子，整列左对齐；其余（序号、数值、短标签、短语）居中 */
-  const longCols = new Set(), longCell = new Set(), colN = [], colL = [], colV = [], paraCells = [];
+  const longCols = new Set(), longCell = new Set(), colN = [], colL = [], colV = [], colT = [], paraCells = [];
   if (COMPACT || FIT_ALL) {
     const unitW = 96 * FS / 18;   // 与列宽模型同一套字宽（紧凑模式 9pt 汉字 ≈ 2 × 96 DXA）
     const vis = (t) => {
@@ -672,20 +672,23 @@ function htmlTableCore(html) {
            R4 一列里段落型格子过半 → 整列左对齐（长文字列统一左齐）；否则整列居中，个别段落型格子单独左对齐。
            R5 「—」占位一律居中；所有格子纵向居中。 */
         const rawSegs = String(c.text).split(/<br\s*\/?>/).map(sg => unesc(sg.replace(/<[^>]+>/g, '')).replace(/〔待补来源〕/g, '').trim()).filter(Boolean);
-        const listy = rawSegs.length > 1 && (rawSegs.filter(sg => /^([①-⑳]|\d+[.、)）]|[a-z][)）]|[A-Z]-\d+\s|第 ?\d+ ?[条步])/.test(sg)).length >= 2
-          || rawSegs.filter(sg => /[；;]$/.test(sg)).length >= 1 && rawSegs.length >= 2);
+        const enumN = rawSegs.filter(sg => /^([①-⑳]|\d+[.、)）]|[a-z][)）]|[A-Z]-\d+\s|第 ?\d+ ?[条步])/.test(sg)).length;
+        const listy = rawSegs.length >= 3 && (enumN >= 2 || rawSegs.filter(sg => /[；;]$/.test(sg)).length >= 2);
         const lines = segs.reduce((a2, v) => a2 + Math.max(1, Math.ceil(v / (per * 1.04))), 0);
         const total = segs.reduce((a2, v) => a2 + v, 0);
         const puncts = (rawSegs.join('').match(/[，。；]/g) || []).length;
         /* 2026-09-29 终检：防同列「锯齿」——多行且带句读的也算段落型；段落型占三分之一以上整列左齐 */
-        const para = listy || lines >= 3 || total > 90 || (lines >= 2 && puncts >= 1 && total > 40);
+        /* 段落型：分条列举（≥ 3 行）、排版后 ≥ 4 行、或总长超过约 70 个汉字；三行以内的短句（如 1.4 C-1 俯仰 / 横滚方式）居中 */
+        const para = listy || lines >= 4 || total > 140;
         colN[ci2] = (colN[ci2] || 0) + 1;
+        if (total > 30) colT[ci2] = (colT[ci2] || 0) + 1;   // 句子型格（约 15 字以上）
         if (para) { colL[ci2] = (colL[ci2] || 0) + 1; paraCells.push([ci2, c, listy || lines >= 4]); }
       });
     });
-    for (let k3 = 0; k3 < nCols; k3++) if ((colL[k3] || 0) * 3 >= (colN[k3] || 1) && colL[k3]) longCols.add(k3);
+    /* 有段落型格子，且（段落型占三分之一以上，或多数格子是句子）→ 整列左齐，防同列锯齿 */
+    for (let k3 = 0; k3 < nCols; k3++) if (colL[k3] && ((colL[k3] || 0) * 3 >= (colN[k3] || 1) || (colT[k3] || 0) * 2 > (colN[k3] || 1))) longCols.add(k3);
     /* 居中列里只有很长（≥ 4 行）或分条列举的格子单独左齐 */
-    paraCells.forEach(([k3, c, strong]) => { if (longCols.has(k3) || strong) longCell.add(c); });
+    paraCells.forEach(([k3, c]) => longCell.add(c));
   }
   if (process.env.A_LOG && !PROBE) {
     const cols = [];
