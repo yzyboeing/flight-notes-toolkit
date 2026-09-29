@@ -1058,6 +1058,9 @@ let i = 0, docTitle = '', pendingBreak = false, QRB_N = 0;
 while (i < src.length) {
   let ln = src[i];
 
+  /* HTML 注释整行：不渲染（速查区用它保留「详见」给校验脚本，成品里不出现） */
+  if (/^\s*<!--[\s\S]*?-->\s*$/.test(ln)) { i++; continue; }
+
   if (/^```/.test(ln)) {                       // 代码块
     const buf = []; i++;
     while (i < src.length && !/^```/.test(src[i])) buf.push(src[i++]);
