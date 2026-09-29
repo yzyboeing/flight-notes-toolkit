@@ -1196,6 +1196,7 @@ const rule = (o) => new Paragraph({
 const BOXW = PORTRAIT ? 8000 : 10000;
 const coverTxt = (text, size, o = {}) => new Paragraph({
   alignment: AlignmentType.CENTER, spacing: { before: o.before || 0, after: o.after || 0, line: o.line },
+  outlineLevel: o.outline ? 0 : undefined,
   children: [new TextRun({ text, font: FF, size, bold: !!o.bold, color: o.color || '000000', characterSpacing: o.cs })]
 });
 function coverOverview() {
@@ -1227,7 +1228,7 @@ const cover = [
   rule({ size: 24, color: '000000', after: 50 }),
   rule({ size: 4, color: '000000', after: 0 }),
   coverTxt(process.env.DOC_LABEL || 'B737-NG　/　B737-8', 24, { before: PORTRAIT ? 560 : 280, bold: true, color: '404040', cs: 80 }),
-  coverTxt(docTitle, 76, { before: 120, after: 120, bold: true }),
+  coverTxt(docTitle, 76, { before: 120, after: 120, bold: true, outline: true }),
   coverTxt(process.env.DOC_SUBTITLE || '系统 · 运行 · 训练', 26, { after: PORTRAIT ? 560 : 280, color: GRAY, cs: 60 }),
   rule({ size: 4, color: '000000', after: 50 }),
   rule({ size: 24, color: '000000', after: 0 }),
@@ -1264,9 +1265,11 @@ function buildToc() {
   if (cur.length) cols.push(cur);
   const out = [];
   for (let pg = 0; pg * PER < cols.length; pg++) {
+    /* 标题两页都写「总目录」（用户 2026-09-29）；只有第一页进 PDF 书签，避免重复 */
     out.push(new Paragraph({ pageBreakBefore: pg > 0, alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 },
-      children: [new TextRun({ text: pg ? '目　录（续）' : '目　　录', font: FF, size: pg ? 28 : 40, bold: true, characterSpacing: pg ? 20 : 60 })] }));
-    out.push(rule({ size: 24, color: '000000', after: 40 }), rule({ size: 4, color: '000000', after: 0 }));
+      outlineLevel: pg ? undefined : 0,
+      children: [new TextRun({ text: '总目录', font: FF, size: pg ? 28 : 40, bold: true, characterSpacing: pg ? 20 : 60, color: H1_C })] }));
+    out.push(rule({ size: 24, color: H1_LINE, after: 40 }), rule({ size: 4, color: C(INK2, '000000'), after: 0 }));
     out.push(new Paragraph({ spacing: { before: 0, after: 240 }, children: [] }));
     const pc = cols.slice(pg * PER, pg * PER + PER).map(c => c.map((l, k) => tocLine(l, colW, { first: k === 0 })));
     out.push(pc.length === 1 && PORTRAIT ? colsTable(pc, colW, GAP) : colsTable(pc.length < PER ? pc.concat([[]]) : pc, colW, GAP));
@@ -1285,8 +1288,9 @@ function buildPreface() {
   const paras = fs.readFileSync(pf, 'utf8').split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
   const out = [];
   out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: PORTRAIT ? 600 : 200, after: 120 },
-    children: [new TextRun({ text: '前　　言', font: FF, size: 40, bold: true, characterSpacing: 60 })] }));
-  out.push(rule({ size: 24, color: '000000', after: 40 }), rule({ size: 4, color: '000000', after: 0 }));
+    outlineLevel: 0,
+    children: [new TextRun({ text: '前言', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C })] }));
+  out.push(rule({ size: 24, color: H1_LINE, after: 40 }), rule({ size: 4, color: C(INK2, '000000'), after: 0 }));
   out.push(new Paragraph({ spacing: { before: 0, after: 360 }, children: [] }));
   const ind = PORTRAIT ? 600 : 1800;
   paras.forEach(t => {
