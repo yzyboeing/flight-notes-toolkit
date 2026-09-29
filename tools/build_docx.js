@@ -577,6 +577,25 @@ function htmlTableCore(html) {
         w[best] += STEP; left -= STEP;
       }
     }
+    /* 跨列合并格文字多、而所跨各列按短内容定宽时：把所跨列加宽到该格最长一行放得下（不超过页宽），
+       减少合并格的折行行数、避免右侧大片空白（用户 2026-09-29：1.2 B-1「失速警告逻辑」） */
+    {
+      const spanCells = [];
+      parsed.forEach((r, ri) => {
+        if (r.cls.includes('hdr') || r.cls.includes('note') || r.cls.includes('premise')) return;
+        r.cells.forEach((c, ck) => { if (c.colspan > 1) {
+          const need = Math.max(...String(c.text).split(/<br\s*\/?>/).map(sg => vis(sg.trim())));
+          spanCells.push({ ci: startCol[ri][ck], span: c.colspan, need }); } });
+      });
+      spanCells.sort((x, y) => y.need - x.need);
+      for (const sc of spanCells) {
+        const idx = []; for (let k = 0; k < sc.span; k++) idx.push(Math.min(sc.ci + k, nCols - 1));
+        const cur = idx.reduce((a2, k) => a2 + w[k], 0);
+        const others = w.reduce((a2, b2) => a2 + b2, 0) - cur;
+        const want = Math.min(TOTAL - others, Math.round(sc.need * CHAR) + EXTRA);
+        if (want > cur + 300) { const add = want - cur; idx.forEach(k => { w[k] += Math.floor(add * w[k] / cur); }); }
+      }
+    }
     const s = w.reduce((a2, b2) => a2 + b2, 0);
     for (let k2 = 0; k2 < nCols; k2++) W[k2] = s > TOTAL ? Math.floor(w[k2] * TOTAL / s) : w[k2];
   }
