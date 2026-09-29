@@ -1262,6 +1262,7 @@ const cover = [
    页码为 PAGEREF 域（Word 中全选 F9 刷新），标题可点击跳转。速查区只列章行，31 个主题清单在第零章首页。
    整章成栏：竖版每页一栏，横版每页两栏；一栏放不下的章换到下一栏。 */
 function buildToc() {
+  if (process.env.DOC_NOTOC === '1') return [];   /* 单章成册：章首页自带本章目录，不再出总目录页 */
   if (!BOOK) return [new TableOfContents('目录', { hyperlink: true, headingStyleRange: '1-2' })];
   const PER = PORTRAIT ? 1 : 2, CAP = PORTRAIT ? 44 : 27, GAP = 800;
   const colW = PORTRAIT ? Math.min(TOTAL, 9000) : Math.floor((TOTAL - GAP) / 2);
