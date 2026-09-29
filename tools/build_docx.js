@@ -987,10 +987,14 @@ function tocLine(e, w, o = {}) {
         new TextRun({ text: '\t', size: 22 }), new PageReference(e.id) ] })
     ]
   });
-  if (e.note) return new Paragraph({
-    indent: { left: NUMW }, spacing: { before: 20, after: 20, line: 240 },
-    children: [new TextRun({ text: e.note, font: FF, size: 18, color: GRAY })]
-  });
+  /* 说明行：带 id 时整行做成内部超链接（例：总目录里第零章下的「速查主题」跳到本章首页的主题清单） */
+  if (e.note) {
+    const nr = new TextRun({ text: e.note, font: FF, size: 18, color: e.id ? H2_C : GRAY });
+    return new Paragraph({
+      indent: { left: NUMW }, spacing: { before: 20, after: 20, line: 240 },
+      children: [e.id ? new InternalHyperlink({ anchor: e.id, children: [nr] }) : nr]
+    });
+  }
   return new Paragraph({
     keepLines: true,
     tabStops: [...(e.num ? [{ type: TabStopType.LEFT, position: NUMW }] : []),
@@ -1258,7 +1262,7 @@ function buildToc() {
     const [cn, ct] = splitChap(ch.text);
     const quick = ch.secs.length && ch.secs.every(s => /^QRB_/.test(s.id));
     const ls = [{ chap: true, id: ch.id, cn, ct }];
-    if (quick) ls.push({ note: '速查主题 ' + ch.secs.length + ' 个，清单见本章首页' });
+    if (quick) ls.push({ note: '速查主题', id: ch.id });
     else ch.secs.forEach(s => { const [num, text] = splitSec(s.text); ls.push({ id: s.id, num, text }); });
     return ls;
   });
