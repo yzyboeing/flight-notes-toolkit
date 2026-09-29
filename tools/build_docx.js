@@ -1356,12 +1356,16 @@ const doc = new Document({
     default: { document: { run: { font: { ascii: EN, eastAsia: CN }, size: 20 } } },
     paragraphStyles: [
       { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+        paragraph: { outlineLevel: 0 },
         run: { size: 30, bold: true, color: '000000', font: { ascii: EN, eastAsia: CN } } },
       { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+        paragraph: { outlineLevel: 1 },
         run: { size: 24, bold: true, color: '000000', font: { ascii: EN, eastAsia: CN } } },
       { id: 'Heading3', name: 'Heading 3', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+        paragraph: { outlineLevel: 2 },
         run: { size: 21, bold: true, color: '000000', font: { ascii: EN, eastAsia: CN } } },
       { id: 'Heading4', name: 'Heading 4', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+        paragraph: { outlineLevel: 3 },
         run: { size: 20, bold: true, color: '000000', font: { ascii: EN, eastAsia: CN } } }
     ]
   },
