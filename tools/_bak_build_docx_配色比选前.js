@@ -18,15 +18,7 @@ const OUT = process.argv[3] || 'prompt.docx';
 const CN   = process.env.DOC_FONT_CN   || 'PingFang SC',
       EN   = process.env.DOC_FONT_EN   || 'Helvetica Neue',
       MONO = process.env.DOC_FONT_MONO || 'Menlo';
-/* DOC_PALETTE：整体配色方案比选（2026-09-29）。未设置＝现行方案。
-   key＝数值字色，keyBg＝数值底色（荧光笔），note/noteBar＝注解条底色/竖条，warn＝警示条底色，hdr＝表头底，alt＝斑马纹，tail＝表后「注：」行底色 */
-const PALETTES = {
-  hl:   { key: '000000', keyBg: 'FFEB9C', note: 'F3F3F3', noteBar: '808080', warn: 'FDECEA', hdr: 'E7E6E6', alt: 'FAFAFA', tail: '' },
-  blue: { key: '0B5CAD', keyBg: '',       note: 'EEF4FB', noteBar: '0B5CAD', warn: 'FDECEA', hdr: 'DCE6F1', alt: 'F7F9FC', tail: '' },
-  teal: { key: '00806A', keyBg: 'E3F4EF', note: 'F1F7F5', noteBar: '00806A', warn: 'FDECEA', hdr: 'E4EDEA', alt: 'F8FBFA', tail: '' },
-};
-const PAL = PALETTES[process.env.DOC_PALETTE] || {};
-const GRAY = '595959', LINE = 'BFBFBF', ALT = PAL.alt || 'F7F7F7', CODE = 'F2F2F2';
+const GRAY = '595959', LINE = 'BFBFBF', ALT = 'F7F7F7', CODE = 'F2F2F2';
 const RED = 'C00000';
 /* ---------- 彩色版配色（2026-09-29 用户：整本按彩色设计）----------
    只用三个色相，各自含义固定，避免「五颜六色但看不出层级」：
@@ -36,9 +28,9 @@ const RED = 'C00000';
    底色一律取同色相的最浅一档，打印不糊、iPad 上长时间看不刺眼。 */
 const INK   = '1F4E79',            // 标题与粗分隔线（深蓝）
       INK2  = '2E74B5',            // 次级线条、注解竖条（中蓝）
-      HDR   = PAL.hdr || 'EBEBEB',            // 表头底（中性灰，结构不占色相）
-      NOTE_BG = PAL.note || 'EAF1F8',          // 注 / 补充说明底
-      WARN_BG = PAL.warn || 'FDECEA',          // 警示 / 禁令底
+      HDR   = 'EBEBEB',            // 表头底（中性灰，结构不占色相）
+      NOTE_BG = 'EAF1F8',          // 注 / 补充说明底
+      WARN_BG = 'FDECEA',          // 警示 / 禁令底
       PRE_BG  = 'FBF2E3',          // 前提 / 适用条件底
       PRE_BAR = 'BF8F00';          // 前提竖条（琥珀）
 const PREMISE = NOTE_BG;   /* SD-64：注解条由三色收敛为两色，前提条并入注解蓝 */
@@ -51,7 +43,7 @@ const WARN_C = BW ? '000000' : RED;
 /* 黑白印刷时所有底色回落为灰阶，线条回落为黑 / 深灰 */
 const C = (color, bw) => (BW ? bw : color);
 const HDR_F = C(HDR, 'D9D9D9'), NOTE_F = C(NOTE_BG, 'FFFFFF'), WARN_F = C(WARN_BG, 'FFFFFF'), PRE_F = C(NOTE_BG, 'EDEDED');
-const NOTE_BAR = C(PAL.noteBar || INK2, GRAY), PRE_BAR_C = C(PAL.noteBar || INK2, GRAY);
+const NOTE_BAR = C(INK2, GRAY), PRE_BAR_C = C(INK2, GRAY);
 /* SD-63「颜色让给内容」：标题与线条一律黑 / 深灰，层级靠字号、字重、线条、缩进表达；
    蓝 INK 专门留给「要记的数值」（行内 <b>），红留给限制与禁令（<em>）。 */
 const H1_C = '000000', H2_C = '000000', H3_C = '000000';
@@ -61,8 +53,8 @@ const H1_LINE = '000000', H2_LINE = '404040', H3_BAR = C('595959', '404040');
    墨绿与黑、红、链接蓝三者都分得开，形成四路分工：黑＝正文、红＝禁令、绿＝数值、蓝＝可点击。
    可用 DOC_KEYCOLOR 覆盖；黑白版回落为黑体加粗。 */
 const KEY = '1B6B4C';
-const KEY_C = C(process.env.DOC_KEYCOLOR || PAL.key || KEY, '000000');
-const KEY_BG = process.env.DOC_KEYBG || PAL.keyBg || '';   // 数值强调的底色（荧光笔式），默认无
+const KEY_C = C(process.env.DOC_KEYCOLOR || KEY, '000000');
+const KEY_BG = process.env.DOC_KEYBG || '';   // 数值强调的底色（荧光笔式），默认无
 const M_IN = DUPLEX ? 1100 : 900, M_OUT = DUPLEX ? 800 : 900;   // 内侧 / 外侧页边距（DXA）
 const HIDE_TBD = process.env.SHOW_TBD !== '1';   // 成品默认不显示〔待补来源〕（用户要求：表格与正文内不标来源）
 // DOC_PORTRAIT=1：竖版 A4（iPad 阅读版）；默认横版
