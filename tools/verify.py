@@ -18,7 +18,7 @@ for i in range(d.page_count):
     if re.search(r'</?(em|strong|td|th|tr)>|\[\[|\]\]', t): leak.append(i + 1)      # 含未还原的 [[双链]]
     # SD-75 允许渲染器生成的「▪ 主题 / – 子项」纯文本层级；其余项目符号仍视为残留。
     # LibreOffice / PyMuPDF 有时会吞掉符号后的空格；行首的 ▪ 仍是渲染器层级标记。
-    t_no_hierarchy = re.sub(r'(?m)^\s*▪\s*', '', t)
+    t_no_hierarchy = re.sub(r'(?m)^\s*[▪•]\s*', '', t)   # SD-78：渲染器为并列句加的「•」同样放行
     if re.search(r'[▪•]', t_no_hierarchy): bullet.append(i + 1)
     if re.search(r'title_cn:|aircraft:', t): fm.append(i + 1)
 print('页数', d.page_count)
