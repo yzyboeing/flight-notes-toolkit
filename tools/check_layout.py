@@ -212,6 +212,14 @@ def scan(pdf, name, header):
                 if cen and lef:
                     sug('T7', '%s 第 %d 页：第 %d 列 %d 格居中、%d 格左对齐（如「%s」）——统一对齐' % (
                         name, i + 1, k + 1, len(cen), len(lef), lef[0][1][0][2].strip()[:18]))
+            # T10 引语后的子项被排成同级（2026-09-30 用户，速查第 6 条）：「• ……：」后面紧跟的仍是「•」
+            for r in info[1:]:
+                for x in r:
+                    if not x: continue
+                    ls = [l[2].strip() for l in x[1]]
+                    for a0, b0 in zip(ls, ls[1:]):
+                        if a0.startswith('•') and re.search(r'[：:]$', a0) and b0.startswith('•'):
+                            sug('T10', '%s 第 %d 页：「%s」是引语，后面的子项应为「–」，现为「•」' % (name, i + 1, a0[:24])); break
             # T9 两型对照列格式不一致（2026-09-30 全书复审，速查第 120 条）：表头有 737-NG 与 737-8 两列，一列有「•」、另一列同类句子格没有
             try:
                 hdrtxt = [''.join(l[2] for l in x[1]) if x else '' for x in info[0]]
@@ -247,6 +255,14 @@ def scan(pdf, name, header):
 
 book = scan(BOOK, '全书', HEADER)
 scan(QREF, '单册', 'B737机型理论基础知识速查')   # 单册页眉（2026-09-30 用户定）
+
+# B4 一页只有一两行（2026-09-30 用户：「尽量避免在一页中只有一两行的情况」）：正文（去页眉页脚）不超过 2 行的页
+for nm, pdf in (('全书', BOOK), ('单册', QREF)):
+    dd = pymupdf.open(pdf); Hh = dd[0].rect.height
+    for i in range(1, len(dd) - 1):
+        ln = [l for l in body_lines(dd[i]) if l[1] > 0.06 * Hh and not re.match(r'\s*第\s*\d+\s*页\s*$', l[4])]
+        if 0 < len(ln) <= 2:
+            err('B4', '%s 第 %d 页只有 %d 行（「%s」）——调整上一页间距或内容，避免孤页' % (nm, i + 1, len(ln), ln[0][4].strip()[:20]))
 
 # P 前言（SD-73 / SD-74）与总目录
 pre = next((i for i in range(1, 5) if nosp(book[i].get_text()).find('前言') >= 0), None)
