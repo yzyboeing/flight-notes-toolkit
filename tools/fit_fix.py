@@ -10,6 +10,7 @@
          1 级 9pt 不变、收紧行距与单元格边距；2 级 8.5pt；3 级 8pt（底线）；
        按超出比例直接从合适的一级起试，仍断开就升一级；
      · 3 级仍放不下 → 放弃（行：!签名），照常行间分页 + 防孤行。
+  · 末行孤字 / 短格折行（layout_measure.py 实测）→ 这一列加宽（行：W:列:DXA:签名），从最宽列匀出；加宽两次仍不行就放弃（WB:）。
 清单跨次保留，下次构建第一遍就生效；表格内容改动后签名对不上，自动撤出。
 是否放得下以 PDF 实测为准，不看估算。"""
 import sys, os, json, subprocess, tempfile, shutil
@@ -36,17 +37,23 @@ def to_pdf():
     return p
 
 # 状态：lv[sig] = 0（强制整表）/ 1～3（压缩级）；block＝放弃
-lv, block = {}, set()
+lv, block, wfix, wblock = {}, set(), {}, set()     # wfix[(sig, 列)] = 加宽 DXA；wblock＝加宽也没用的格，不再试
 for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
     l = l.strip()
     if not l: continue
-    if l.startswith('!'): block.add(l[1:])
+    if l.startswith('W:'):
+        _, k, dd, sg = l.split(':', 3); wfix[(sg, int(k))] = int(dd)
+    elif l.startswith('WB:'):
+        _, k, sg = l.split(':', 2); wblock.add((sg, int(k)))
+    elif l.startswith('!'): block.add(l[1:])
     elif l.startswith('~'): lv[l[3:]] = int(l[1])
     else: lv[l] = 0
 def save():
     with open(KF, 'w', encoding='utf-8') as f:
         for s, v in sorted(lv.items()): f.write((('~%d:' % v) if v else '') + s + '\n')
         for s in sorted(block): f.write('!' + s + '\n')
+        for (sg, k), dd in sorted(wfix.items()): f.write('W:%d:%d:%s\n' % (k, dd, sg))
+        for (sg, k) in sorted(wblock): f.write('WB:%d:%s\n' % (k, sg))
 
 bg = lambda x: {x[k:k + 2] for k in range(len(x) - 1)}
 def match(text, tbls):
@@ -58,6 +65,7 @@ def match(text, tbls):
     return {s for v, s in score if v >= max(0.75, score[0][0] - 0.1)}
 
 dump = os.path.join(tempfile.mkdtemp(), 'dump.jsonl')
+tried = {}
 for n in range(1, 8):
     save()
     build(dump)
@@ -67,9 +75,30 @@ for n in range(1, 8):
     changed = [s for s in list(lv) if s not in sigs]            # 表已改动：撤出
     for s in changed: del lv[s]
     block &= sigs
+    for key in [k2 for k2 in wfix if k2[0] not in sigs]: del wfix[key]
+    wblock = {k2 for k2 in wblock if k2[0] in sigs}
     pdf = to_pdf()
     res = json.loads(subprocess.run([sys.executable, os.path.join(T, 'check_splits.py'), pdf, '--json'],
                                     capture_output=True, text=True).stdout)
+    # SD-85 实测加宽：末行孤字、短格折行 → 这张表这一列加宽，下一遍重排（原文 <br> 主动换行的不算）
+    sys.path.insert(0, T); from layout_measure import measure
+    wadd, wgive, now = 0, 0, set()
+    for x in measure(pdf):
+        for sg in match(x['table'], tbls):           # 速查区与正文同文的表一并加宽
+            tb = next(t for t in tbls if t['sig'] == sg)
+            # 列号按格子中心的横向位置换算回源表列（PDF 识别合并单元格时会多切列，列号不可靠）
+            Wt = tb.get('W') or []
+            if not Wt: continue
+            pos, acc, col = x['cx'] * sum(Wt) / max(x['tw'], 1), 0, len(Wt) - 1
+            for q, wq in enumerate(Wt):
+                acc += wq
+                if pos <= acc: col = q; break
+            key = (sg, col)
+            if key in wblock or key in now or (x['first'] and x['first'] + '|' in tb.get('br', '')): continue
+            now.add(key)
+            new = wfix.get(key, 0) + int(x['extra_pt'] * 20) + 20
+            if new > 1500 or tried.get(key, 0) >= 3: wblock.add(key); wfix.pop(key, None); wgive += 1; continue   # 加宽 3 次或超过 75pt 仍不行：放弃
+            wfix[key] = new; tried[key] = tried.get(key, 0) + 1; wadd += 1
     shutil.rmtree(os.path.dirname(pdf), ignore_errors=True)
     add, up, gave, miss = 0, 0, 0, []
     for sp in res['splits']:
@@ -86,9 +115,9 @@ for n in range(1, 8):
                 lv[s] = max(lv[s] + 1, 1); up += 1                 # 强制 / 压缩后仍断开：升一级
             else:
                 del lv[s]; block.add(s); gave += 1                  # 8pt 仍放不下：放弃，照常分页
-    print('fit_fix 第 %d 遍：%d 页，断表 %d 处（本可整页 %d）；新增整表 %d、压缩升级 %d、放弃 %d、撤出 %d；当前压缩 %d 张%s' % (
+    print('fit_fix 第 %d 遍：%d 页，断表 %d 处（本可整页 %d）；新增整表 %d、压缩升级 %d、放弃 %d、撤出 %d；当前压缩 %d 张；列加宽 +%d、放弃 %d%s' % (
         n, res['pages'], len(res['splits']), sum(s['fits'] for s in res['splits']), add, up, gave, len(changed),
-        sum(1 for v in lv.values() if v), ('；匹配不到：' + '、'.join(miss)) if miss else ''))
-    if not (add or up or gave or changed): break
+        sum(1 for v in lv.values() if v), wadd, wgive, ('；匹配不到：' + '、'.join(miss)) if miss else ''))
+    if not (add or up or gave or changed or wadd or wgive): break
     if n == 7: print('fit_fix：7 遍仍未稳定，docx 保持本遍结果，交 check_layout 报告')
 save()

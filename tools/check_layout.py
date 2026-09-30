@@ -76,6 +76,16 @@ def cell_lines(lines, bb):
     return [tuple(v) for v in rows.values()]
 
 PAD = 12   # 单元格左右内边距合计（pt）
+# 源文件里 <br> 主动换行的位置（T2 / T8 不把作者有意的换行当成问题）：build/book.md 去标签后只留字母数字，<br> 记为「|」
+_bk = os.path.join(REPO, 'build', 'book.md')
+BRTEXT = ''
+if os.path.exists(_bk):
+    _t = re.sub(r'<br\s*/?>', '\x01', open(_bk, encoding='utf-8').read())
+    _t = re.sub(r'<[^>]+>', '', _t)
+    BRTEXT = ''.join(ch if (ch.isalnum() or ch == '\x01') else '' for ch in _t).replace('\x01', '|')
+def explicit_br(first_line):
+    k = ''.join(ch for ch in first_line if ch.isalnum())
+    return bool(k) and (k + '|') in BRTEXT
 def scan(pdf, name, header):
     d = pymupdf.open(pdf)
     W, H = d[0].rect.width, d[0].rect.height
@@ -156,7 +166,7 @@ def scan(pdf, name, header):
                     if ri > 0 and vis(txt) > 20: continue
                     if re.match(r'[•–▪①-⑳]', txt) or '•' in txt: continue
                     # 自然折行时首行会接近撑满格宽；首行明显短于格宽说明是原文 <br> 主动分行（SD-72 不管）
-                    if (ls[0][1] - ls[0][0]) < (c[2] - c[0]) - PAD - 18: continue
+                    if (ls[0][1] - ls[0][0]) < (c[2] - c[0]) - PAD - 18 or explicit_br(ls[0][2]): continue
                     need = sum(l[1] - l[0] for l in ls) + PAD - (c[2] - c[0])
                     have = sum(spare[j] for j in range(ncol) if j != k) + max(0, CW - tw)
                     if 0 < need and need + 6 <= have:
@@ -167,6 +177,7 @@ def scan(pdf, name, header):
                 cells = [r[k] for r in info[1:] if k < len(r) and r[k] and (k + 1 >= len(r) or r[k + 1] is not None)]
                 cells = [x for x in cells if x[1]]
                 if len(cells) < 2 or any(len(x[1]) != 1 for x in cells): continue
+                if any(x[1][0][2].lstrip().startswith('•') for x in cells): continue   # 按同列统一规则加点的列本就左齐（表可能跨页，只看到一半）
                 left = [x for x in cells if abs(((x[1][0][0] + x[1][0][1]) / 2) - ((x[0][0] + x[0][2]) / 2)) > 4
                         and (x[0][2] - x[0][0]) - (x[1][0][1] - x[1][0][0]) > PAD + 8]
                 if len(left) == len(cells):
@@ -206,7 +217,7 @@ def scan(pdf, name, header):
                     if not x or len(x[1]) < 2 or len(x[1]) > 3 or x[1][0][2].lstrip().startswith('•'): continue   # 只管短格；长段落末行一两个字属正常
                     last = re.sub(r'[\s，。；：、（）()「」.,;:]', '', x[1][-1][2])
                     prev = x[1][-2]   # 上一行接近撑满格宽才是自然折行；原文 <br> 主动换行（如「（被动）」）不算
-                    if (prev[1] - prev[0]) < (x[0][2] - x[0][0]) - PAD - 18 or re.match(r'\s*[（(]', x[1][-1][2]): continue
+                    if (prev[1] - prev[0]) < (x[0][2] - x[0][0]) - PAD - 18 or re.match(r'\s*[（(]', x[1][-1][2]) or explicit_br(x[1][-2][2]): continue
                     if 0 < len(last) <= 2 and not re.match(r'[•–▪]', x[1][-1][2].strip()):
                         sug('T8', '%s 第 %d 页：「%s…」折行后末行只剩「%s」——调列宽让它少折一行' % (name, i + 1, x[1][0][2].strip()[:14], last))
             # T4 并列长句未分条（SD-78）：一格内 ≥2 个「；」、各分句 ≥ 20 字宽、却没有 •

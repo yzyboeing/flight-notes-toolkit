@@ -327,10 +327,13 @@ function tableGap(src, i) {
    让表格保持按内容收窄，说明文字按正文宽度排，不再被挤成一长条 */
 let PROBE = false, TBL_IDX = -1, KEEP_LAST = false;
 /* KEEP_FORCE 文件（fit_fix.py 维护）：一行一个表签名＝强制整表同页；「~N:签名」＝整表同页并按第 N 级压缩（SD-80）；「!签名」＝已放弃（fit_fix 自用） */
-const KEEP_FORCE = new Set(), SHRINK = new Map();
+const KEEP_FORCE = new Set(), SHRINK = new Map(), WFIX = new Map();
 if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
   for (const l0 of fs.readFileSync(process.env.KEEP_FORCE, 'utf8').split('\n')) {
     const l = l0.trim(); if (!l || l.startsWith('!')) continue;
+    const w = l.match(/^W:(\d+):(\d+):(.+)$/);   // SD-85 实测加宽：W:列号:加宽DXA:签名
+    if (w) { if (!WFIX.has(w[3])) WFIX.set(w[3], []); WFIX.get(w[3]).push([+w[1], +w[2]]); continue; }
+    if (/^WB?:/.test(l)) continue;
     const m = l.match(/^~(\d):(.+)$/);
     if (m) { SHRINK.set(m[2], +m[1]); KEEP_FORCE.add(m[2]); } else KEEP_FORCE.add(l);
   }
@@ -501,6 +504,9 @@ function htmlTableCore(html) {
         const segs = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
         /* 源文件用「- 」写的子项（接在一句话之后）：统一排成「引语 + – 子项」，不再原样印出连字符 */
         const DASH = /^\s*[-–—]\s+/;
+        if (segs.length >= 2 && segs.every(x => DASH.test(plainOf(x)))) {   // 整格每段都以「- 」开头：就是分条列表，排成「•」
+          c.text = segs.map(x => MK_B + x.replace(/^\s*[-–—]\s+/, '')).join('<br>'); return;
+        }
         if (segs.length >= 2 && !DASH.test(plainOf(segs[0])) && segs.slice(1).some(x => DASH.test(plainOf(x)))) {
           c.text = segs.map(x => DASH.test(plainOf(x)) ? MK_C + x.replace(/^\s*[-–—]\s+/, '') : MK_P + x).join('<br>'); return;
         }
@@ -566,6 +572,15 @@ function htmlTableCore(html) {
         c.text = segs.map((s0, i) => (i === 0 ? MK_B : MK_Q) + s0).join('<br>');
         if (process.env.UNI_LOG && !PROBE) console.error('UNI\t' + p0.slice(0, 40));
       }); });
+    /* 一列里加了点的格如果每格都只有一项（一个「•」、没有子项），点就没有意义（用户第 25、52 条：单句 / 短语居中不加点）→ 整列撤点 */
+    { const cells = new Map();
+      parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+        r.cells.forEach((c, k) => { if (c.colspan !== 1) return; const col = startCol[ri][k];
+          if (!cells.has(col)) cells.set(col, []); cells.get(col).push(c); }); });
+      cells.forEach((cs, col) => { if (bulletCols.has(col)) return;
+        const marked = cs.filter(c => String(c.text).includes(MK_B));
+        if (marked.length >= 2 && marked.every(c => (String(c.text).match(/\uE001/g) || []).length === 1 && !/[\uE002\uE003\uE004]/.test(String(c.text))))
+          marked.forEach(c => { c.text = String(c.text).replace(/[\uE001]/g, ''); }); }); }
   }
 
   const dataNeed = new Array(nCols).fill(0);   // 数据行
@@ -822,6 +837,12 @@ function htmlTableCore(html) {
       if (j >= 0 && tail[k] <= 0.12 * W[j] && W[j] - tail[k] > W[k] + tail[k]) { W[k] += tail[k]; W[j] -= tail[k];
         if (process.env.W_LOG) console.error('TAILFIX', k, tail[k]); }
     }
+    /* SD-85 按 PDF 实测加宽（fit_fix.py 写入）：从最宽的另一列匀出，不超过其 15% */
+    { const sig0 = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+      for (const [k, dd] of (WFIX.get(sig0) || [])) { if (k >= nCols) continue;
+        let j = -1; for (let q = 0; q < nCols; q++) if (q !== k && (j < 0 || W[q] > W[j])) j = q;
+        const d0 = j >= 0 ? Math.min(dd, Math.floor(0.15 * W[j])) : 0;
+        if (d0 > 0) { W[k] += d0; W[j] -= d0; } } }
   }
   if (process.env.W_LOG && COMPACT) console.error('W', nCols, JSON.stringify(W), String(parsed[0].cells.map(c => c.text).join('/')).slice(0, 40));
 
@@ -987,7 +1008,8 @@ function htmlTableCore(html) {
      绑定后放不下时排版软件会在末行前硬断、留下孤行（2026-09-30 Songti SC 实测：3.8 分类表估 9325 / 预算 9566，实际放不下） */
   /* SD-79 两遍排版：第一遍按估算（留 12% 余量）；成品 PDF 里「断开但两截加起来放得进一页」的表，由 fit_fix.py 记下签名，
      第二遍强制整表同页（KEEP_FORCE 文件，一行一个签名）。签名＝表内文字只留字母数字后的前 80 字。 */
-  if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3) });
+  if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3), W: W.slice(),
+    br: parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<br\s*\/?>/g, '\u0001').replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}\u0001]/gu, '').replace(/\u0001/g, '|')).join('')).join('') });
   const keepTogether = estimate(FS) <= BUDGET * 0.88 || KEEP_FORCE.has(tblSig);   // SD-78 实测：Songti SC 下个别表实际比估算高约 12%（4.20 A/P 可用性表 估 8575 / 实 ≈ 9640），留 15% 余量
   if (process.env.FIT_LOG) console.error('TBL rows=%d est=%d fs=%d keep=%s', parsed.length, estimate(FS), FS, keepTogether);
 
