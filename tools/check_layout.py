@@ -184,7 +184,7 @@ def scan(pdf, name, header):
     return d
 
 book = scan(BOOK, '全书', HEADER)
-scan(QREF, '单册', '机型基础知识速查')   # 单册页眉为册名（DOC_HEADER 留空时渲染器的默认）
+scan(QREF, '单册', 'B737机型理论基础知识速查')   # 单册页眉（2026-09-30 用户定）
 
 # P 前言（SD-73 / SD-74）与总目录
 pre = next((i for i in range(1, 5) if nosp(book[i].get_text()).find('前言') >= 0), None)
