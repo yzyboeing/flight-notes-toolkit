@@ -37,12 +37,14 @@ def to_pdf():
     return p
 
 # 状态：lv[sig] = 0（强制整表）/ 1～3（压缩级）；block＝放弃
-lv, block, wfix, wblock = {}, set(), {}, set()     # wfix[(sig, 列)] = 加宽 DXA；wblock＝加宽也没用的格，不再试
+lv, block, wfix, wblock, splitok = {}, set(), {}, set(), set()   # splitok＝标题被留下的块索引表：允许按块分页（S:）     # wfix[(sig, 列)] = 加宽 DXA；wblock＝加宽也没用的格，不再试
 for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
     l = l.strip()
     if not l: continue
     if l.startswith('W:'):
         _, k, dd, sg = l.split(':', 3); wfix[(sg, int(k))] = int(dd)
+    elif l.startswith('S:'):
+        splitok.add(l[2:])
     elif l.startswith('WB:'):
         _, k, sg = l.split(':', 2); wblock.add((sg, int(k)))
     elif l.startswith('!'): block.add(l[1:])
@@ -54,6 +56,7 @@ def save():
         for s in sorted(block): f.write('!' + s + '\n')
         for (sg, k), dd in sorted(wfix.items()): f.write('W:%d:%d:%s\n' % (k, dd, sg))
         for (sg, k) in sorted(wblock): f.write('WB:%d:%s\n' % (k, sg))
+        for sg in sorted(splitok): f.write('S:' + sg + '\n')
 
 bg = lambda x: {x[k:k + 2] for k in range(len(x) - 1)}
 def match(text, tbls):
@@ -99,6 +102,18 @@ for n in range(1, 8):
             new = wfix.get(key, 0) + int(x['extra_pt'] * 20) + 20
             if new > 1500 or tried.get(key, 0) >= 3: wblock.add(key); wfix.pop(key, None); wgive += 1; continue   # 加宽 3 次或超过 75pt 仍不行：放弃
             wfix[key] = new; tried[key] = tried.get(key, 0) + 1; wadd += 1
+    # SD-87 标题被留下的近空白页：块索引表允许按块分页；其他表按超出比例压缩，让标题 / 导语与表同页
+    from layout_measure import lonely
+    ladd = 0
+    for x in lonely(pdf):
+        if x['kind'] != 'lead': continue
+        for sg in match(x['table'], tbls):
+            if sg.startswith('块主题条目'):
+                if sg not in splitok: splitok.add(sg); lv.pop(sg, None); ladd += 1
+            elif sg not in block and sg not in splitok:
+                need = 1 if x['over'] <= 1.04 else 2 if x['over'] <= 1.10 else 3 if x['over'] <= 1.2 else 0
+                if need and lv.get(sg, 0) < need: lv[sg] = max(need, lv.get(sg, 0) + (1 if sg in lv else 0)); ladd += 1
+    splitok &= sigs
     shutil.rmtree(os.path.dirname(pdf), ignore_errors=True)
     add, up, gave, miss = 0, 0, 0, []
     for sp in res['splits']:
@@ -106,7 +121,7 @@ for n in range(1, 8):
         if not cand:
             if sp['fits']: miss.append('第 %d 页（%s…）' % (sp['page'], sp['text'][:16]))
             continue
-        for s in cand - block:
+        for s in cand - block - splitok:   # 允许按块分页的块索引表不再强制 / 压缩
             if s not in lv:
                 if sp['fits']: lv[s] = 0; add += 1
                 elif sp['over'] <= 1.2 and not sp['multi']:
@@ -115,9 +130,9 @@ for n in range(1, 8):
                 lv[s] = max(lv[s] + 1, 1); up += 1                 # 强制 / 压缩后仍断开：升一级
             else:
                 del lv[s]; block.add(s); gave += 1                  # 8pt 仍放不下：放弃，照常分页
-    print('fit_fix 第 %d 遍：%d 页，断表 %d 处（本可整页 %d）；新增整表 %d、压缩升级 %d、放弃 %d、撤出 %d；当前压缩 %d 张；列加宽 +%d、放弃 %d%s' % (
+    print('fit_fix 第 %d 遍：%d 页，断表 %d 处（本可整页 %d）；新增整表 %d、压缩升级 %d、放弃 %d、撤出 %d；当前压缩 %d 张；列加宽 +%d、放弃 %d；标题孤页处理 %d%s' % (
         n, res['pages'], len(res['splits']), sum(s['fits'] for s in res['splits']), add, up, gave, len(changed),
-        sum(1 for v in lv.values() if v), wadd, wgive, ('；匹配不到：' + '、'.join(miss)) if miss else ''))
-    if not (add or up or gave or changed or wadd or wgive): break
+        sum(1 for v in lv.values() if v), wadd, wgive, ladd, ('；匹配不到：' + '、'.join(miss)) if miss else ''))
+    if not (add or up or gave or changed or wadd or wgive or ladd): break
     if n == 7: print('fit_fix：7 遍仍未稳定，docx 保持本遍结果，交 check_layout 报告')
 save()

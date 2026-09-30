@@ -212,6 +212,20 @@ def scan(pdf, name, header):
                 if cen and lef:
                     sug('T7', '%s 第 %d 页：第 %d 列 %d 格居中、%d 格左对齐（如「%s」）——统一对齐' % (
                         name, i + 1, k + 1, len(cen), len(lef), lef[0][1][0][2].strip()[:18]))
+            # T9 两型对照列格式不一致（2026-09-30 全书复审，速查第 120 条）：表头有 737-NG 与 737-8 两列，一列有「•」、另一列同类句子格没有
+            try:
+                hdrtxt = [''.join(l[2] for l in x[1]) if x else '' for x in info[0]]
+                ng = [k for k, h in enumerate(hdrtxt) if re.search(r'737-NG', h) and '737-8' not in h]
+                m8 = [k for k, h in enumerate(hdrtxt) if re.search(r'737-8', h) and '737-NG' not in h]
+                if ng and m8:
+                    def colbul(k):
+                        cs = [r[k] for r in info[1:] if k < len(r) and r[k] and r[k][1]]
+                        cs = [x for x in cs if len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) >= 12]
+                        return any(x[1][0][2].lstrip().startswith('•') for x in cs), any(not x[1][0][2].lstrip().startswith('•') for x in cs)
+                    a, b = colbul(ng[0]), colbul(m8[0])
+                    if (a[0] and not b[0] and b[1]) or (b[0] and not a[0] and a[1]):
+                        sug('T9', '%s 第 %d 页：737-NG / 737-8 对照两列一列分条加点、另一列没有——两列格式应一致（表头标 col-bullet 或 col-center）' % (name, i + 1))
+            except Exception: pass
             for r in info:
                 for x in r:
                     if not x or len(x[1]) < 2 or len(x[1]) > 3 or x[1][0][2].lstrip().startswith('•'): continue   # 只管短格；长段落末行一两个字属正常

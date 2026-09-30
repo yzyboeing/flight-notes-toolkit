@@ -38,7 +38,7 @@ for i, pg in enumerate(d):
     info.append({'tabs': tabs, 'top': top, 'bot': bot, 'H': H, 'blocks': body})
 AREA = max(x['bot'] - x['top'] for x in info if x['blocks']) if info else 0
 problems, allsplits = [], []
-head_re = re.compile(r'^\s*(\d{1,3}\.\s+\S|[A-Z]-\d+\s)')
+head_re = re.compile(r'^\s*(\d{1,3}\.\s+\S|[A-Z]-\d+\s|\d\.\d+\s|块索引\s*$)')   # 条目标题、节标题、「块索引」小标题
 for i in range(len(info) - 1):
     a, b = info[i], info[i + 1]
     # 标题孤立：本页最后一个文字块是条目标题
@@ -81,6 +81,7 @@ for i in range(len(info) - 1):
     allsplits.append(msg)
     why = []
     orph = (ra <= 2 and ha < AREA * 0.25) or (rb <= 2 and hb < AREA * 0.25)   # 行数少但每行很高（大段处置）不算孤行
+    if re.sub(r'\s', '', name).startswith('块主题条目') and ra >= 2 and rb >= 2: orph = False   # 块索引：一行一块，两截各 ≥ 2 块即可（SD-87）
     if orph: why.append('孤行')
     fits = above + ha + hb <= AREA * 0.97
     if fits: why.append('本可整页')

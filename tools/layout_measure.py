@@ -64,3 +64,45 @@ if __name__ == '__main__':
     res = measure(sys.argv[1])
     print('共 %d 格需要加宽' % len(res))
     for x in res: print('  第 %d 页 第 %d 列 +%.0fpt「%s」' % (x['page'], x['col'] + 1, x['extra_pt'], x['cell']))
+
+def lonely(pdf):
+    """近乎空白的页（正文止于版面 25% 以内，SD-87）：
+         lead：本页只有标题 / 导语，下一页一开头就是表（整表同页把表推走了）→ 返回下一页那张表；
+         tail：本页只有上一页表格的表后说明（表格占满上一页）→ 返回上一页最后那张表。
+       over＝（标题 / 说明高度 + 表高）÷ 版心高度，fit_fix 据此决定压缩级别；块索引表改为允许按块分页。"""
+    d = pymupdf.open(pdf); H = d[0].rect.height
+    info = []
+    for p in d:
+        bl = [b for b in p.get_text('blocks') if b[4].strip() and not re.match(r'\s*第\s*\d+\s*页', b[4]) and b[1] > 0.06 * H]
+        try: tabs = [t for t in p.find_tables().tables if t.bbox[1] > 0.07 * H and t.bbox[3] - t.bbox[1] > 10]
+        except Exception: tabs = []
+        info.append((bl, tabs))
+    spans = [max(b[3] for b in bl) - min(b[1] for b in bl) for bl, _ in info if bl]
+    AREA = max(spans) if spans else H
+    out = []
+    for i in range(1, len(d) - 1):
+        bl, tabs = info[i]
+        if not bl or tabs: continue
+        top, bot = min(b[1] for b in bl), max(b[3] for b in bl)
+        if bot > 0.25 * H: continue
+        nbl, ntabs = info[i + 1]
+        HEAD = re.compile(r'^(\d\.\d+\u3000|[A-Z]-\d+\u3000|\d+\.\s|块索引\s*$)')
+        if any(HEAD.match(b[4].strip()) for b in bl) and nbl:
+            ntop = min(b[1] for b in nbl)
+            first = min(nbl, key=lambda b: b[1])[4].strip()
+            if re.match(r'^\d\.\d+\u3000', first): continue   # 下一页另起新节：本页只是上一节的末尾，正常
+            t = min(ntabs, key=lambda t: t.bbox[1]) if ntabs else None
+            if t is not None and t.bbox[1] <= ntop + 20:
+                th, clip = t.bbox[3] - t.bbox[1], t.bbox
+            else:   # 块索引等无竖线的表 PDF 认不出：取下一页顶部一段文字来匹配，高度按一整页估
+                th, clip = AREA, pymupdf.Rect(0, ntop, d[i + 1].rect.width, ntop + 0.25 * H)
+            out.append({'kind': 'lead', 'page': i + 1, 'over': round(((bot - top) + th + 12) / AREA, 3),
+                        'table': norm(d[i + 1].get_text(clip=clip))})
+            continue
+        pbl, ptabs = info[i - 1]
+        if ptabs and pbl:
+            t = max(ptabs, key=lambda t: t.bbox[3])
+            if t.bbox[3] >= max(b[3] for b in pbl) - 30:
+                out.append({'kind': 'tail', 'page': i + 1, 'over': round(((t.bbox[3] - t.bbox[1]) + (bot - top) + 12) / AREA, 3),
+                            'table': norm(d[i - 1].get_text(clip=t.bbox))})
+    return out
