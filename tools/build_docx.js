@@ -326,6 +326,15 @@ function tableGap(src, i) {
 /* 窄表 + 长通栏说明：说明行若在窄表里要折成 4 行以上，就移到表外（前提行放表前、注释 / 警示行放表后），
    让表格保持按内容收窄，说明文字按正文宽度排，不再被挤成一长条 */
 let PROBE = false, TBL_IDX = -1, KEEP_LAST = false;
+/* KEEP_FORCE 文件（fit_fix.py 维护）：一行一个表签名＝强制整表同页；「~N:签名」＝整表同页并按第 N 级压缩（SD-80）；「!签名」＝已放弃（fit_fix 自用） */
+const KEEP_FORCE = new Set(), SHRINK = new Map();
+if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
+  for (const l0 of fs.readFileSync(process.env.KEEP_FORCE, 'utf8').split('\n')) {
+    const l = l0.trim(); if (!l || l.startsWith('!')) continue;
+    const m = l.match(/^~(\d):(.+)$/);
+    if (m) { SHRINK.set(m[2], +m[1]); KEEP_FORCE.add(m[2]); } else KEEP_FORCE.add(l);
+  }
+const TBL_DUMPS = [];
 const TBL_TARGET = [];
 function htmlTable(html) {
   if (!PROBE) TBL_IDX++;
@@ -445,6 +454,63 @@ function htmlTableCore(html) {
       ci += c.colspan;
     });
   });
+
+  /* SD-78 语义分层（2026-09-30 用户：「结合语义去判断是否有多个并列的语义，通过加点可以让思路和语义更明确，不一定那么死板」）
+     只改成品排版，notes_src 一字不动；放在列宽 / 表高估算之前，估算按拆分后的段落计算。
+     ① 同一格多段（<br>）且语义并列 → 每段「•」；后段以「但 / 因此 / 即 / 其中 / 否则 / 此时 / 然后 / →」等开头的是延续，不拆；
+     ② 一段里以「；」连起的几个完整长句（各 ≥ 约 10 字）→ 拆成并列「•」；
+     ③ 「引语：子项1；子项2；…」→ 引语一行 + 「– 子项」缩进；
+     已有 ①②③ / 编号 / 符号、表头、首列标签、注解行不动；【机型】开头的平行段不再加点（标签本身即标记）。 */
+  {
+    const MK_B = '', MK_C = '', MK_P = '';
+    const plainOf = (t) => unesc(String(t).replace(/<[^>]+>/g, '')).trim();
+    const pv = (t) => { let n = 0; for (const ch of plainOf(t)) n += /[⺀-鿿＀-￯]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n; };
+    const balanced = (t) => ['em', 'strong', 'b', 'i', 'small', 'span', 'sup', 'sub', 'u'].every(g =>
+      (String(t).match(new RegExp('<' + g + '(\\s[^>]*)?>', 'g')) || []).length === (String(t).match(new RegExp('</' + g + '>', 'g')) || []).length);
+    const splitOut = (t, sepRe) => { const out = []; let cur = '';
+      for (let i = 0; i < t.length; i++) { const ch = t[i];
+        if (ch === '<') { const j = t.indexOf('>', i); if (j < 0) { cur += t.slice(i); break; } cur += t.slice(i, j + 1); i = j; continue; }
+        cur += ch; if (sepRe.test(ch)) { out.push(cur); cur = ''; } }
+      if (plainOf(cur)) out.push(cur); else if (out.length) out[out.length - 1] += cur;
+      return out.every(balanced) ? out : null; };
+    const CONT = /^(但|但是|因此|所以|即|其中|否则|此时|然后|随后|并且|而且|→|（|\()/;
+    const STRUCT = /^([①-⑳]|\d+[.、)）]\s|[A-Z]-\d+|第 ?\d+ ?[条步]|注[：:]|[▪•·–—-]\s)/;
+    parsed.forEach((r, ri) => {
+      if (/hdr|note|premise|warn/.test(r.cls)) return;
+      r.cells.forEach((c, k) => {
+        if (c.head || startCol[ri][k] === 0) return;
+        const segs = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
+        if (!segs.length || segs.some(s0 => STRUCT.test(plainOf(s0)))) return;
+        const items = [];
+        for (const s0 of segs) {
+          const ci = s0.search(/[：:]/);
+          if (ci > 0) {
+            const head = s0.slice(0, ci + 1), rest = s0.slice(ci + 1), hp = plainOf(head);
+            const kids = balanced(head) && balanced(rest) ? splitOut(rest, /[；;]/) : null;
+            if (kids && kids.length >= 2 && pv(hp) >= 4 && pv(hp) <= 60 && !/^注/.test(hp) && kids.every(x => pv(x) >= 6)) {
+              items.push({ t: head, kind: 'intro', kids }); continue; }
+          }
+          const parts = splitOut(s0, /[；;]/);
+          if (parts && parts.length >= 2 && parts.every(x => pv(x) >= 20 && !CONT.test(plainOf(x)))) { parts.forEach(x => items.push({ t: x, kind: 'item' })); continue; }
+          items.push({ t: s0, kind: 'item' });
+        }
+        const parallel = items.length >= 2
+          && items.slice(1).every(it => !CONT.test(plainOf(it.t)))
+          && !(items[0].kind === 'item' && /[：:]$/.test(plainOf(items[0].t)))
+          && items.every(it => it.kind === 'intro' || pv(it.t) >= 12)
+          && items.some(it => it.kind === 'intro' || pv(it.t) > 20)
+          && !items.every(it => it.kind === 'item' && /^【/.test(plainOf(it.t)));
+        const hasIntro = items.some(it => it.kind === 'intro');
+        if (!parallel && !hasIntro) return;
+        const out = [];
+        for (const it of items) {
+          if (it.kind === 'intro') { out.push((parallel ? MK_B : MK_P) + it.t); it.kids.forEach(x => out.push((parallel ? MK_C + MK_C : MK_C) + x)); }
+          else out.push((parallel ? MK_B : '') + it.t);
+        }
+        c.text = out.join('<br>');
+      });
+    });
+  }
 
   const dataNeed = new Array(nCols).fill(0);   // 数据行
   const hdrNeed = new Array(nCols).fill(0);   // 表头行
@@ -694,25 +760,35 @@ function htmlTableCore(html) {
     const unit = 132 * sz / 20;         // 每「视觉单位」宽度
     let h = 0;
     parsed.forEach((r, ri) => {
-      let maxLines = 1;
+      let maxH = Math.round(17.5 * sz);
       r.cells.forEach((c, ck) => {
         const ci = startCol[ri][ck];
         let w = 0;
         for (let k = 0; k < c.colspan; k++) w += W[Math.min(ci + k, nCols - 1)];
-        const perLine = Math.max(4, (w - 180) / unit);
-        let lines = 0;
-        for (const seg of String(c.text).split(/<br\s*\/?>/)) lines += Math.max(1, Math.ceil(vis(seg.trim()) / perLine));
-        if (lines > maxLines) maxLines = lines;
+        let lines = 0, np = 0;
+        for (const seg0 of String(c.text).split(/<br\s*\/?>/)) {
+          /* SD-78：加点 / 子项有悬挂缩进，可用行宽变窄；每多一段多一份段前后间距 */
+          const mk = (seg0.match(/^[\uE001-\uE003]+/) || [''])[0];
+          const ind = mk === '\uE001' ? 200 : mk === '\uE002\uE002' ? 560 : mk === '\uE002' ? 360 : 0;
+          const perLine = Math.max(4, (w - 180 - ind) / unit);
+          lines += Math.max(1, Math.ceil(vis(seg0.slice(mk.length).trim()) / perLine)); np++;
+        }
+        const ch = lines * Math.round(17.5 * sz) + Math.max(0, np - 1) * 40;
+        if (ch > maxH) maxH = ch;
       });
-      h += maxLines * Math.round(17.5 * sz) + 120 + 40;   // 行高 + 单元格上下边距 + 段前后
+      h += maxH + 120 + 40;   // 行高 + 单元格上下边距 + 段前后
     });
     return h;
   };
   let FS = 18, LN = 270, CM = 60;
-  if (estimate(FS) > BUDGET) {
-    /* 只在「缩到某一号真的能塞进一页」时才缩；否则保持正常字号，让它自然分页
-       ——避免既缩成小字又照样跨页的最差结果 */
-    const fit = (process.env.ALLOW_SHRINK ? [17, 16] : []).find(c => estimate(c) <= BUDGET);   // 印刷版（2026-09-29）：表格不再缩字，最小 9pt；需要时 ALLOW_SHRINK=1 恢复
+  /* SD-80（2026-09-30 用户批准）：略超一页的表按级压缩后整表同页，级别由 fit_fix.py 按 PDF 实测逐级试出：
+     1 级＝9pt 不变、收紧行距与单元格边距；2 级＝8.5pt；3 级＝8pt（底线，不再往下缩）。3 级仍放不下的照常分页。 */
+  const tblText = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '');
+  const tblSig = tblText.slice(0, 80);
+  const shrinkLv = SHRINK.get(tblSig) || 0;
+  if (shrinkLv) { FS = [18, 18, 17, 16][shrinkLv]; LN = shrinkLv === 3 ? 240 : 250; CM = 30; }
+  else if (process.env.ALLOW_SHRINK && estimate(FS) > BUDGET) {   // 旧开关，仅手动调试用
+    const fit = [17, 16].find(c => estimate(c) <= BUDGET);
     if (fit) { FS = fit; LN = 250; CM = 40; }
   }
   /* 表格整体能放进一页时，让 Word 尽量不要在中间断开 */
@@ -837,8 +913,10 @@ function htmlTableCore(html) {
      （此前「超过半页即允许分页」的规则作废。）超过一页的大表才在行间分页，见下方 orphan 规则。 */
   /* 估算值贴近一页上限（> 95%）的表不整表绑定：估算有几个百分点误差（标题占位、换字体后行高变化），
      绑定后放不下时排版软件会在末行前硬断、留下孤行（2026-09-30 Songti SC 实测：3.8 分类表估 9325 / 预算 9566，实际放不下） */
-  const keepTogether = estimate(FS) <= BUDGET * 0.95;
-  if (process.env.EST_LOG) console.error('EST\t' + estimate(FS) + '\t' + BUDGET + '\t' + parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('|')).slice(0, 2).join('‖').slice(0, 60));
+  /* SD-79 两遍排版：第一遍按估算（留 12% 余量）；成品 PDF 里「断开但两截加起来放得进一页」的表，由 fit_fix.py 记下签名，
+     第二遍强制整表同页（KEEP_FORCE 文件，一行一个签名）。签名＝表内文字只留字母数字后的前 80 字。 */
+  if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3) });
+  const keepTogether = estimate(FS) <= BUDGET * 0.88 || KEEP_FORCE.has(tblSig);   // SD-78 实测：Songti SC 下个别表实际比估算高约 12%（4.20 A/P 可用性表 估 8575 / 实 ≈ 9640），留 15% 余量
   if (process.env.FIT_LOG) console.error('TBL rows=%d est=%d fs=%d keep=%s', parsed.length, estimate(FS), FS, keepTogether);
 
   /* 顶部连续的通栏前提行 + 表头行一起作「重复标题行」（Word 要求标题行从第一行起连续） */
@@ -864,6 +942,17 @@ function htmlTableCore(html) {
       if (/(^|\s)col-left(\s|$)/.test(hc.cls || '')) forcedLeftCols.add(ci4);
       if (/(^|\s)col-center(\s|$)/.test(hc.cls || '')) forcedCenterCols.add(ci4);
     });
+  }
+  /* SD-78（2026-09-30 用户，速查区第 5 条）：整列每一格都只有一段、且按最终列宽一行排得下时，整列居中 */
+  const oneLineCols = new Set();
+  {
+    const fv = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n; };
+    const okc = new Array(nCols).fill(true), seen = new Array(nCols).fill(0);
+    parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+      r.cells.forEach((c, ck) => { if (c.colspan !== 1 || c.head) return; const k = startCol[ri][ck]; seen[k]++;
+        const segs = String(c.text).split(/<br\s*\/?>/).filter(x => x.replace(/<[^>]+>/g, '').trim());
+        if (segs.length !== 1 || fv(segs[0]) * 96 * FS / 18 + 180 > W[k]) okc[k] = false; }); });
+    for (let k = 1; k < nCols; k++) if (okc[k] && seen[k] >= 2) oneLineCols.add(k);
   }
   const normH = s => unesc(String(s).replace(/<[^>]+>/g, '')).replace(/[A-Za-z0-9\-（）()\s项个]/g, '');
   const parallel = !!(hdrRow && hdrRow.cells.length >= 2 && normH(hdrRow.cells[0].text) &&
@@ -921,15 +1010,24 @@ function htmlTableCore(html) {
         const body = p.replace(/[：:]$/, '');
         return pi < plainParas.length - 1 && /[：:]$/.test(p) && vis(p) <= 70 && !/[，。；]/.test(body);
       });
-      const hierarchy = !isHdr && !c.head && rawParas.length >= 3 && parentFlags.some(Boolean)
+      const semMarked = /[\uE001-\uE003]/.test(String(c.text));
+      const hierarchy = !semMarked && !isHdr && !c.head && rawParas.length >= 3 && parentFlags.some(Boolean)
         && !plainParas.slice(1).some(p => /^[①-⑳]\s*/.test(p));
+      /* SD-78（2026-09-30 用户，速查区第 8 / 12 / 15 条）：同一格内 ≥ 2 条彼此独立的并列句（原文以 <br> 分开）→ 每条前加「•」、悬挂缩进、左齐。
+         已有编号（①②③ / 1. / A-1）、【机型】开头、首段以「：」引出（SD-75 父子层级）、括注续行的，不加；只有一句的格子不加。 */
+      const bulletCell = false && !hierarchy && !isHdr && !c.head && !labelCol && !isNote && !isPre && !isWarn
+        && contentParas.length >= 2 && contentParas.length === plainParas.length
+        && !contentParas.some(p => /^([①-⑳]|\d+[.、)）]\s|【|[A-Z]-\d+|第 ?\d+ ?[条步]|注[：:]|[（(]|[▪•·–—-]\s)/.test(p))
+        && !/[：:]$/.test(contentParas[0])
+        && contentParas.some(p => vis(p) > 20)
+        && contentParas.every(p => vis(p) >= 12);   // 用户 2026-09-30：加点只限长的、语义并列的句子——每条 ≥ 约 6 个汉字、至少一条 > 约 10 个汉字；「20s」这类标签 + 说明、短状态词不加   // 有特别短的段（「20s」这类时刻 / 标签，< 约 4 个汉字）时是「标签 + 说明」，不是并列句，不加点   // 每条都很短（≤ 约 8 个汉字，如「ALTN 电门亮 / ON 指示可见」）时不加点，保持居中
       if (process.env.HIER_LOG && hierarchy) console.error('HIERARCHY', TBL_IDX, ci + 1, contentParas[0] || '');
       /* 同一语义列保持同一种对齐，避免短格居中、长格左齐形成锯齿。
          父子层级本身依靠悬挂缩进表达，始终左齐；独立占位符仍居中。 */
       const forceLeft = c.colspan === 1 && forcedLeftCols.has(ci);
       const forceCenter = c.colspan === 1 && forcedCenterCols.has(ci);
       const center = isHdr || c.head || placeholder || (!hierarchy && forceCenter)
-        || (!forceLeft && !hierarchy && ((labelShort && !longCols.has(ci)) || (c.colspan === 1 && semanticCenterCols.has(ci))
+        || (!forceLeft && !hierarchy && ((labelShort && !longCols.has(ci)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
           || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
           ? (!isNote && !isPre && !isWarn &&
                (c.colspan === 1 ? !longCols.has(ci) : shortCell(c.text)))
@@ -940,14 +1038,15 @@ function htmlTableCore(html) {
       if (serial) c = Object.assign({}, c, { text: String(String(c.text).replace(/<[^>]+>/g, '').trim().charCodeAt(0) - 0x245F) });
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
-        const prefix = hierarchy ? (parentFlags[pi] ? '▪ ' : (hasParent ? '– ' : '')) : '';
+        const mk = (seg.match(/^[\uE001-\uE003]+/) || [''])[0]; seg = seg.slice(mk.length);
+        const prefix = hierarchy ? (parentFlags[pi] ? '▪ ' : (hasParent ? '– ' : '')) : mk === '\uE001' ? '• ' : mk.startsWith('\uE002') ? '– ' : '';
         return new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
           children: runs(prefix + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol, size: FS }),
           spacing: { before: 20, after: 20, line: LN },
-          indent: hierarchy ? { left: parentFlags[pi] ? 180 : 360, hanging: 140 } : undefined,
+          indent: hierarchy ? { left: parentFlags[pi] ? 180 : 360, hanging: 140 } : mk === '\uE001' ? { left: 200, hanging: 200 } : mk === '\uE002\uE002' ? { left: 560, hanging: 180 } : mk === '\uE002' ? { left: 360, hanging: 180 } : undefined,
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
-          alignment: hierarchy ? undefined : (center ? AlignmentType.CENTER : undefined)
+          alignment: (hierarchy || semMarked) ? undefined : (center ? AlignmentType.CENTER : undefined)
         });
       });
       const borders = {
@@ -1673,6 +1772,7 @@ const doc = new Document({
   sections: SECTIONS
 });
 
+if (process.env.TBL_DUMP) fs.writeFileSync(process.env.TBL_DUMP, TBL_DUMPS.map(x => JSON.stringify(x)).join('\n') + '\n');
 Packer.toBuffer(doc).then(async b => {
   {
     /* SD-71：rowSpan 生成的合并延续格是空段落 <w:p/>，不带「与下段同页」；LibreOffice 要求表内段落全都设了才整表不拆。

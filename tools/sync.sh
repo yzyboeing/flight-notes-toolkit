@@ -134,14 +134,15 @@ if [ "$BUILD" = 1 ]; then
     out="build/B737机型理论知识笔记.docx"
     DOC_HEADER="${DOC_HEADER:-B737-NG / B737-8 机型理论知识笔记}"; export DOC_HEADER
     python3 "$TOOLKIT/make_book.py" || die "拼合订本失败"
-    node "$TOOLKIT/build_docx.js" build/book.md "$out" || die "全书渲染失败（横版）"
+    # SD-79（2026-09-30 用户）：一页放得下的表绝不拆开——fit_fix.py 两遍排版（出 PDF 实测断表 → 强制整表同页 → 重出）
+    python3 "$TOOLKIT/fit_fix.py" build/book.md "$out" || die "全书渲染失败（横版）"
     # SD-71（2026-09-29 用户）：只出横版。竖版的表格在窄版面里文字堆叠严重、不利阅读，不再产出、也不再为竖版优化排版。
     # 需要临时出竖版时手动运行：DOC_PORTRAIT=1 node "$TOOLKIT/build_docx.js" build/book.md build/737 机型理论知识笔记_竖版.docx
     # 单册《B737机型理论基础知识速查》（SD-66 / SD-74）：与全书同批生成，封面提示与版本号同全书；不带前言、不出总目录页
     out2="build/B737机型理论基础知识速查.docx"
     { echo "# 机型基础知识速查"; echo; echo "## 第零章　基础知识速查区"; tail -n +2 build/mod0.md; } > build/single.md
     DOC_SINGLE=1 DOC_NOTOC=1 DOC_PREFACE="" DOC_HEADER="" DOC_SUBTITLE="数据 · 限制 · 概念" \
-      node "$TOOLKIT/build_docx.js" build/single.md "$out2" || die "单册渲染失败"
+      python3 "$TOOLKIT/fit_fix.py" build/single.md "$out2" || die "单册渲染失败"
     BUILT="$out"$'\n'"$out2"
   else
     for n in $CHANGED; do
@@ -192,6 +193,16 @@ PYEOF
       python3 "$TOOLKIT/verify.py" "$pdf" || exit 1
     done || die "排版校验未通过，已中止（未提交）"
     ok "排版校验通过"
+    # SD-79 总检查器：规则见 pub/prompt/layout-checklist.md。报告写 build/排版检查报告.md；
+    # 有「错误」只警告不中止（成品仍要交给用户看），但收工前必须改到 0。
+    if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/check_layout.py" ]; then
+      echo; info "[4b] 排版与规则总检查（check_layout.py）"
+      if python3 "$TOOLKIT/check_layout.py" --repo "$ROOT" --no-src --out build/排版检查报告.md >/dev/null 2>&1; then
+        ok "总检查：$(sed -n '3p' build/排版检查报告.md)"
+      else
+        warn "总检查：$(sed -n '3p' build/排版检查报告.md) —— 错误必须改到 0，详见 build/排版检查报告.md"
+      fi
+    fi
   else
     warn "未装 LibreOffice，跳过排版校验（空白页 / 表格跨页查不了）"
     warn "补装：brew install --cask libreoffice"
