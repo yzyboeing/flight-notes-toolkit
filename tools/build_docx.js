@@ -483,7 +483,7 @@ function htmlTableCore(html) {
        子项每段都以「。」结尾（或都不以「。」结尾）时整串都是子项 */
     const kidCount = (arr) => { const k = arr.findIndex(x => /[。．]$/.test(plainOf(x)));
       return (k > 0 && k < arr.length - 1) ? k + 1 : arr.length; };
-    const CONT = /^(但|但是|因此|所以|即|其中|否则|此时|然后|随后|并且|而且|且|或|→|（|\()/;   // 「且 / 或」开头的是上一条件的延续（速查第 120 条两列对照）
+    const CONT = /^(但|但是|因此|所以|即|其中|否则|此时|然后|随后|并且|而且|而|且|或|→|（|\()/;   // 「而」开头的转折续句（1.3 原因表，M3-006）   // 「且 / 或」开头的是上一条件的延续（速查第 120 条两列对照）
     const STRUCT = /^([①-⑳]|\d+[.、)）]\s|[A-Z]-\d+|第 ?\d+ ?[条步]|注[：:]|[▪•·–—-]\s)/;
     /* 不分条的列（2026-09-30 用户，速查区第 23 条：「定义……根本不需要加圆点，只需要把这个定义居中」）：
        表头显式 col-center 的列、表头为「定义 / 含义 / 释义 / 概念」的列——一格就是一个完整概念，不拆 */
@@ -593,7 +593,8 @@ function htmlTableCore(html) {
         if (!parallel && !hasIntro) return;
         const out = [];
         for (const it of items) {
-          if (it.kind === 'intro') { out.push((parallel ? MK_B : MK_P) + it.t); it.kids.forEach(x => out.push((parallel ? MK_C + MK_C : MK_C) + x)); }
+          if (it.kind === 'intro') { const lone = items.length === 1;   // 格里只有一个「引语：子项；子项」：引语也加「•」（SD-93「一律」，M3-018 / 021）
+            out.push((parallel || lone ? MK_B : MK_P) + it.t); it.kids.forEach(x => out.push((parallel || lone ? MK_C + MK_C : MK_C) + x)); }
           else out.push((parallel ? MK_B : '') + it.t);
         }
         c.text = out.join('<br>');
