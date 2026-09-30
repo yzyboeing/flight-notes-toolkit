@@ -835,13 +835,21 @@ function htmlTableCore(html) {
   /* 一页放得下的表一律整表同页（宁可上一页留白，也不要拆开后多出一行重复表头） */
   /* SD-71（2026-09-29 用户）：一页放得下的表一律整表同页——宁可上一页留白，也不要页底只剩表头和一两行。
      （此前「超过半页即允许分页」的规则作废。）超过一页的大表才在行间分页，见下方 orphan 规则。 */
-  const keepTogether = estimate(FS) <= BUDGET;   // 不放宽余量：真超一页的表若整表绑定，排版软件放不下时会随意断开并留下孤行，不如走下方防孤行规则
+  /* 估算值贴近一页上限（> 95%）的表不整表绑定：估算有几个百分点误差（标题占位、换字体后行高变化），
+     绑定后放不下时排版软件会在末行前硬断、留下孤行（2026-09-30 Songti SC 实测：3.8 分类表估 9325 / 预算 9566，实际放不下） */
+  const keepTogether = estimate(FS) <= BUDGET * 0.95;
+  if (process.env.EST_LOG) console.error('EST\t' + estimate(FS) + '\t' + BUDGET + '\t' + parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('|')).slice(0, 2).join('‖').slice(0, 60));
   if (process.env.FIT_LOG) console.error('TBL rows=%d est=%d fs=%d keep=%s', parsed.length, estimate(FS), FS, keepTogether);
 
   /* 顶部连续的通栏前提行 + 表头行一起作「重复标题行」（Word 要求标题行从第一行起连续） */
   let lead = 0;
   while (lead < parsed.length && (parsed[lead].cls.includes('hdr') || parsed[lead].cls.includes('premise'))) lead++;
   if (!parsed.slice(0, lead).some(r => r.cls.includes('hdr'))) lead = 0;
+  /* 防孤行（SD-71 修订）：大表首尾各保留若干行同页，但要按数据行数缩放，保证中间至少留一处可断开的位置；
+     每一截至少 2 行（行少而高的块索引表，原「首 3 尾 3」等于全表绑定，放不下时只能在末行前硬断） */
+  const dataN = parsed.length - lead;
+  const orphHead = lead + (dataN >= 8 ? 2 : 1);          // 首截：表头 + 至少 2 行数据（大表 3 行）
+  const orphTail = dataN >= 5 ? 3 : 2;                    // 尾截：至少 3 行（数据行少时 2 行）
   /* 并列对比表（如「系统 A 供压组件 | 系统 B 供压组件」）：首列不是标签列，不加粗 */
   const hdrRow = parsed.find(r => r.cls.includes('hdr'));
   /* 表头可用 class="col-left" / class="col-center" 显式声明整列语义。
@@ -938,7 +946,7 @@ function htmlTableCore(html) {
           children: runs(prefix + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol, size: FS }),
           spacing: { before: 20, after: 20, line: LN },
           indent: hierarchy ? { left: parentFlags[pi] ? 180 : 360, hanging: 140 } : undefined,
-          keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < lead + 2 || ri >= parsed.length - 3)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
+          keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
           alignment: hierarchy ? undefined : (center ? AlignmentType.CENTER : undefined)
         });
       });
