@@ -1492,7 +1492,8 @@ const hdrPara = (left, right) => new Paragraph({
     ...(right ? [right()] : [])
   ]
 });
-const titleRun = () => new TextRun({ text: docTitle, font: hdrFont, size: 16, color: GRAY });
+/* 页眉书名：页眉没有机型标签，写全机型（DOC_HEADER，缺省为书名） */
+const titleRun = () => new TextRun({ text: process.env.DOC_HEADER || docTitle, font: hdrFont, size: 16, color: GRAY });
 const chapRun = () => new TextRun({ children: [new SimpleField('STYLEREF "Heading 1"', '')], font: hdrFont, size: 16, color: GRAY });
 const pageRun = () => new TextRun({ children: ['第 ', PageNumber.CURRENT, ' 页'], font: hdrFont, size: 18, color: GRAY });
 const tocRun = () => new TextRun({ text: '目　录', font: hdrFont, size: 16, color: GRAY });
