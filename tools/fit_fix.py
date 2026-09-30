@@ -113,6 +113,13 @@ for n in range(1, 8):
             elif sg not in block and sg not in splitok:
                 need = 1 if x['over'] <= 1.04 else 2 if x['over'] <= 1.10 else 3 if x['over'] <= 1.2 else 0
                 if need and lv.get(sg, 0) < need: lv[sg] = max(need, lv.get(sg, 0) + (1 if sg in lv else 0)); ladd += 1
+    # SD-89 只有一两行的页：上一页最后一张表收紧一级（最多到 3 级），把这一两行拉回上一页
+    from layout_measure import sparse
+    for x in sparse(pdf):
+        for sg in match(x['table'], tbls):
+            if sg in block or sg in splitok: continue
+            if lv.get(sg, 0) < 3: lv[sg] = lv.get(sg, 0) + 1; ladd += 1
+            else: block.add(sg); lv.pop(sg, None)
     splitok &= sigs
     shutil.rmtree(os.path.dirname(pdf), ignore_errors=True)
     add, up, gave, miss = 0, 0, 0, []

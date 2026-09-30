@@ -106,3 +106,17 @@ def lonely(pdf):
                 out.append({'kind': 'tail', 'page': i + 1, 'over': round(((t.bbox[3] - t.bbox[1]) + (bot - top) + 12) / AREA, 3),
                             'table': norm(d[i - 1].get_text(clip=t.bbox))})
     return out
+
+def sparse(pdf):
+    """只有一两行的页（2026-09-30 用户：避免一页只有一两行，SD-89）：返回上一页最后一张表的文字，
+       fit_fix 把那张表收紧一级，腾出空间把这一两行拉回上一页。"""
+    d = pymupdf.open(pdf); H = d[0].rect.height; out = []
+    for i in range(1, len(d) - 1):
+        ln = [l for l in lines_of(d[i]) if l[1] > 0.06 * H and not re.match(r'\s*第\s*\d+\s*页\s*$', l[4])]
+        if not (0 < len(ln) <= 2): continue
+        try: tabs = [t for t in d[i - 1].find_tables().tables if t.bbox[1] > 0.07 * H and t.bbox[3] - t.bbox[1] > 10]
+        except Exception: tabs = []
+        if not tabs: continue
+        t = max(tabs, key=lambda t: t.bbox[3])
+        out.append({'page': i + 1, 'table': norm(d[i - 1].get_text(clip=t.bbox))})
+    return out

@@ -546,6 +546,18 @@ function htmlTableCore(html) {
             && segs.slice(1).every(x => !/[：:]$/.test(plainOf(x)) && !CONT.test(plainOf(x)))) {
           c.text = [MK_B + segs[0], ...segs.slice(1).map(x => MK_C + MK_C + x)].join('<br>'); return;
         }
+        /* 引语不在第一段（2026-09-30 用户，速查第 6 条「一直显示，直至出现下列情况之一：」后三个选项应为短线）：
+           格内任一段以「：」结尾且后面至少 2 段 → 该段为「• 引语」，其后到下一个引语之前的各段为「– 子项」；第一个引语之前的段各为「•」 */
+        { const colonIdx = segs.map((x, xi) => /[：:]$/.test(plainOf(x)) && pv(x) >= 4 ? xi : -1).filter(xi => xi >= 0);
+          const CONT2 = /^(但|但是|因此|所以|即|其中|否则|此时|然后|随后|→)/;
+          if (colonIdx.length && colonIdx[colonIdx.length - 1] < segs.length - 1) {
+            const ok = colonIdx.every((ci0, k0) => { const end = k0 + 1 < colonIdx.length ? colonIdx[k0 + 1] : segs.length;
+              const kids = segs.slice(ci0 + 1, end); return kids.length >= 2 && kids.every(x => !CONT2.test(plainOf(x))); });
+            if (ok && colonIdx[0] > 0) {
+              c.text = segs.map((x, xi) => (xi < colonIdx[0] || colonIdx.includes(xi) ? MK_B : MK_C + MK_C) + x).join('<br>'); return;
+            }
+          }
+        }
         const items = [];
         for (const s0 of segs) {
           const ci = s0.search(/[：:]/);
@@ -1442,7 +1454,9 @@ function chapterOpener(ch, brk) {
   const [cn] = splitChap(ch.text);
   const no = chapNo(cn), n = ch.secs.length;
   if (SINGLE) return singleToc(ch, brk);
-  const out = [new Paragraph({ pageBreakBefore: !!brk, spacing: { before: 0, after: PORTRAIT ? 2400 : 500 }, children: [] })];
+  /* 条目多（> 24 项）的章首页收紧上方留白与列表间距，整页目录上移，避免最后一两行被挤到下一页（2026-09-30 用户，第零章「本章速查主题」） */
+  const dense = n > 24;
+  const out = [new Paragraph({ pageBreakBefore: !!brk, spacing: { before: 0, after: PORTRAIT ? 2400 : dense ? 60 : 500 }, children: [] })];
   if (no) out.push(new Paragraph({ spacing: { before: 0, after: 0 }, keepNext: true,
     children: [new TextRun({ text: no, font: FF, size: 150, bold: true, color: C('C9D8E8', '000000') })] }));
   out.push(new Paragraph({
@@ -1455,7 +1469,7 @@ function chapterOpener(ch, brk) {
     children: [new TextRun({ text: ch.desc, font: FF, size: 22, color: '404040' })] }));
   if (n) {
     const quick = ch.secs.every(s => /^QRB_/.test(s.id));
-    out.push(new Paragraph({ keepNext: true, spacing: { before: PORTRAIT ? 900 : 480, after: 120 },
+    out.push(new Paragraph({ keepNext: true, spacing: { before: PORTRAIT ? 900 : dense ? 200 : 480, after: 120 },
       border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: C(INK2, '000000'), space: 4 } },
       children: [new TextRun({ text: quick ? '本章速查主题' : '本章内容', color: H1_C, font: FF, size: 20, bold: true, characterSpacing: 40 })] }));
     const nc = n <= 10 ? 1 : (PORTRAIT ? 2 : (n > 20 ? 3 : 2)), GAP = 600;
