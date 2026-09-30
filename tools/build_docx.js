@@ -66,13 +66,16 @@ const H1_LINE = '000000', H2_LINE = '404040', H3_BAR = C('595959', '404040');
 const KEY = '1B6B4C';
 const KEY_C = C(process.env.DOC_KEYCOLOR || PAL.key || KEY, '000000');
 const KEY_BG = process.env.DOC_KEYBG || PAL.keyBg || '';   // 数值强调的底色（荧光笔式），默认无
-const M_IN = DUPLEX ? 1100 : 900, M_OUT = DUPLEX ? 800 : 900;   // 内侧 / 外侧页边距（DXA）
+/* 2026-09-30 用户：页边距再小一点，让表格不那么拥挤——左右上下 720 DXA（12.7mm），页眉页脚距页边 360（双面仍内宽外窄） */
+const M_IN = DUPLEX ? 1000 : 720, M_OUT = DUPLEX ? 620 : 720;   // 内侧 / 外侧页边距（DXA）
+const M_TOP = 720, M_BOT = 720, M_HDR = 360, M_FTR = 360;
 const HIDE_TBD = process.env.SHOW_TBD !== '1';   // 成品默认不显示〔待补来源〕（用户要求：表格与正文内不标来源）
 // DOC_PORTRAIT=1：竖版 A4（iPad 阅读版）；默认横版
 const PORTRAIT = process.env.DOC_PORTRAIT === '1';
 /* DOC_SINGLE=1：单册（单章成书，如「机型基础知识速查」）——封面重排、章首页改为纯目录页 */
 const SINGLE = process.env.DOC_SINGLE === '1';
-const TOTAL = (PORTRAIT ? 10000 : 14400) - (M_IN + M_OUT - 1800); // A4 减页边距，DXA
+const PAGE_W = PORTRAIT ? 11906 : 16838, PAGE_HT = PORTRAIT ? 16838 : 11906;
+const TOTAL = PAGE_W - M_IN - M_OUT;   // 表格最大宽度＝版心宽度，随页边距自适应（2026-09-30 用户）
 const SC = (w) => Math.round(w * TOTAL / 14400);
 
 /* ---------- 行内解析：**bold** `code` <em>红</em> <strong>粗</strong> ---------- */
@@ -684,7 +687,7 @@ function htmlTableCore(html) {
   if (process.env.W_LOG && COMPACT) console.error('W', nCols, JSON.stringify(W), String(parsed[0].cells.map(c => c.text).join('/')).slice(0, 40));
 
   /* ---- 自动缩排：估算表格高度，超过一页时逐级缩小字号，尽量整表放在同一页 ---- */
-  const PAGE_H = (PORTRAIT ? 16838 : 11906) - 1800;   // 可用高度（DXA）
+  const PAGE_H = PAGE_HT - M_TOP - M_BOT;   // 可用高度（DXA），随页边距自适应
   const BUDGET = PAGE_H - 900;          // 留出小节标题与段间距
   const estimate = (sz) => {
     const unit = 132 * sz / 20;         // 每「视觉单位」宽度
@@ -1039,6 +1042,17 @@ function tocLine(e, w, o = {}) {
     ]
   });
   /* 说明行：带 id 时整行做成内部超链接（例：总目录里第零章下的「速查主题」跳到本章首页的主题清单） */
+  /* 2026-09-30 用户：总目录第零章下的「速查主题」要让人一眼看出能点击跳转——
+     ▶ 箭头 + 下划线蓝字 + 「点击跳转」提示 + 点线连页码 */
+  if (e.note && e.jump) return new Paragraph({
+    keepLines: true, indent: { left: NUMW }, spacing: { before: 40, after: 40, line: 260 },
+    tabStops: [{ type: TabStopType.RIGHT, position: w, leader: LeaderType.DOT }],
+    children: [new InternalHyperlink({ anchor: e.id, children: [
+      new TextRun({ text: '▶ ', font: FF, size: 20, bold: true, color: H2_C }),
+      new TextRun({ text: e.note, font: FF, size: 20, bold: true, color: H2_C, underline: {} }),
+      new TextRun({ text: '　点击跳转', font: FF, size: 16, color: GRAY }),
+      new TextRun({ text: '\t', size: 20 }), new PageReference(e.id) ] })]
+  });
   if (e.note) {
     const nr = new TextRun({ text: e.note, font: FF, size: 18, color: e.id ? H2_C : GRAY });
     return new Paragraph({
@@ -1358,7 +1372,9 @@ const coverFull = [
     alignment: AlignmentType.CENTER, spacing: { before: PORTRAIT ? 400 : 260, after: 0, line: 280 },
     indent: { left: sideInd, right: sideInd },
     border: ['top', 'bottom', 'left', 'right'].reduce((o, k) => (o[k] = { style: BorderStyle.SINGLE, size: 4, color: '000000', space: 6 }, o), {}),
-    children: [new TextRun({ text: process.env.DOC_NOTICE, font: FF, size: 18, color: '404040' })]
+    /* 2026-09-30 用户：「特别提示」放在版本号下面；「特别提示：」加粗 */
+    children: (m => m ? [new TextRun({ text: m[1], font: FF, size: 18, bold: true, color: '000000' }), new TextRun({ text: m[2], font: FF, size: 18, color: '404040' })]
+                      : [new TextRun({ text: process.env.DOC_NOTICE, font: FF, size: 18, color: '404040' })])(String(process.env.DOC_NOTICE).match(/^(特别提示[：:])([\s\S]*)$/))
   })] : []),
   ...(DUPLEX ? [] : [new Paragraph({ children: [new PageBreak()] })])
 ];
@@ -1375,7 +1391,7 @@ function buildToc() {
     const [cn, ct] = splitChap(ch.text);
     const quick = ch.secs.length && ch.secs.every(s => /^QRB_/.test(s.id));
     const ls = [{ chap: true, id: ch.id, cn, ct }];
-    if (quick) ls.push({ note: '速查主题', id: ch.id });
+    if (quick) ls.push({ note: '速查主题清单（共 ' + ch.secs.length + ' 项）', id: ch.id, jump: true });
     else ch.secs.forEach(s => { const [num, text] = splitSec(s.text); ls.push({ id: s.id, num, text }); });
     return ls;
   });
@@ -1460,7 +1476,7 @@ const front = cover.concat(preface, toc, buildTopicIndex());
 const PAGE = {
   size: PORTRAIT ? { width: 11906, height: 16838, orientation: PageOrientation.PORTRAIT }
                  : { width: 11906, height: 16838, orientation: PageOrientation.LANDSCAPE },
-  margin: { top: 900, bottom: 900, left: M_IN, right: M_OUT }
+  margin: { top: M_TOP, bottom: M_BOT, left: M_IN, right: M_OUT, header: M_HDR, footer: M_FTR }
 };
 const CONTENT_W = (PORTRAIT ? 11906 : 16838) - M_IN - M_OUT;
 const hdrFont = { ascii: EN, eastAsia: CN };

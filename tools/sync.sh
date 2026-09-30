@@ -57,7 +57,7 @@ info "工具链 $TOOLKIT"
 mod_name() {
   case "$1" in
     0) echo "基础知识速查区" ;;   1) echo "第一章_系统理论" ;;
-    2) echo "第二章_机组训练手册" ;; 3) echo "第三章_运行规范" ;;
+    2) echo "第二章_机组训练手册" ;; 3) echo "第三章_运行手册" ;;
     4) echo "第四章_模拟机训练" ;;  5) echo "第五章_技术提示" ;;
     *) echo "mod$1" ;;
   esac
