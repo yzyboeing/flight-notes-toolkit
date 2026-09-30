@@ -132,10 +132,9 @@ if [ "$BUILD" = 1 ]; then
     out="build/737理论知识笔记_全书.docx"
     python3 "$TOOLKIT/make_book.py" || die "拼合订本失败"
     node "$TOOLKIT/build_docx.js" build/book.md "$out" || die "全书渲染失败（横版）"
-    # 同一份原稿同时出竖版（印刷 / 装订用，2026-09-29 用户要求横竖两版都要）
-    outp="build/737理论知识笔记_全书_竖版.docx"
-    DOC_PORTRAIT=1 node "$TOOLKIT/build_docx.js" build/book.md "$outp" || die "全书渲染失败（竖版）"
-    BUILT="$out"$'\n'"$outp"
+    # SD-71（2026-09-29 用户）：只出横版。竖版的表格在窄版面里文字堆叠严重、不利阅读，不再产出、也不再为竖版优化排版。
+    # 需要临时出竖版时手动运行：DOC_PORTRAIT=1 node "$TOOLKIT/build_docx.js" build/book.md build/737理论知识笔记_全书_竖版.docx
+    BUILT="$out"
   else
     for n in $CHANGED; do
       if [ ! -f "build/mod$n.md" ]; then warn "build/mod$n.md 不存在，跳过"; continue; fi
