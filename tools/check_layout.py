@@ -172,6 +172,43 @@ def scan(pdf, name, header):
                 if len(left) == len(cells):
                     sug('T3', '%s 第 %d 页：第 %d 列每格都是一行短内容却左对齐（如「%s」），考虑整列居中' % (
                         name, i + 1, k + 1, left[0][1][0][2].strip()[:20]))
+            # T6 / T7 / T8 同列统一与末行孤字（SD-84，2026-09-30 用户速查区第 15～55 条反馈）
+            PH = re.compile(r'^[—－\-–/／无空×✕✓√?？…\s]*$')
+            for k in range(ncol):
+                cells = [r[k] for r in info[1:] if k < len(r) and r[k] and (k + 1 >= len(r) or r[k + 1] is not None) and r[k][1]]
+                cells = [x for x in cells if not PH.match(''.join(l[2] for l in x[1]))]
+                if len(cells) < 2: continue
+                bul = [x for x in cells if x[1][0][2].lstrip().startswith('•')]
+                # 没加点的格只算「句子」：≥ 12 字或以句号结尾；短值（持续 / ≥ 800m）和 ①② 步骤格不算不统一
+                def sentence(x):
+                    t0 = ''.join(l[2] for l in x[1]).strip()
+                    return not re.match(r'[①-⑳]', t0) and '①' not in t0 and (len(re.sub(r'\s', '', t0)) >= 12 or t0.endswith('。'))
+                nbs = [x for x in cells if x not in bul and sentence(x)]
+                # 取值列（有「持续」「≥ 800m」这类不带句号的短值格）：长的并列格加点、短值居中不加点，是允许的差异（用户第 52 条）
+                valcol = any(len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) < 12 and not ''.join(l[2] for l in x[1]).strip().endswith('。')
+                             for x in cells if x not in bul)
+                if k > 0 and bul and nbs and not valcol:
+                    other = nbs[0]
+                    sug('T6', '%s 第 %d 页：第 %d 列有 %d 格分条加点、%d 格句子没有（如「%s」）——整列加点（col-bullet）或整列不加（col-center）' % (
+                        name, i + 1, k + 1, len(bul), len(nbs), other[1][0][2].strip()[:18]))
+                def centered(x):
+                    cx = (x[0][0] + x[0][2]) / 2
+                    return all(abs((l[0] + l[1]) / 2 - cx) <= 4 for l in x[1]) and any((x[0][2] - x[0][0]) - (l[1] - l[0]) > PAD + 8 for l in x[1])
+                def lefty(x):
+                    return all(l[0] - x[0][0] < PAD + 2 for l in x[1]) and any((x[0][2] - x[0][0]) - (l[1] - l[0]) > PAD + 8 for l in x[1])
+                nb = [x for x in cells if x not in bul]
+                cen = [x for x in nb if centered(x)]; lef = [x for x in nb if lefty(x) and not centered(x)]
+                if cen and lef:
+                    sug('T7', '%s 第 %d 页：第 %d 列 %d 格居中、%d 格左对齐（如「%s」）——统一对齐' % (
+                        name, i + 1, k + 1, len(cen), len(lef), lef[0][1][0][2].strip()[:18]))
+            for r in info:
+                for x in r:
+                    if not x or len(x[1]) < 2 or len(x[1]) > 3 or x[1][0][2].lstrip().startswith('•'): continue   # 只管短格；长段落末行一两个字属正常
+                    last = re.sub(r'[\s，。；：、（）()「」.,;:]', '', x[1][-1][2])
+                    prev = x[1][-2]   # 上一行接近撑满格宽才是自然折行；原文 <br> 主动换行（如「（被动）」）不算
+                    if (prev[1] - prev[0]) < (x[0][2] - x[0][0]) - PAD - 18 or re.match(r'\s*[（(]', x[1][-1][2]): continue
+                    if 0 < len(last) <= 2 and not re.match(r'[•–▪]', x[1][-1][2].strip()):
+                        sug('T8', '%s 第 %d 页：「%s…」折行后末行只剩「%s」——调列宽让它少折一行' % (name, i + 1, x[1][0][2].strip()[:14], last))
             # T4 并列长句未分条（SD-78）：一格内 ≥2 个「；」、各分句 ≥ 20 字宽、却没有 •
             for r in info[1:]:
                 for x in r:
