@@ -1080,6 +1080,25 @@ function htmlTableCore(html) {
       if (/(^|\s)col-center(\s|$)/.test(hc.cls || '')) forcedCenterCols.add(ci4);
     });
   }
+  const serialLeft = new Set();
+  /* SD-90 序号表左对齐（2026-09-30 用户，速查第 33 条：「前面有序号的，第二列就不用再居中了……对齐的话更美观」）：
+     首列每个数据格都是序号（①～⑳ 或 1～99）的表，其余列只要有超过约 8 个字的格，就整列左对齐；显式 col-center 仍居中 */
+  {
+    const rowsD = parsed.filter(r => !/hdr|note|premise|warn/.test(r.cls));
+    const firstIsSerial = rowsD.length >= 2 && rowsD.every((r, i) => { const ri = parsed.indexOf(r);
+      const k0 = r.cells.findIndex((c, ck) => startCol[ri][ck] === 0);
+      if (k0 < 0) return true;   // 首列被上一行合并格占住
+      return /^([①-⑳]|\d{1,2}[.、]?)$/.test(unesc(String(r.cells[k0].text).replace(/<[^>]+>/g, '')).trim()); });
+    if (firstIsSerial) {
+      const vis8 = t => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : 1; return n; };
+      for (let k = 1; k < nCols; k++) {
+        if (forcedCenterCols.has(k)) continue;
+        const long = parsed.some((r, ri) => !/hdr|note|premise|warn/.test(r.cls) && r.cells.some((c, ck) => startCol[ri][ck] === k && c.colspan === 1 && vis8(c.text) > 16));
+        if (long) { forcedLeftCols.add(k); serialLeft.add(k); }
+      }
+      if (process.env.SERIAL_LOG && !PROBE) console.error('SERIAL\t' + parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('|')).slice(0, 1).join('').slice(0, 40));
+    }
+  }
   /* SD-84 同列统一·单句列居中（2026-09-30 用户，速查区第 24 条「渗漏场景这一列都居中」、第 25 条「第一列『动作』这一列都需要居中，
      因为后面都居中了」）：一列（含首列）每个数据格都只有一段、是一句话（句中无「。；」）、不超过约 40 字、没有分条符号 → 整列居中；
      覆盖 col-left 与「长句左齐」判定。多段、多句、列举、分条的格仍左齐。 */
@@ -1185,7 +1204,7 @@ function htmlTableCore(html) {
          父子层级本身依靠悬挂缩进表达，始终左齐；独立占位符仍居中。 */
       const forceLeft = c.colspan === 1 && forcedLeftCols.has(ci);
       const forceCenter = c.colspan === 1 && forcedCenterCols.has(ci);
-      const center = isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j)) return false; return true; })())
+      const center = isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
         || (!forceLeft && !hierarchy && ((labelShort && !longCols.has(ci)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
           || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
           ? (!isNote && !isPre && !isWarn &&

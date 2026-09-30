@@ -172,8 +172,10 @@ def scan(pdf, name, header):
                     if 0 < need and need + 6 <= have:
                         sug('T2', '%s 第 %d 页：%s「%s」折成 %d 行，表内还有约 %.0fpt 空余可让它一行放下' % (
                             name, i + 1, '表头' if ri == 0 else '短格', txt[:24], len(ls), have))
-            # T3 整列都是一行短内容却没居中（SD-75 / SD-78），第 2 列起、至少 2 格
-            for k in range(1, ncol):
+            # T3 整列都是一行短内容却没居中（SD-75 / SD-78），第 2 列起、至少 2 格；序号表（首列 ①②③ / 1 2 3）按 SD-90 左对齐，不查
+            first = [''.join(l[2] for l in r[0][1]).strip() for r in info[1:] if r and r[0] and r[0][1]]
+            serial = len(first) >= 2 and all(re.match(r'^([①-⑳]|\d{1,2}[.、]?)$', x) for x in first)
+            for k in (range(1, ncol) if not serial else []):
                 cells = [r[k] for r in info[1:] if k < len(r) and r[k] and (k + 1 >= len(r) or r[k + 1] is not None)]
                 cells = [x for x in cells if x[1]]
                 if len(cells) < 2 or any(len(x[1]) != 1 for x in cells): continue
