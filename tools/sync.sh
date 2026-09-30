@@ -84,6 +84,9 @@ if [ "$DIRTY" = 0 ] && [ "$FULL" = 0 ]; then
 fi
 [ "$DIRTY" = 0 ] && info "工作区无改动，但 --full 要求重建"
 
+# ---------- 1b. 速查区改动的连带检查（SD-92，2026-09-30 用户：速查区改了，后续章节对应内容要一并改） ----------
+if [ -f "$TOOLKIT/quickref_sync_hint.py" ]; then python3 "$TOOLKIT/quickref_sync_hint.py" || true; fi
+
 # ---------- 2. 找出改了哪些模块 ----------
 # core.quotepath=false：否则中文路径会被转义成 \346\250\241，匹配不到模块号
 CHANGED="$(
