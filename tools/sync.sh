@@ -116,10 +116,11 @@ if [ "$BUILD" = 1 ]; then
   # 没设才退回 user.name。
   DOC_AUTHOR="${DOC_AUTHOR:-$(git config --get notes.docAuthor || git config user.name)}"
   export DOC_AUTHOR
-  # 封面版次与声明（可选）：git config notes.docEdition "2026 年 9 月版"；git config notes.docNotice "…"
+  # 封面版次与声明（可选）：git config notes.docEdition "20260930"；git config notes.docNotice "…"
   DOC_EDITION="${DOC_EDITION:-$(git config --get notes.docEdition)}"; export DOC_EDITION
   DOC_NOTICE="${DOC_NOTICE:-$(git config --get notes.docNotice)}"; export DOC_NOTICE
   DOC_PREFACE="${DOC_PREFACE:-$ROOT/前言.md}"; export DOC_PREFACE   # SD-51 前言页（文件不存在则不出前言）
+  DOC_PREFACE_SIGNATURE="${DOC_PREFACE_SIGNATURE:-$(git config --get notes.docPrefaceSignature)}"; export DOC_PREFACE_SIGNATURE
   # SD-67（2026-09-29 用户）：主题线索引页撤出成品。源文件 主题线索引.md 保留在库里，
   # 需要时把下一行取消注释即可恢复。
   # DOC_TOPICINDEX="${DOC_TOPICINDEX:-$ROOT/主题线索引.md}"; export DOC_TOPICINDEX
@@ -129,8 +130,8 @@ if [ "$BUILD" = 1 ]; then
 
   echo; info "[4/5] 渲染 docx"
   if [ "$FULL" = 1 ]; then
-    # 2026-09-30 用户：成品文件名「737 机型理论知识笔记」
-    out="build/737 机型理论知识笔记.docx"
+    # 2026-09-30 用户：成品文件名「B737机型理论知识笔记」
+    out="build/B737机型理论知识笔记.docx"
     DOC_HEADER="${DOC_HEADER:-B737-NG / B737-8 机型理论知识笔记}"; export DOC_HEADER
     python3 "$TOOLKIT/make_book.py" || die "拼合订本失败"
     node "$TOOLKIT/build_docx.js" build/book.md "$out" || die "全书渲染失败（横版）"

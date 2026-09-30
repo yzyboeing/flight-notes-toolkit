@@ -7,7 +7,10 @@
 块取节内「### A　块名」。按页面文字行精确匹配定位，找不到的项跳过并报数。
 """
 import io, os, re, sys, glob
-import pymupdf
+try:
+    import pymupdf
+except ImportError:  # PyMuPDF 旧版模块名
+    import fitz as pymupdf
 
 def _arg(flag, default):
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default

@@ -10,7 +10,10 @@
 标题已在页顶仍跨页的（一页放不下）→ 移出名单。breaks.txt 不再变化即收敛。
 """
 import re, sys, io, os
-import pymupdf
+try:
+    import pymupdf
+except ImportError:  # PyMuPDF 旧版模块名
+    import fitz as pymupdf
 
 PDF, BOOK, STATE = sys.argv[1], sys.argv[2], sys.argv[3]
 norm = lambda s: re.sub(r'[ \t\n]+', '', s)          # 保留全角空格：标题「A-1　名」与索引「A-1 名」靠它区分
