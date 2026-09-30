@@ -93,7 +93,7 @@ def main():
             '# %s\n\n%s\n' % (title, re.sub(r'\n{3,}', '\n\n', unwiki(body)).strip()))
         print('assembled 1 节 -> %s' % out)
         return
-    full = ['# 737 理论知识笔记\n']
+    full = ['# 机型理论知识笔记\n']   # 2026-09-30 用户：参照速查单册，机型写在封面标签里，题名不再写机型
     total = 0
     for n in '012345':
         ids = sorted([s for s in secs if s.split('.')[0] == n], key=key)

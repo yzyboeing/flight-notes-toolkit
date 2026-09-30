@@ -129,11 +129,13 @@ if [ "$BUILD" = 1 ]; then
 
   echo; info "[4/5] 渲染 docx"
   if [ "$FULL" = 1 ]; then
-    out="build/737理论知识笔记_全书.docx"
+    # 2026-09-30 用户：成品文件名「737 机型理论知识笔记」
+    out="build/737 机型理论知识笔记.docx"
+    DOC_HEADER="${DOC_HEADER:-B737-NG / B737-8 机型理论知识笔记}"; export DOC_HEADER
     python3 "$TOOLKIT/make_book.py" || die "拼合订本失败"
     node "$TOOLKIT/build_docx.js" build/book.md "$out" || die "全书渲染失败（横版）"
     # SD-71（2026-09-29 用户）：只出横版。竖版的表格在窄版面里文字堆叠严重、不利阅读，不再产出、也不再为竖版优化排版。
-    # 需要临时出竖版时手动运行：DOC_PORTRAIT=1 node "$TOOLKIT/build_docx.js" build/book.md build/737理论知识笔记_全书_竖版.docx
+    # 需要临时出竖版时手动运行：DOC_PORTRAIT=1 node "$TOOLKIT/build_docx.js" build/book.md build/737 机型理论知识笔记_竖版.docx
     BUILT="$out"
   else
     for n in $CHANGED; do
