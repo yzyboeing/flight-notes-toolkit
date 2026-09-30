@@ -471,12 +471,18 @@ function htmlTableCore(html) {
     const pv = (t) => { let n = 0; for (const ch of plainOf(t)) n += /[⺀-鿿＀-￯]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n; };
     const balanced = (t) => ['em', 'strong', 'b', 'i', 'small', 'span', 'sup', 'sub', 'u'].every(g =>
       (String(t).match(new RegExp('<' + g + '(\\s[^>]*)?>', 'g')) || []).length === (String(t).match(new RegExp('</' + g + '>', 'g')) || []).length);
-    const splitOut = (t, sepRe) => { const out = []; let cur = '';
+    const splitOut = (t, sepRe) => { const out = []; let cur = '', dep = 0;
       for (let i = 0; i < t.length; i++) { const ch = t[i];
         if (ch === '<') { const j = t.indexOf('>', i); if (j < 0) { cur += t.slice(i); break; } cur += t.slice(i, j + 1); i = j; continue; }
-        cur += ch; if (sepRe.test(ch)) { out.push(cur); cur = ''; } }
+        if (ch === '&') { const m = /^&[a-zA-Z#0-9]+;/.exec(t.slice(i, i + 10)); if (m) { cur += m[0]; i += m[0].length - 1; continue; } }   // 实体（&lt; &gt;）里的分号不是分隔符
+        if (/[（(]/.test(ch)) dep++; else if (/[）)]/.test(ch)) dep = Math.max(0, dep - 1);
+        cur += ch; if (dep === 0 && sepRe.test(ch)) { out.push(cur); cur = ''; } }   // 括号里的「；」不拆（「（襟翼 1：250kt；10：210kt）」）
       if (plainOf(cur)) out.push(cur); else if (out.length) out[out.length - 1] += cur;
       return out.every(balanced) ? out : null; };
+    /* 引语后面哪几段算它的子项：子项以「；」或无标点相连、到第一个以「。」结尾的为止（列表收尾），其后另起的句子是新的一项；
+       子项每段都以「。」结尾（或都不以「。」结尾）时整串都是子项 */
+    const kidCount = (arr) => { const k = arr.findIndex(x => /[。．]$/.test(plainOf(x)));
+      return (k > 0 && k < arr.length - 1) ? k + 1 : arr.length; };
     const CONT = /^(但|但是|因此|所以|即|其中|否则|此时|然后|随后|并且|而且|且|或|→|（|\()/;   // 「且 / 或」开头的是上一条件的延续（速查第 120 条两列对照）
     const STRUCT = /^([①-⑳]|\d+[.、)）]\s|[A-Z]-\d+|第 ?\d+ ?[条步]|注[：:]|[▪•·–—-]\s)/;
     /* 不分条的列（2026-09-30 用户，速查区第 23 条：「定义……根本不需要加圆点，只需要把这个定义居中」）：
@@ -544,7 +550,8 @@ function htmlTableCore(html) {
            首段以「：」结尾、后面 ≥ 2 段，且后面各段都不再以「：」结尾、不是延续句 → 「• 引语」+「– 子项」 */
         if (segs.length >= 3 && /[：:]$/.test(plainOf(segs[0])) && pv(segs[0]) >= 4
             && segs.slice(1).every(x => !/[：:]$/.test(plainOf(x)) && !CONT.test(plainOf(x)))) {
-          c.text = [MK_B + segs[0], ...segs.slice(1).map(x => MK_C + MK_C + x)].join('<br>'); return;
+          const nk = kidCount(segs.slice(1));
+          c.text = [MK_B + segs[0], ...segs.slice(1).map((x, xi) => (xi < nk ? MK_C + MK_C : MK_B) + x)].join('<br>'); return;
         }
         /* 引语不在第一段（2026-09-30 用户，速查第 6 条「一直显示，直至出现下列情况之一：」后三个选项应为短线）：
            格内任一段以「：」结尾且后面至少 2 段 → 该段为「• 引语」，其后到下一个引语之前的各段为「– 子项」；第一个引语之前的段各为「•」 */
@@ -553,14 +560,18 @@ function htmlTableCore(html) {
           if (colonIdx.length && colonIdx[colonIdx.length - 1] < segs.length - 1) {
             const ok = colonIdx.every((ci0, k0) => { const end = k0 + 1 < colonIdx.length ? colonIdx[k0 + 1] : segs.length;
               const kids = segs.slice(ci0 + 1, end); return kids.length >= 2 && kids.every(x => !CONT2.test(plainOf(x))); });
-            if (ok && colonIdx[0] > 0) {
+            if (ok && (colonIdx[0] > 0 || colonIdx.length >= 2)) {   // 首段就是引语且有多个引语（「【737-NG】满足任一：… 【737-8】满足任一：…」）
               c.text = segs.map((x, xi) => (xi < colonIdx[0] || colonIdx.includes(xi) ? MK_B : MK_C + MK_C) + x).join('<br>'); return;
             }
           }
         }
         const items = [];
         for (const s0 of segs) {
-          const ci = s0.search(/[：:]/);
+          let ci = -1; { let dp = 0;   // 第一个不在括号、不在标签里的冒号
+            for (let i = 0; i < s0.length; i++) { const ch = s0[i];
+              if (ch === '<') { const j = s0.indexOf('>', i); if (j < 0) break; i = j; continue; }
+              if (/[（(]/.test(ch)) dp++; else if (/[）)]/.test(ch)) dp = Math.max(0, dp - 1);
+              else if (dp === 0 && /[：:]/.test(ch)) { ci = i; break; } } }
           if (ci > 0) {
             const head = s0.slice(0, ci + 1), rest = s0.slice(ci + 1), hp = plainOf(head);
             const kids = balanced(head) && balanced(rest) ? splitOut(rest, /[；;]/) : null;
@@ -591,12 +602,16 @@ function htmlTableCore(html) {
     /* SD-83 同列统一（2026-09-30 用户：「既然……都加了『原点』，那我建议前面的……也去加『原点』，这样整个一列就会统一」）：
        一列里只要有格子分条加了「•」，同列其余有实质内容的数据格也加「•」——整格作一项，首段加点，后续段悬挂对齐（\uE004）。
        占位格（— / 无 / ✓ 等）、已有 ①② / 编号 / 符号的格、跨列格、首列、表头与注解行不动。 */
-    const colB = new Set(), colShort = new Set();
+    const colB = new Set(), colShort = new Set(), nB = new Map(), nPlain = new Map();
     parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => { if (c.colspan !== 1) return; const t = String(c.text), p1 = plainOf(t).replace(/\s+/g, '');
-        if (t.includes(MK_B)) colB.add(startCol[ri][k]);
-        else if (p1 && !/^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(p1) && pv(t) < 12 && !/[。．]$/.test(p1)) colShort.add(startCol[ri][k]); }); });   // 带句号的短句（「中断起飞。」）算句子，不算取值
-    colShort.forEach(k => colB.delete(k));   // 有数值 / 短词格的列是「取值列」，不做同列统一（避免「• V2」「• 持续」）
+        const inc = (m) => m.set(startCol[ri][k], (m.get(startCol[ri][k]) || 0) + 1);
+        if (t.includes(MK_B)) { colB.add(startCol[ri][k]); inc(nB); }
+        else if (p1 && !/^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(p1)) { inc(nPlain);
+          if (pv(t) < 12 && !/[。．]$/.test(p1)) colShort.add(startCol[ri][k]); } }); });   // 带句号的短句（「中断起飞。」）算句子，不算取值
+    /* 有短词格的列：加点格已占多数（≥ 其余有内容的格）时，仍把句子格统一加点，短词格保持原样（1.7 A-1「探测系统」列）；否则整列不统一 */
+    const shortKeep = new Set();
+    colShort.forEach(k => { if ((nB.get(k) || 0) >= (nPlain.get(k) || 0) && (nB.get(k) || 0) >= 2) shortKeep.add(k); else colB.delete(k); });   // 有数值 / 短词格的列是「取值列」，不做同列统一（避免「• V2」「• 持续」）
     parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => {
         const col = startCol[ri][k], t = String(c.text);
@@ -605,16 +620,34 @@ function htmlTableCore(html) {
           const segs3 = t.split(/<br\s*\/?>/);
           c.text = segs3.map((x, xi) => x.startsWith(MK_P) ? MK_B + x.slice(1) : x.startsWith(MK_N) || x.startsWith(MK_C + MK_C) ? x
             : x.startsWith(MK_C) ? MK_C + x
-            : (plainOf(x) ? ((xi === 0 || (xi > 0 && segs3[xi - 1].startsWith(MK_C) && !CONT.test(plainOf(x)))) ? MK_B : MK_Q) + x : x)).join('<br>');   // 格内第一句、子项列表之后另起的一句，都作新的一项加点
+            : (plainOf(x) ? ((xi === 0 || !CONT.test(plainOf(x))) ? MK_B : MK_Q) + x : x)).join('<br>');   // 格内第一句、子项列表之后另起的一句，都作新的一项加点
           return;
         }
         if (/[\uE001-\uE005]/.test(t)) return;
         const segs = t.split(/<br\s*\/?>/).filter(x => plainOf(x));
         const p0 = plainOf(t).replace(/\s+/g, '');
-        if (!segs.length || /^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(p0) || segs.some(s0 => STRUCT.test(plainOf(s0)))) return;
-        c.text = segs.map((s0, i) => (i === 0 ? MK_B : MK_Q) + s0).join('<br>');
+        if (shortKeep.has(col) && pv(t) < 12 && !/[。．]$/.test(p0)) return;
+        if (!segs.length || /^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(p0)) return;
+        /* 圈码步骤与普通句混在一格（「……满足以下之一：① … ② …」）：普通句各作「•」项，圈码步骤缩进在其下；整格全是圈码的列表不动 */
+        const isNum = segs.map(s0 => /^[①-⑳]/.test(plainOf(s0)));
+        if (segs.some(s0 => STRUCT.test(plainOf(s0)))) {
+          if (!isNum.some(x => x) || isNum.every(x => x) || isNum[0] || segs.some((s0, i) => !isNum[i] && STRUCT.test(plainOf(s0)))) return;
+          c.text = segs.map((s0, i) => (isNum[i] ? MK_N : (i === 0 || !CONT.test(plainOf(s0)) ? MK_B : MK_Q)) + s0).join('<br>'); return;
+        }
+        c.text = segs.map((s0, i) => (i === 0 || !CONT.test(plainOf(s0)) ? MK_B : MK_Q) + s0).join('<br>');   // 每段是一句并列的话，各自加点；「但 / 随后 / 且」开头的延续句悬挂对齐
         if (process.env.UNI_LOG && !PROBE) console.error('UNI\t' + p0.slice(0, 40));
       }); });
+    /* 引语后的子项统一为「–」（全书复审）：「• ……：」后面紧跟的「•」项 / 悬挂段是它的子项，改成「–」缩进；
+       到以「。」结尾的子项为止（其后另起的一句仍是「•」项），遇到已有的「–」子项、圈码步骤或下一个引语也停 */
+    parsed.forEach((r) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+      r.cells.forEach((c) => { const t = String(c.text); if (!t.includes(MK_B)) return;
+        const ls = t.split(/<br\s*\/?>/); let ch = false;
+        const isIntro = (x) => x.startsWith(MK_B) && /[：:]$/.test(plainOf(x)) && pv(x) >= 4;
+        for (let i = 0; i < ls.length - 1; i++) { if (!isIntro(ls[i])) continue;
+          let e = i + 1; while (e < ls.length && (ls[e].startsWith(MK_B) || ls[e].startsWith(MK_Q)) && !isIntro(ls[e])) e++;
+          const nk = kidCount(ls.slice(i + 1, e));
+          for (let j = i + 1; j < i + 1 + nk; j++) { ls[j] = MK_C + MK_C + ls[j].slice(1); ch = true; } }
+        if (ch) c.text = ls.join('<br>'); }); });
     /* 一列里加了点的格如果每格都只有一项（一个「•」、没有子项），点就没有意义（用户第 25、52 条：单句 / 短语居中不加点）→ 整列撤点 */
     { const cells = new Map();
       parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
@@ -626,6 +659,12 @@ function htmlTableCore(html) {
           marked.forEach(c => { c.text = String(c.text).replace(/[\uE001]/g, ''); }); }); }
   }
 
+  if (process.env.CELL_DUMP && !PROBE) {   // 复审用：把分条后的每格文字（含标记）写出，供 audit_cells.py 查同列 / 同格不统一
+    const pl = (t) => unesc(String(t).replace(/\s+/g, ' ').replace(/ ?<br\s*\/?> ?/g, '\n').replace(/<[^>]+>/g, '')).replace(/\n([\uE001-\uE005]+) /g, '\n$1');
+    const hr = parsed.find(r => r.cls.includes('hdr'));
+    fs.appendFileSync(process.env.CELL_DUMP, JSON.stringify({ hdr: hr ? hr.cells.map(c => pl(c.text)) : [],
+      rows: parsed.map((r, ri) => ({ cls: r.cls, cells: r.cells.map((c, k) => ({ col: startCol[ri][k], span: c.colspan, head: !!c.head, t: pl(c.text) })) })) }) + '\n');
+  }
   const dataNeed = new Array(nCols).fill(0);   // 数据行
   const hdrNeed = new Array(nCols).fill(0);   // 表头行
   parsed.forEach((r, ri) => {
@@ -634,7 +673,10 @@ function htmlTableCore(html) {
     r.cells.forEach((c, k) => {
       const ci = startCol[ri][k];
       if (c.colspan === 1 && ci < nCols) {
-        const longest = Math.max(...String(c.text).split(/<br\s*\/?>/).map(vis));
+        /* 分条 / 子项的缩进也占宽度（4.21 第 8 条：窄表里「– 子项」因缩进多折出一行只剩「80%；」） */
+        const indVis = (sg) => { const mk = (sg.match(/^[\uE001-\uE005]+/) || [''])[0];
+          return mk === '\uE002\uE002' ? 6.5 : mk === '\uE002' || mk === '\uE005' ? 4.4 : mk ? 2.4 : 0; };   // 缩进 560 / 360～380 / 200 DXA，按 9pt 汉字 180 DXA = 2 个宽度单位折算
+        const longest = Math.max(...String(c.text).split(/<br\s*\/?>/).map(sg => vis(sg) + indVis(sg)));
         const t = isH || c.head ? hdrNeed : dataNeed;
         t[ci] = Math.max(t[ci], longest);
       }
@@ -653,7 +695,9 @@ function htmlTableCore(html) {
   /* 总宽：内容多的撑满页宽，内容少的按需收缩 */
   const CHAR = 132, PAD = 170, FLOOR = 520;
   const wantedAll = raw.reduce((a, n) => a + Math.round(n * CHAR) + PAD, 0);
-  const TW = heavy ? TOTAL : Math.min(TOTAL, Math.max(wantedAll, Math.round(TOTAL * 0.42)));
+  /* 短标签列按下面的 FLOOR 取宽，比它「想要」的宽；差额要补进总宽，否则长句列被挤窄、平白多折一行（4.21 第 8 条） */
+  const floorExtra = raw.reduce((a, n) => a + (n <= 20 ? Math.max(0, 520 - (Math.round(n * CHAR) + PAD + 160)) : 0), 0);
+  const TW = heavy ? TOTAL : Math.min(TOTAL, Math.max(wantedAll + floorExtra, Math.round(TOTAL * 0.42)));
 
   /* 「根据内容自动调整」：短标签列（故障 / 角色 / 序 / 步骤…）按内容定宽，
      余下的宽度全部让给内容最多的列（处置 / 动作 / 说明），以减少折行行数。 */
@@ -870,11 +914,19 @@ function htmlTableCore(html) {
     parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, ck) => { if (c.colspan !== 1) return; const k = startCol[ri][ck];
         const bold = r.cls.includes('hdr') || c.head || k === 0, avail = W[k] - 260;
-        String(c.text).split(/<br\s*\/?>/).forEach(sg => { const L = fineVis(sg.replace(/^[\uE001-\uE005]+/, '')) * 90; if (avail <= 0 || !L) return;   // 按宋体 9pt 实际字宽（汉字 180 DXA，粗体同宽）
+        String(c.text).split(/<br\s*\/?>/).forEach(sg => {
+          const mk0 = (sg.match(/^[\uE001-\uE005]+/) || [''])[0];
+          const ind0 = mk0 === '\uE002\uE002' ? 560 : mk0 === '\uE005' ? 380 : mk0 === '\uE002' ? 360 : mk0 ? 200 : 0;   // 分条 / 子项的左缩进也占掉可用宽度
+          const L = fineVis(sg.replace(/^[\uE001-\uE005]+/, '')) * 90 + ind0; if (avail <= 0 || !L) return;   // 按宋体 9pt 实际字宽（汉字 180 DXA，粗体同宽）
           const lines = Math.ceil(L / avail), rem = L - (lines - 1) * avail;
           if (lines >= 2 && lines <= 4 && rem <= 4.4 * 90) tail[k] = Math.max(tail[k], Math.ceil(L / (lines - 1)) + 260 + 60 - W[k]);
           /* 短标签 / 表头（约 20 字以内）折行：能一行放下就给够一行（SD-72 延伸：表内其他列有富余时也匀过来） */
           if (lines >= 2 && L <= 20 * 180 && !/[\uE001-\uE005]/.test(sg)) tail[k] = Math.max(tail[k], Math.ceil(L) + 260 + 60 - W[k]); }); }); });
+    /* 表格没占满页宽时，用剩余页宽补末行孤字；只补窄表（不到页宽八成），避免整书重新分页 */
+    { const used = W.reduce((a2, b2) => a2 + b2, 0); let free = used < TOTAL * 0.8 ? TOTAL - used : 0;
+      for (let k = 0; k < nCols && free > 0; k++) if (tail[k] > 0) {
+        const add = Math.min(tail[k], free); W[k] += add; free -= add; tail[k] -= add;
+        if (process.env.W_LOG) console.error('TAILGROW', k, add); } }
     for (let k = 0; k < nCols; k++) if (tail[k] > 0) {
       let j = -1; for (let q = 0; q < nCols; q++) if (q !== k && (j < 0 || W[q] > W[j])) j = q;
       if (j >= 0 && tail[k] <= 0.12 * W[j] && W[j] - tail[k] > W[k] + tail[k]) { W[k] += tail[k]; W[j] -= tail[k];
@@ -1161,6 +1213,11 @@ function htmlTableCore(html) {
     const isPriority = r.cls.includes('priority');
     /* 黄色只用于显式标记的最高优先级整行 / 整项；红色仍只用于行内限制、警戒和关键动作。 */
     const fill = isHdr ? HDR_F : (isWarn || isPriority) ? PRIORITY_F : isPre ? PRE_F : isNote ? NOTE_F : (ri % 2 ? ALT : 'FFFFFF');
+    const firstAllLabel = parsed.every((r2, ri2) => /hdr|note|premise|warn/.test(r2.cls) || r2.cells.every((c2, k2) => {
+      if (startCol[ri2][k2] !== 0 || c2.colspan !== 1) return true;
+      let t2 = unesc(String(c2.text).replace(/<br\s*\/?>/g, '').replace(/<[^>]+>/g, ''));
+      for (let q = 0; q < 3; q++) t2 = t2.replace(/[（(][^（）()]*[）)]/g, '');
+      return vis(t2.trim()) <= 30 && !/[，。；]/.test(t2); }));   // 首列每格去掉括注后都是短标签：括注再长也整列居中（R2）
     const cells = r.cells.map((c, ck) => {
       const ci = startCol[ri][ck];
       let w = 0;
@@ -1205,7 +1262,7 @@ function htmlTableCore(html) {
       const forceLeft = c.colspan === 1 && forcedLeftCols.has(ci);
       const forceCenter = c.colspan === 1 && forcedCenterCols.has(ci);
       const center = isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
-        || (!forceLeft && !hierarchy && ((labelShort && !longCols.has(ci)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
+        || (!forceLeft && !hierarchy && ((labelShort && (!longCols.has(ci) || firstAllLabel)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
           || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
           ? (!isNote && !isPre && !isWarn &&
                (c.colspan === 1 ? !longCols.has(ci) : shortCell(c.text)))
