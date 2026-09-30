@@ -8,7 +8,10 @@
   · 标题孤立：页底最后一段是条目标题（数字编号或 A-1 这类），正文到了下一页。
 默认只列有问题的；--all 列出全部断表。只读，不改文件。"""
 import sys, re
-import pymupdf
+try:
+    import pymupdf
+except ImportError:  # PyMuPDF 旧版模块名
+    import fitz as pymupdf
 
 PDF = sys.argv[1]; ALL = '--all' in sys.argv
 d = pymupdf.open(PDF)

@@ -6,7 +6,10 @@
       → 重排，最多 4 轮；一页放不下的条目（本来就要跨页）不加。最后交给 quickref_pdf.py 加书签和索引页。
 """
 import os, re, sys, subprocess, glob, io
-import pymupdf
+try:
+    import pymupdf
+except ImportError:  # PyMuPDF 旧版模块名
+    import fitz as pymupdf
 
 MD, BASE = sys.argv[1], sys.argv[2]
 TOOLS = os.path.dirname(os.path.abspath(__file__))

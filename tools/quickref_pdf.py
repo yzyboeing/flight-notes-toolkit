@@ -11,7 +11,10 @@
 在封面后插入一页可点击的块目录（块名 · 条目编号范围 · 页码）。页码按 PDF 实际页找，不估算。
 """
 import io, os, re, sys, glob
-import pymupdf
+try:
+    import pymupdf
+except ImportError:  # PyMuPDF 旧版模块名
+    import fitz as pymupdf
 
 def _arg(flag, default):
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default

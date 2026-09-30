@@ -13,11 +13,15 @@ const fs = require('fs');
 const SRC = process.argv[2] || 'flight_theory_notes_prompt_v5.md';
 const OUT = process.argv[3] || 'prompt.docx';
 
-// 字体：默认用 macOS 自带族，保证本机 Word 与 LibreOffice 排版一致。
-// Windows 上跑可覆盖：DOC_FONT_CN="Microsoft YaHei" DOC_FONT_EN="Segoe UI" DOC_FONT_MONO=Consolas
-const CN   = process.env.DOC_FONT_CN   || 'PingFang SC',
-      EN   = process.env.DOC_FONT_EN   || 'Helvetica Neue',
+// 字体：LibreOffice 导出 PDF 时，苹方 / Helvetica Neue 的粗体和数学符号会被拆成多种替代字体。
+// 默认改用本机自带且同时覆盖中英文、数学符号和真实粗体的 Songti SC；需要时仍可用环境变量覆盖。
+const MAIN = process.env.DOC_FONT || 'Songti SC',
+      CN   = process.env.DOC_FONT_CN   || MAIN,
+      EN   = process.env.DOC_FONT_EN   || MAIN,
       MONO = process.env.DOC_FONT_MONO || 'Menlo';
+const FF = { ascii: EN, hAnsi: EN, eastAsia: CN, cs: EN };
+const FF_CN = { ascii: CN, hAnsi: CN, eastAsia: CN, cs: CN };
+const FF_MONO = { ascii: MONO, hAnsi: MONO, eastAsia: CN, cs: MONO };
 /* DOC_PALETTE：整体配色方案比选（2026-09-29）。未设置＝现行方案。
    key＝数值字色，keyBg＝数值底色（荧光笔），note/noteBar＝注解条底色/竖条，warn＝警示条底色，hdr＝表头底，alt＝斑马纹，tail＝表后「注：」行底色 */
 const PALETTES = {
@@ -41,20 +45,20 @@ const INK   = '1F4E79',            // 标题与粗分隔线（深蓝）
       INK2  = '2E74B5',            // 次级线条、注解竖条（中蓝）
       HDR   = PAL.hdr || 'EBEBEB',            // 表头底（中性灰，结构不占色相）
       NOTE_BG = PAL.note || 'EAF1F8',          // 注 / 补充说明底
-      WARN_BG = PAL.warn || 'FDECEA',          // 警示 / 禁令底
+      PRIORITY_BG = 'FFF2CC',                  // 最高优先级整行 / 整项底色（浅黄）
       PRE_BG  = 'FBF2E3',          // 前提 / 适用条件底
-      PRE_BAR = 'BF8F00';          // 前提竖条（琥珀）
+      PRE_BAR = 'BF8F00',          // 前提竖条（琥珀）
+      PRIORITY_BAR = 'BF8F00';     // 最高优先级竖条（深黄）
 const PREMISE = NOTE_BG;   /* SD-64：注解条由三色收敛为两色，前提条并入注解蓝 */
 /* 印刷选项（2026-09-29 用户：黑白双面印刷）
    DOC_BW=1：黑白印刷——限制值由红色改为黑色加粗 + 下划线，警告条改黑色（红色在黑白印刷中与黑色几乎无法区分）
    DOC_DUPLEX=1：双面印刷——镜像页边距（内侧加宽装订）、奇偶页页眉页脚左右对调（页码在外侧）、封面与每章从右页（奇数页）开始 */
 const BW = process.env.DOC_BW === '1';
 const DUPLEX = process.env.DOC_DUPLEX === '1';
-const WARN_C = BW ? '000000' : RED;
 /* 黑白印刷时所有底色回落为灰阶，线条回落为黑 / 深灰 */
 const C = (color, bw) => (BW ? bw : color);
-const HDR_F = C(HDR, 'D9D9D9'), NOTE_F = C(NOTE_BG, 'FFFFFF'), WARN_F = C(WARN_BG, 'FFFFFF'), PRE_F = C(NOTE_BG, 'EDEDED');
-const NOTE_BAR = C(PAL.noteBar || INK2, GRAY), PRE_BAR_C = C(PAL.noteBar || INK2, GRAY);
+const HDR_F = C(HDR, 'D9D9D9'), NOTE_F = C(NOTE_BG, 'FFFFFF'), PRIORITY_F = C(PRIORITY_BG, 'EDEDED'), PRE_F = C(NOTE_BG, 'EDEDED');
+const NOTE_BAR = C(PAL.noteBar || INK2, GRAY), PRE_BAR_C = C(PAL.noteBar || INK2, GRAY), PRIORITY_BAR_C = C(PRIORITY_BAR, '000000');
 /* SD-63「颜色让给内容」：标题与线条一律黑 / 深灰，层级靠字号、字重、线条、缩进表达；
    蓝 INK 专门留给「要记的数值」（行内 <b>），红留给限制与禁令（<em>）。 */
 const H1_C = '000000', H2_C = '000000', H3_C = '000000';
@@ -98,9 +102,10 @@ function runs(text, o = {}) {
     /* 比较符 / 「约」与后面的数值之间用不换行空格，避免「<」在行尾、数值折到下一行 */
     t = t.replace(/【[^】]*】/g, m0 => m0.replace(/ /g, '\u00A0')).replace(/(\d{1,2}:\d{2}) ([—–-]) (\d{1,2}:\d{2})/g, '$1\u00A0$2\u00A0$3').replace(/(\d{1,2}:\d{2}) ?～ ?(\d{1,2}:\d{2})/g, '$1⁠～⁠$2');
     t = t.replace(/([<>≤≥=＜＞≈约±]) (?=[\d−\-+.])/g, '$1\u00A0').replace(/(\d) (?=(kg|ft|kt|nm|NM|m|km|psi|psid|fpm|min|s|h|%|°|℃)(?![A-Za-z]))/g, '$1\u00A0');
+    t = t.replace(/以(?=[上下内外])/g, '以\u2060');   // 避免「以上 / 以下 / 以内 / 以外」在单元格行尾拆成孤字
     out.push(new TextRun({
       text: t,
-      font: kind === 'code' ? { ascii: MONO, eastAsia: CN } : circ ? { ascii: CN, hAnsi: CN, eastAsia: CN } : { ascii: EN, eastAsia: CN },
+      font: kind === 'code' ? FF_MONO : circ ? FF_CN : FF,
       size: grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20),
       bold: kind === 'bold' || kind === 'red' || kind === 'key' || kind === 'graybold' || o.bold,
       underline: (BW && kind === 'red' && !o.noRed) ? {} : undefined,
@@ -118,16 +123,11 @@ function runs(text, o = {}) {
       if (tk.startsWith('**')) walk(tk.slice(2, -2), kind === 'red' ? 'red' : (/^gray/.test(kind || '') ? 'graybold' : 'bold'));
       else if (tk.startsWith('`')) push(tk.slice(1, -1), 'code');
       else if (tk.startsWith('<em>')) {
-        /* SD-64 红蓝分工：红＝禁令 / 强制要求（文字性警示），蓝＝数值（要背的）。
-           本书绝大多数内容本身就是限制，若「凡限制皆红」红色会失去警示力；
-           数值是要背的、不是要警惕的，故数值一律走蓝，红色只留给「不许做 / 必须做」。 */
-        const inner = tk.slice(4, -5), plainLen = unesc(inner.replace(/<[^>]+>/g, '')).length;
-        const plainIn = unesc(inner.replace(/<[^>]+>/g, ''));
-        const hasNum = /\d/.test(plainIn);
-        const ban = /不得|禁止|严禁|不要|必须|不能|不可|只能|立即|切勿|不准|务必/.test(plainIn);
-        const redOk = ban && plainLen <= 16;                  /* 禁令 / 强制要求短语 → 红 */
-        const keyOk = !ban && hasNum && plainLen <= 20;        /* 纯数值短语 → 蓝 */
-        walk(inner, /^gray/.test(kind || '') ? 'graybold' : (redOk ? 'red' : (keyOk ? 'key' : 'bold')));
+        /* SD-75：颜色由源标记的语义决定，不再仅因含数字就自动改蓝。
+           <em>＝选定的边界 / 警戒 / 关键动作（红）；<b>＝选定的记忆值（蓝）；
+           <strong>＝一般黑粗。这样同一句里可按逻辑有选择地安排红蓝重点。 */
+        const inner = tk.slice(4, -5);
+        walk(inner, /^gray/.test(kind || '') ? 'graybold' : 'red');
       }
       /* <b>…</b>＝要记的数值：深蓝加粗（SD-63）。红色优先，灰色解释段内不变蓝 */
       else if (/^<b>/.test(tk)) walk(tk.slice(3, -4), kind === 'red' ? 'red' : (/^gray/.test(kind || '') ? 'graybold' : 'key'));
@@ -141,7 +141,7 @@ function runs(text, o = {}) {
   };
   walk(text, undefined);
   last = text.length; m = null; re.lastIndex = 0;
-  return out.length ? out : [new TextRun({ text: '', font: { ascii: EN, eastAsia: CN }, size: 20 })];
+  return out.length ? out : [new TextRun({ text: '', font: FF, size: 20 })];
 }
 
 const P = (text, o = {}) => new Paragraph({
@@ -167,7 +167,7 @@ function H(text, level, brk, forceId) {
   const secBreak = level === 2 && /^\d+\.\d+[\s\u3000]/.test(text) && !AFTER_H1 && !NO_SEC_BREAK;
   AFTER_H1 = level === 1;
   const HC = { 1: H1_C, 2: H2_C, 3: H3_C, 4: H3_C }[level];
-  const tr = new TextRun({ text, font: { ascii: EN, eastAsia: CN }, size: sizes[level], bold: true, color: HC });
+  const tr = new TextRun({ text, font: FF, size: sizes[level], bold: true, color: HC });
   return new Paragraph({
     heading: level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : level === 3 ? HeadingLevel.HEADING_3 : HeadingLevel.HEADING_4,
     children: id ? [new Bookmark({ id, children: [tr] })] : [tr],
@@ -222,7 +222,7 @@ function codeBlock(lines) {
         },
         margins: { top: 80, bottom: 80, left: 140, right: 100 },
         children: lines.map(l => new Paragraph({
-          children: [new TextRun({ text: l || ' ', font: { ascii: MONO, eastAsia: MONO }, size: 17 })],
+          children: [new TextRun({ text: l || ' ', font: FF_MONO, size: 17 })],
           spacing: { before: 0, after: 0, line: 250 }
         }))
       })]
@@ -250,7 +250,7 @@ function navTable(rows) {
     tableHeader: true,
     children: ['编　号', '知　识　点', '页　码'].map((t, i) => cell(
       [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 4, after: 4, line: 205 },
-        children: [new TextRun({ text: t, font: { ascii: EN, eastAsia: CN }, size: 18, bold: true })] })],
+        children: [new TextRun({ text: t, font: FF, size: 18, bold: true })] })],
       { w: W[i], fill: HDR_F }))
   });
   const body = rows.map((r, ri) => {
@@ -260,7 +260,7 @@ function navTable(rows) {
       cantSplit: true,
       children: [
         cell([new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 4, after: 4, line: 205 },
-          children: [new TextRun({ text: r.id, font: { ascii: EN, eastAsia: CN }, size: 18, bold: true })] })], { w: W[0], fill }),
+          children: [new TextRun({ text: r.id, font: FF, size: 18, bold: true })] })], { w: W[0], fill }),
         cell([new Paragraph({ spacing: { before: 4, after: 4, line: 205 }, children: runs(r.title, { size: 18 }) })], { w: W[1], fill }),
         cell([new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 4, after: 4, line: 205 },
           children: [new PageReference(id)] })], { w: W[2], fill })
@@ -302,6 +302,7 @@ function parseHtmlTable(html) {
       const at = c[2];
       cells.push({
         head: c[1] === 'th',
+        cls: (at.match(/class="([^"]*)"/) || [, ''])[1],
         colspan: parseInt((at.match(/colspan="(\d+)"/) || [, 1])[1], 10),
         rowspan: parseInt((at.match(/rowspan="(\d+)"/) || [, 1])[1], 10),
         text: balanceBr(c[3])
@@ -377,9 +378,9 @@ function htmlTable(html) {
   const kept = html.replace(trRe, (all) => { idx++; const r = parsed[idx];
     if (!out.includes(r)) return all;
     (idx < firstData ? pre : post).push(r); return ''; });
-  /* 表外注解段：底色与竖条按类别（警示红 / 前提琥珀 / 注蓝），与表内同一套语义 */
-  const barOf = (cls) => cls.includes('warn') ? WARN_C : cls.includes('premise') ? PRE_BAR_C : NOTE_BAR;
-  const fillOf = (cls) => cls.includes('warn') ? WARN_F : cls.includes('premise') ? PRE_F : NOTE_F;
+  /* 表外注解段：警示 / 最高优先级用黄底，文字中的关键动作仍由 <em> 标红。 */
+  const barOf = (cls) => /warn|priority/.test(cls) ? PRIORITY_BAR_C : cls.includes('premise') ? PRE_BAR_C : NOTE_BAR;
+  const fillOf = (cls) => /warn|priority/.test(cls) ? PRIORITY_F : cls.includes('premise') ? PRE_F : NOTE_F;
   const para = (r) => new Paragraph({
     children: runs(String(r.cells[0].text).replace(/<br\s*\/?>/g, '\n'), { size: 18 }).map(x => x),
     spacing: { before: 60, after: 60, line: 270 }, indent: { left: 120, right: 80 },
@@ -737,7 +738,8 @@ function htmlTableCore(html) {
   /* 速查区：一列里过半的格是长句（很长或含多个分句）才整列左对齐；其余列（文字、数字、短句）居中 */
   /* 对齐（按内容判定）：一列里只要有格子要折行（首列标签除外：多个短标签分行仍居中），
      或有多段且含长句的格子，整列左对齐；其余（序号、数值、短标签、短语）居中 */
-  const longCols = new Set(), longCell = new Set(), colN = [], colL = [], colV = [], colT = [], paraCells = [];
+  const longCols = new Set(), semanticCenterCols = new Set();
+  const colN = [], colL = [], colV = [], colT = [], paraCells = [];
   if (COMPACT || FIT_ALL) {
     const unitW = 96 * FS / 18;   // 与列宽模型同一套字宽（紧凑模式 9pt 汉字 ≈ 2 × 96 DXA）
     const vis = (t) => {
@@ -764,6 +766,8 @@ function htmlTableCore(html) {
         const rawSegs = String(c.text).split(/<br\s*\/?>/).map(sg => unesc(sg.replace(/<[^>]+>/g, '')).replace(/〔待补来源〕/g, '').trim()).filter(Boolean);
         const enumN = rawSegs.filter(sg => /^([①-⑳]|\d+[.、)）]|[a-z][)）]|[A-Z]-\d+\s|第 ?\d+ ?[条步])/.test(sg)).length;
         const listy = rawSegs.length >= 3 && (enumN >= 2 || rawSegs.filter(sg => /[；;]$/.test(sg)).length >= 2);
+        const hierarchyHint = rawSegs.length >= 3 && rawSegs.some((sg, si) =>
+          si < rawSegs.length - 1 && /[：:]$/.test(sg) && !/[，。；]/.test(sg.replace(/[：:]$/, '')));
         const lines = segs.reduce((a2, v) => a2 + Math.max(1, Math.ceil(v / (per * 1.04))), 0);
         const total = segs.reduce((a2, v) => a2 + v, 0);
         const puncts = (rawSegs.join('').match(/[，。；]/g) || []).length;
@@ -771,19 +775,47 @@ function htmlTableCore(html) {
         /* 段落型：分条列举（≥ 3 行）、排版后 ≥ 4 行、或总长超过约 70 个汉字；三行以内的短句（如 1.4 C-1 俯仰 / 横滚方式）居中 */
         /* 2026-09-29 印刷版：带句读、约 20 字以上的整句，或约 50 字以上的长格，也算段落型（左齐）；
            长句居中在印刷品里显得散乱（2.2 C-2 例）。短语、数值、一两行短句仍居中（1.4 C-1 例） */
-        const para = listy || lines >= 4 || total > 100 || (puncts >= 1 && total > 40);
+        const para = hierarchyHint || listy || lines >= 4 || total > 100 || (puncts >= 1 && total > 40);
         colN[ci2] = (colN[ci2] || 0) + 1;
         if (total > 30) colT[ci2] = (colT[ci2] || 0) + 1;   // 句子型格（约 15 字以上）
-        if (para) { colL[ci2] = (colL[ci2] || 0) + 1; paraCells.push([ci2, c, listy || lines >= 4 || total > 100]); }
+        if (para) { colL[ci2] = (colL[ci2] || 0) + 1; paraCells.push([ci2, c, hierarchyHint || listy || lines >= 4 || total > 100]); }
       });
     });
     /* 有段落型格子，且（段落型占三分之一以上，或多数格子是句子）→ 整列左齐，防同列锯齿 */
     for (let k3 = 0; k3 < nCols; k3++) if (colL[k3] && ((colL[k3] || 0) * 3 >= (colN[k3] || 1) || (colT[k3] || 0) * 2 > (colN[k3] || 1))) longCols.add(k3);
-    /* 居中列里只有很长（≥ 4 行）或分条列举的格子单独左齐 */
-    paraCells.forEach(([k3, c, strong]) => { if (strong) longCell.add(c); });   // 居中列里一两句的中等长句不单独左齐，防锯齿
+    /* 只要一列出现真正的段落 / 列举格，就把整列左齐；不再只改那个格子，
+       避免同列短格居中、长格左齐形成锯齿。显式 col-center 可覆盖这一自动判定。 */
+    paraCells.forEach(([k3, c, strong]) => { if (strong) longCols.add(k3); });
     /* 块索引 / 章索引的「条目」列一律左对齐（全书统一，不随条目多少变化） */
     { const hr = parsed.find(r => r.cls.includes('hdr'));
       if (hr) hr.cells.forEach((c, k4) => { if (/^(条目|本节条目|条目与主题)$/.test(unesc(String(c.text).replace(/<[^>]+>/g, '')).trim())) longCols.add(k4); }); }
+    /* SD-75：原理 / 含义 / 方式等栏目若每格都是单一紧凑短句，即使自然折成 2～3 行也整列居中。
+       这类文字承担「并列定义 / 机制」而非连续叙述；限制、说明、处置等长文列仍左对齐。 */
+    { const hr = parsed.find(r => r.cls.includes('hdr'));
+      const hri = hr ? parsed.indexOf(hr) : -1;
+      const semanticHdr = /^(原理|工作原理|作用|方法|方式|状态|现象|结果|目的|含义|逻辑|动作与原理|触发条件|发生条件|进入条件|启动条件|激活条件|工作条件)$/;
+      if (hr) hr.cells.forEach((hc, hk) => {
+        if (hc.colspan !== 1) return;
+        const ci4 = startCol[hri][hk];
+        const ht = unesc(String(hc.text).replace(/<[^>]+>/g, '')).trim();
+        if (!semanticHdr.test(ht)) return;
+        let n4 = 0, ok4 = true;
+        parsed.forEach((r, ri) => {
+          if (/hdr|note|premise|warn/.test(r.cls)) return;
+          r.cells.forEach((c, ck) => {
+            if (startCol[ri][ck] !== ci4 || c.colspan !== 1 || c.head) return;
+            const ss = String(c.text).split(/<br\s*\/?>/).map(x => unesc(x.replace(/<[^>]+>/g, '')).trim()).filter(Boolean);
+            if (!ss.length) return;
+            n4++;
+            const joined = ss.join('');
+            const enumN = ss.filter(x => /^([①-⑳]|\d+[.、)）]|[a-zA-Z][)）]|第 ?\d+ ?[条步])/.test(x)).length;
+            const conditionColumn = /条件$/.test(ht);
+            if (ss.length > (conditionColumn ? 3 : 2) || enumN >= 2 || (joined.match(/[，。；]/g) || []).length > 2 || vis(joined) > (conditionColumn ? 140 : 105)) ok4 = false;
+          });
+        });
+        if (n4 && ok4) semanticCenterCols.add(ci4);
+      });
+    }
   }
   if (process.env.A_LOG && !PROBE) {
     const cols = [];
@@ -812,6 +844,19 @@ function htmlTableCore(html) {
   if (!parsed.slice(0, lead).some(r => r.cls.includes('hdr'))) lead = 0;
   /* 并列对比表（如「系统 A 供压组件 | 系统 B 供压组件」）：首列不是标签列，不加粗 */
   const hdrRow = parsed.find(r => r.cls.includes('hdr'));
+  /* 表头可用 class="col-left" / class="col-center" 显式声明整列语义。
+     这是列级规则，不是逐格特例：适用于「定义」等应整列居中的内容，
+     以及「说明 / 条件 / 结果」等应整列左齐的内容。表头本身仍一律居中。 */
+  const forcedLeftCols = new Set(), forcedCenterCols = new Set();
+  if (hdrRow) {
+    const hri = parsed.indexOf(hdrRow);
+    hdrRow.cells.forEach((hc, hk) => {
+      if (hc.colspan !== 1) return;
+      const ci4 = startCol[hri][hk];
+      if (/(^|\s)col-left(\s|$)/.test(hc.cls || '')) forcedLeftCols.add(ci4);
+      if (/(^|\s)col-center(\s|$)/.test(hc.cls || '')) forcedCenterCols.add(ci4);
+    });
+  }
   const normH = s => unesc(String(s).replace(/<[^>]+>/g, '')).replace(/[A-Za-z0-9\-（）()\s项个]/g, '');
   const parallel = !!(hdrRow && hdrRow.cells.length >= 2 && normH(hdrRow.cells[0].text) &&
     normH(hdrRow.cells[0].text) === normH(hdrRow.cells[1].text));
@@ -838,8 +883,9 @@ function htmlTableCore(html) {
     const isNote = r.cls.includes('note');
     const isPre = r.cls.includes('premise');
     const isWarn = r.cls.includes('warn');
-    /* 警告行：白底 + 左侧红竖条。不用红底——红色是强调色，不是背景色 */
-    const fill = isHdr ? HDR_F : isWarn ? WARN_F : isPre ? PRE_F : isNote ? NOTE_F : (ri % 2 ? ALT : 'FFFFFF');
+    const isPriority = r.cls.includes('priority');
+    /* 黄色只用于显式标记的最高优先级整行 / 整项；红色仍只用于行内限制、警戒和关键动作。 */
+    const fill = isHdr ? HDR_F : (isWarn || isPriority) ? PRIORITY_F : isPre ? PRE_F : isNote ? NOTE_F : (ri % 2 ? ALT : 'FFFFFF');
     const cells = r.cells.map((c, ck) => {
       const ci = startCol[ri][ck];
       let w = 0;
@@ -859,28 +905,47 @@ function htmlTableCore(html) {
         let t = unesc(String(c.text).replace(/<br\s*\/?>/g, '').replace(/<[^>]+>/g, '')).replace(/〔待补来源〕/g, '');
         for (let k = 0; k < 3; k++) t = t.replace(/[（(][^（）()]*[）)]/g, '');
         return vis(t.trim()) <= 30 && !/[，。；]/.test(t); })();
-      if (process.env.L_LOG && labelShort && longCell.has(c)) console.error('LBLFIX', unesc(String(c.text).replace(/<[^>]+>/g, '')).slice(0, 40));
-      const center = placeholder || labelShort || (labelCol && !longCell.has(c)) || ((COMPACT || FIT_ALL)
-        ? (isHdr || c.head || (!isNote && !isPre && !isWarn &&
-             (c.colspan === 1 ? (!longCols.has(ci) && !longCell.has(c)) : shortCell(c.text))))
-        : (isHdr || c.head
-           || (c.colspan === 1 && (centerCols.has(ci) || narrowSet.has(ci)))
-           || (isFirstCol && c.colspan === 1)));
+      const rawParas = String(c.text).split(/<br\s*\/?>/);
+      const plainParas = rawParas.map(seg => unesc(seg.replace(/<[^>]+>/g, '')).trim());
+      const contentParas = plainParas.filter(Boolean);
+      const enumN2 = contentParas.filter(p => /^([①-⑳]|\d+[.、)）]|[a-zA-Z][)）]|第 ?\d+ ?[条步])/.test(p)).length;
+      const parentFlags = plainParas.map((p, pi) => {
+        const body = p.replace(/[：:]$/, '');
+        return pi < plainParas.length - 1 && /[：:]$/.test(p) && vis(p) <= 70 && !/[，。；]/.test(body);
+      });
+      const hierarchy = !isHdr && !c.head && rawParas.length >= 3 && parentFlags.some(Boolean)
+        && !plainParas.slice(1).some(p => /^[①-⑳]\s*/.test(p));
+      if (process.env.HIER_LOG && hierarchy) console.error('HIERARCHY', TBL_IDX, ci + 1, contentParas[0] || '');
+      /* 同一语义列保持同一种对齐，避免短格居中、长格左齐形成锯齿。
+         父子层级本身依靠悬挂缩进表达，始终左齐；独立占位符仍居中。 */
+      const forceLeft = c.colspan === 1 && forcedLeftCols.has(ci);
+      const forceCenter = c.colspan === 1 && forcedCenterCols.has(ci);
+      const center = isHdr || c.head || placeholder || (!hierarchy && forceCenter)
+        || (!forceLeft && !hierarchy && ((labelShort && !longCols.has(ci)) || (c.colspan === 1 && semanticCenterCols.has(ci))
+          || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
+          ? (!isNote && !isPre && !isWarn &&
+               (c.colspan === 1 ? !longCols.has(ci) : shortCell(c.text)))
+          : ((c.colspan === 1 && (centerCols.has(ci) || narrowSet.has(ci)))
+             || (isFirstCol && c.colspan === 1)))));
       /* 首列序号格（只有一个圈码）：圈码字形在 Word 里常回退到无粗体的字体，改排为粗体阿拉伯数字 */
       const serial = isFirstCol && /^\s*(<strong>)?\s*[\u2460-\u2473]\s*(<\/strong>)?\s*$/.test(String(c.text));
       if (serial) c = Object.assign({}, c, { text: String(String(c.text).replace(/<[^>]+>/g, '').trim().charCodeAt(0) - 0x245F) });
-      const paras = String(c.text).split(/<br\s*\/?>/).map(seg =>
-        new Paragraph({
+      const paras = rawParas.map((seg, pi) => {
+        const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
+        const prefix = hierarchy ? (parentFlags[pi] ? '▪ ' : (hasParent ? '– ' : '')) : '';
+        return new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
-          children: runs(seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol, size: FS }),
+          children: runs(prefix + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol, size: FS }),
           spacing: { before: 20, after: 20, line: LN },
+          indent: hierarchy ? { left: parentFlags[pi] ? 180 : 360, hanging: 140 } : undefined,
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < lead + 2 || ri >= parsed.length - 3)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
-          alignment: center ? AlignmentType.CENTER : undefined
-        }));
+          alignment: hierarchy ? undefined : (center ? AlignmentType.CENTER : undefined)
+        });
+      });
       const borders = {
         top: { style: BorderStyle.SINGLE, size: 2, color: LINE },
         bottom: { style: BorderStyle.SINGLE, size: 2, color: LINE },
-        left: isWarn ? { style: BorderStyle.SINGLE, size: 14, color: WARN_C }
+        left: (isWarn || isPriority) ? { style: BorderStyle.SINGLE, size: 14, color: PRIORITY_BAR_C }
              : isPre  ? { style: BorderStyle.SINGLE, size: 14, color: PRE_BAR_C }
              : isNote ? { style: BorderStyle.SINGLE, size: 14, color: NOTE_BAR }
                       : { style: BorderStyle.SINGLE, size: 2, color: LINE },
@@ -1018,7 +1083,6 @@ const OUTLINE = [];
     }
   }
 }
-const FF = { ascii: EN, eastAsia: CN };
 /* 只有按「第X章」分章的笔记（全书 / 单章分册）才排章首页、总览封面和自生成目录；整理规范等其他文档仍用旧版式 */
 const BOOK = OUTLINE.length > 0 && OUTLINE.every(ch => /^第.{1,3}章[\s\u3000]/.test(unesc(ch.text)));
 const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
@@ -1043,12 +1107,12 @@ function tocLine(e, w, o = {}) {
   });
   /* 说明行：带 id 时整行做成内部超链接（例：总目录里第零章下的「速查主题」跳到本章首页的主题清单） */
   /* 2026-09-30 用户：总目录第零章下的「速查主题」要让人一眼看出能点击跳转——
-     ▶ 箭头 + 下划线蓝字 + 「点击跳转」提示 + 点线连页码 */
+     → 箭头 + 下划线蓝字 + 「点击跳转」提示 + 点线连页码 */
   if (e.note && e.jump) return new Paragraph({
     keepLines: true, indent: { left: NUMW }, spacing: { before: 40, after: 40, line: 260 },
     tabStops: [{ type: TabStopType.RIGHT, position: w, leader: LeaderType.DOT }],
     children: [new InternalHyperlink({ anchor: e.id, children: [
-      new TextRun({ text: '▶ ', font: FF, size: 20, bold: true, color: H2_C }),
+      new TextRun({ text: '→ ', font: FF, size: 20, bold: true, color: H2_C }),
       new TextRun({ text: e.note, font: FF, size: 20, bold: true, color: H2_C, underline: {} }),
       new TextRun({ text: '　点击跳转', font: FF, size: 16, color: GRAY }),
       new TextRun({ text: '\t', size: 20 }), new PageReference(e.id) ] })]
@@ -1253,7 +1317,7 @@ while (i < src.length) {
   if (/^出处：/.test(ln.trim())) {                 // 表后出处（手册佐证）：灰色小字，紧跟表格
     const t = unesc(ln.trim().replace(/<[^>]+>/g, ''));   // 实体（&lt; &gt;）还原
     body.push(new Paragraph({
-      children: [new TextRun({ text: t, font: { ascii: EN, eastAsia: CN }, size: 16, color: GRAY })],
+      children: [new TextRun({ text: t, font: FF, size: 16, color: GRAY })],
       spacing: { before: 10, after: 50, line: 260 }, ...TAIL
     }));
     i++; continue;
@@ -1265,7 +1329,7 @@ while (i < src.length) {
         let t = ln.trim().replace(/^来源：部分内容待补来源$/, '来源：待补');
         /* 「详见 x.y A-n」内部不断行 */
         t = t.replace(/详见 ([^｜]+)$/, (m0, r) => '详见\u00A0' + r.replace(/ /g, '\u00A0'));
-        return t; })(), font: { ascii: EN, eastAsia: CN }, size: 16, color: GRAY })],
+        return t; })(), font: FF, size: 16, color: GRAY })],
       spacing: under ? { before: 0, after: 80 } : { before: 20, after: 160 },
       keepNext: true          // 来源 / 详见行与下文同页，不孤立在页底
     }));
@@ -1290,6 +1354,22 @@ while (i < src.length) {
 
 /* ---------- 封面 + 目录 ---------- */
 const AUTHOR = process.env.DOC_AUTHOR || '';
+const PREFACE_SIGNATURE = process.env.DOC_PREFACE_SIGNATURE || AUTHOR;
+const editionLabel = (() => {
+  const value = String(process.env.DOC_EDITION || '').trim();
+  if (!value) return '';
+  return /^版本号(?:\s|$)/.test(value)
+    ? value.replace(/^版本号\s*/, '版本号 ')
+    : `版本号 ${value}`;
+})();
+const noticeRuns = (size = 18, color = '404040') => {
+  const value = String(process.env.DOC_NOTICE || '');
+  const m = value.match(/^(特别提示[：:])([\s\S]*)$/);
+  return m
+    ? [new TextRun({ text: m[1], font: FF, size, bold: true, color: '000000' }),
+       new TextRun({ text: m[2], font: FF, size, color })]
+    : [new TextRun({ text: value, font: FF, size, color })];
+};
 const rule = (o) => new Paragraph({
   alignment: AlignmentType.CENTER,
   spacing: { before: o.before || 0, after: o.after || 0, line: 20 },
@@ -1311,10 +1391,10 @@ function coverOverview() {
     const [cn, ct] = splitChap(ch.text), last = k === OUTLINE.length - 1;
     return new TableRow({ cantSplit: true, children: [
       new TableCell({ width: { size: W[0], type: WidthType.DXA }, borders: B(last), verticalAlign: VerticalAlign.CENTER,
-        margins: { top: 50, bottom: 50, left: 0, right: 120 },
+        margins: { top: 20, bottom: 20, left: 0, right: 120 },
         children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: chapNo(cn), font: FF, size: 36, bold: true })] })] }),
       new TableCell({ width: { size: W[1], type: WidthType.DXA }, borders: B(last), verticalAlign: VerticalAlign.CENTER,
-        margins: { top: 50, bottom: 50, left: 200, right: 0 },
+        margins: { top: 20, bottom: 20, left: 200, right: 0 },
         children: [
           new Paragraph({ spacing: { line: 280 }, children: [
             new TextRun({ text: cn + (cn ? '　' : ''), font: FF, size: 20, color: GRAY }),
@@ -1330,6 +1410,38 @@ const sideInd = Math.max(0, Math.round(((PORTRAIT ? 11906 : 16838) - M_IN - M_OU
 /* 单册封面（DOC_SINGLE=1）：题名组落在视觉中心偏上，版次与声明压到页面下部，
    声明不用方框，改细线 + 灰字，整页只有两组粗细双线作为骨架。 */
 const NOTE_IND = sideInd + (PORTRAIT ? 900 : 1600);
+/* 全书与速查册共用同一套封面提示：两条短灰线围住提示文字，版本号单独置于下方。
+   不再使用四边框，避免封面底部像表格；版本号也不属于提示框内容。 */
+const coverNoticeBlock = (before = 0) => [
+  ...(process.env.DOC_NOTICE ? [
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before, after: 0, line: 20 },
+      indent: { left: NOTE_IND, right: NOTE_IND },
+      children: [new TextRun({ text: '', font: FF, size: 2 })],
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '808080', space: 2 } } }),
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 140, after: 140, line: 290 },
+      indent: { left: NOTE_IND, right: NOTE_IND },
+      children: noticeRuns(18, '595959') }),
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: 20 },
+      indent: { left: NOTE_IND, right: NOTE_IND },
+      children: [new TextRun({ text: '', font: FF, size: 2 })],
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '808080', space: 2 } } }),
+  ] : []),
+  ...(editionLabel ? [coverTxt(editionLabel, 18, { before: process.env.DOC_NOTICE ? 220 : before, color: '808080' })] : [])
+];
+/* 全书封面已有章节总览，底部空间比单册紧：用一个仅带上下边线的段落承载提示，
+   再把版本号作为独立段落放在其下。视觉语言与单册一致，但不会把提示推到第 2 页。 */
+const coverNoticeCompact = (before = 0) => [
+  ...(process.env.DOC_NOTICE ? [new Paragraph({
+    alignment: AlignmentType.CENTER, spacing: { before, after: 0, line: 260 },
+    indent: { left: NOTE_IND, right: NOTE_IND },
+    border: {
+      top: { style: BorderStyle.SINGLE, size: 4, color: '808080', space: 5 },
+      bottom: { style: BorderStyle.SINGLE, size: 4, color: '808080', space: 5 }
+    },
+    children: noticeRuns(18, '595959')
+  })] : []),
+  ...(editionLabel ? [coverTxt(editionLabel, 18, { before: process.env.DOC_NOTICE ? 20 : before, color: '808080' })] : [])
+];
 const coverSingle = [
   new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 2600 : 600 }, children: [] }),
   rule({ size: 24, color: '000000', after: 50 }),
@@ -1340,20 +1452,7 @@ const coverSingle = [
   rule({ size: 4, color: '000000', after: 50 }),
   rule({ size: 24, color: '000000', after: 0 }),
   new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 5200 : 1500 }, children: [] }),
-  ...(process.env.DOC_NOTICE ? [
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: 20 },
-      indent: { left: NOTE_IND, right: NOTE_IND },
-      children: [new TextRun({ text: '', size: 2 })],
-      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '808080', space: 2 } } }),
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200, after: 200, line: 300 },
-      indent: { left: NOTE_IND, right: NOTE_IND },
-      children: [new TextRun({ text: process.env.DOC_NOTICE, font: FF, size: 18, color: '595959' })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: 20 },
-      indent: { left: NOTE_IND, right: NOTE_IND },
-      children: [new TextRun({ text: '', size: 2 })],
-      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '808080', space: 2 } } }),
-  ] : []),
-  ...(process.env.DOC_EDITION ? [coverTxt(process.env.DOC_EDITION, 18, { before: 360, color: '808080', cs: 30 })] : []),
+  ...coverNoticeBlock(0),
 ];
 const coverFull = [
   new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 900 : 150 }, children: [] }),
@@ -1361,22 +1460,13 @@ const coverFull = [
   rule({ size: 4, color: '000000', after: 0 }),
   coverTxt(process.env.DOC_LABEL || 'B737-NG　/　B737-8', 24, { before: PORTRAIT ? 560 : 280, bold: true, color: '404040', cs: 80 }),
   coverTxt(docTitle, 76, { before: 120, after: 120, bold: true, outline: true }),
-  coverTxt(process.env.DOC_SUBTITLE || '系统 · 运行 · 训练', 26, { after: PORTRAIT ? 560 : 280, color: GRAY, cs: 60 }),
+  coverTxt(process.env.DOC_SUBTITLE || '系统 · 运行 · 训练', 26, { after: PORTRAIT ? 560 : 120, color: GRAY, cs: 60 }),
   rule({ size: 4, color: '000000', after: 50 }),
   rule({ size: 24, color: '000000', after: 0 }),
-  new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 600 : 300 }, children: [] }),
+  new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 600 : 40 }, children: [] }),
   ...coverOverview(),
-  ...(AUTHOR ? [coverTxt(AUTHOR, 22, { before: PORTRAIT ? 700 : 360, color: '404040' })] : []),
-  ...(process.env.DOC_EDITION ? [coverTxt(process.env.DOC_EDITION, 22, { before: AUTHOR ? 60 : (PORTRAIT ? 1200 : 360), color: '404040' })] : []),
-  ...(process.env.DOC_NOTICE ? [new Paragraph({
-    alignment: AlignmentType.CENTER, spacing: { before: PORTRAIT ? 400 : 260, after: 0, line: 280 },
-    indent: { left: sideInd, right: sideInd },
-    border: ['top', 'bottom', 'left', 'right'].reduce((o, k) => (o[k] = { style: BorderStyle.SINGLE, size: 4, color: '000000', space: 6 }, o), {}),
-    /* 2026-09-30 用户：「特别提示」放在版本号下面；「特别提示：」加粗 */
-    children: (m => m ? [new TextRun({ text: m[1], font: FF, size: 18, bold: true, color: '000000' }), new TextRun({ text: m[2], font: FF, size: 18, color: '404040' })]
-                      : [new TextRun({ text: process.env.DOC_NOTICE, font: FF, size: 18, color: '404040' })])(String(process.env.DOC_NOTICE).match(/^(特别提示[：:])([\s\S]*)$/))
-  })] : []),
-  ...(DUPLEX ? [] : [new Paragraph({ children: [new PageBreak()] })])
+  ...(AUTHOR ? [coverTxt(AUTHOR, 22, { before: PORTRAIT ? 700 : 200, color: '404040' })] : []),
+  ...coverNoticeCompact(AUTHOR ? 40 : (PORTRAIT ? 1200 : 40))
 ];
 const cover = SINGLE ? coverSingle : coverFull;
 /* 目录（2026-09-29 改版）：不用 Word TOC 域，按大纲自行生成——章为灰底粗体行（左粗竖条），节缩进、点线连页码；
@@ -1402,11 +1492,11 @@ function buildToc() {
   const out = [];
   for (let pg = 0; pg * PER < cols.length; pg++) {
     /* 标题两页都写「总目录」（用户 2026-09-29）；只有第一页进 PDF 书签，避免重复 */
-    out.push(new Paragraph({ pageBreakBefore: pg > 0, alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 },
+    out.push(new Paragraph({ pageBreakBefore: pg > 0 || (!DUPLEX && pg === 0), alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 },
       outlineLevel: pg ? undefined : 0,
       children: [new TextRun({ text: '总目录', font: FF, size: pg ? 28 : 40, bold: true, characterSpacing: pg ? 20 : 60, color: H1_C })] }));
     out.push(rule({ size: 24, color: H1_LINE, after: 40 }), rule({ size: 4, color: C(INK2, '000000'), after: 0 }));
-    out.push(new Paragraph({ spacing: { before: 0, after: 240 }, children: [] }));
+    if (pg === 0) out.push(new Paragraph({ spacing: { before: 0, after: 120 }, children: [] }));
     const pc = cols.slice(pg * PER, pg * PER + PER).map(c => c.map((l, k) => tocLine(l, colW, { first: k === 0 })));
     out.push(pc.length === 1 && PORTRAIT ? colsTable(pc, colW, GAP) : colsTable(pc.length < PER ? pc.concat([[]]) : pc, colW, GAP));
   }
@@ -1446,13 +1536,14 @@ const toc = [
   ...(DUPLEX ? [] : [new Paragraph({ children: [new PageBreak()] })])
 ];
 /* 前言（SD-51）：封面之后、目录之前一页。文字来自 DOC_PREFACE 指向的文件（gh-private/前言.md），
-   段落首行缩进两字；以「【特别提示】」开头的段落加粗；末尾右对齐署名（取封面作者）。 */
+   段落首行缩进两字；以「【特别提示】」开头的段落加粗；末尾右下角署名独立取 DOC_PREFACE_SIGNATURE，
+   未设置时兼容回退到封面作者。 */
 function buildPreface() {
   const pf = process.env.DOC_PREFACE;
   if (!pf || !fs.existsSync(pf)) return [];
   const paras = fs.readFileSync(pf, 'utf8').split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
   const out = [];
-  out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: PORTRAIT ? 600 : 200, after: 120 },
+  out.push(new Paragraph({ pageBreakBefore: !DUPLEX, alignment: AlignmentType.CENTER, spacing: { before: PORTRAIT ? 600 : 200, after: 120 },
     outlineLevel: 0,
     children: [new TextRun({ text: '前言', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C })] }));
   out.push(rule({ size: 24, color: H1_LINE, after: 40 }), rule({ size: 4, color: C(INK2, '000000'), after: 0 }));
@@ -1464,9 +1555,12 @@ function buildPreface() {
       indent: { left: ind, right: ind, firstLine: tip ? 0 : 440 },
       children: [new TextRun({ text: t, font: FF, size: 22, bold: tip })] }));
   });
-  if (AUTHOR) out.push(new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 600, after: 0 }, indent: { right: ind },
-    children: [new TextRun({ text: AUTHOR, font: FF, size: 22, color: '404040' })] }));
-  if (!DUPLEX) out.push(new Paragraph({ children: [new PageBreak()] }));
+  if (PREFACE_SIGNATURE) out.push(new Paragraph({
+    alignment: AlignmentType.RIGHT,
+    spacing: { before: PORTRAIT ? 2200 : 2400, after: 0 },
+    indent: { right: ind },
+    children: [new TextRun({ text: PREFACE_SIGNATURE, font: FF, size: 22, color: '404040' })]
+  }));
   return out;
 }
 const preface = buildPreface();
@@ -1479,7 +1573,7 @@ const PAGE = {
   margin: { top: M_TOP, bottom: M_BOT, left: M_IN, right: M_OUT, header: M_HDR, footer: M_FTR }
 };
 const CONTENT_W = (PORTRAIT ? 11906 : 16838) - M_IN - M_OUT;
-const hdrFont = { ascii: EN, eastAsia: CN };
+const hdrFont = FF;
 const emptyHF = () => ({ header: new Header({ children: [new Paragraph({ children: [] })] }),
                          footer: new Footer({ children: [new Paragraph({ children: [] })] }) });
 /* 页眉：书名 + 当前章名（STYLEREF 域），下细线。单面：左书名右章名；双面：奇数页（右页）章名靠外（右），偶数页（左页）书名靠外（左） */
@@ -1551,20 +1645,20 @@ const doc = new Document({
     }]
   },
   styles: {
-    default: { document: { run: { font: { ascii: EN, eastAsia: CN }, size: 20 } } },
+    default: { document: { run: { font: FF, size: 20 } } },
     paragraphStyles: [
       { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true,
         paragraph: { outlineLevel: 0 },
-        run: { size: 30, bold: true, color: '000000', font: { ascii: EN, eastAsia: CN } } },
+        run: { size: 30, bold: true, color: '000000', font: FF } },
       { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true,
         paragraph: { outlineLevel: 1 },
-        run: { size: 24, bold: true, color: '000000', font: { ascii: EN, eastAsia: CN } } },
+        run: { size: 24, bold: true, color: '000000', font: FF } },
       { id: 'Heading3', name: 'Heading 3', basedOn: 'Normal', next: 'Normal', quickFormat: true,
         paragraph: { outlineLevel: 2 },
-        run: { size: 21, bold: true, color: '000000', font: { ascii: EN, eastAsia: CN } } },
+        run: { size: 21, bold: true, color: '000000', font: FF } },
       { id: 'Heading4', name: 'Heading 4', basedOn: 'Normal', next: 'Normal', quickFormat: true,
         paragraph: { outlineLevel: 3 },
-        run: { size: 20, bold: true, color: '000000', font: { ascii: EN, eastAsia: CN } } }
+        run: { size: 20, bold: true, color: '000000', font: FF } }
     ]
   },
   evenAndOddHeaderAndFooters: DUPLEX,
