@@ -26,6 +26,7 @@
 | S1 | 错误 | `check_src.py`：front matter、id、双链、HTML 标签配对、源文件行首禁用项目符号、首行 colspan | 源头三件套 |
 | S2 | 错误 | `check_blocks.py`：块字母与条目编号连续、块索引与正文一一对应、无 strong/em 嵌套、节首不放整理说明 | SD-18～20 / SD-30 |
 | S3 | 错误 | `check_quickref.py`：速查区「详见」地址存在，数值、否定词、行对应与正文一致 | SD-23 |
+| S5 | 错误 | 速查区与「详见」指向的正文同一张表，表头标注（col-center / col-bullet / col-plain / col-left）必须一致；在速查区改了排版，要同步改正文 | 2026-09-30 用户 |
 | S4 | 错误 | 第三章文件夹为 `notes_src/3 运行手册/` | SD-73 |
 | F1 | 错误 | 成品齐全：`build/B737机型理论知识笔记.docx/.pdf`、`build/B737机型理论基础知识速查.docx/.pdf` | SD-74 |
 | F2 | 错误 | 不再产出竖版文件 | SD-71 |

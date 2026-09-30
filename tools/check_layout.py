@@ -43,6 +43,36 @@ if '--no-src' not in sys.argv:
     if not os.path.isdir(os.path.join(REPO, 'notes_src', '3 运行手册')):
         err('S4', '第三章文件夹应为 notes_src/3 运行手册/（SD-73）')
 
+# S5 速查区与正文同一张表的表头标注要一致（2026-09-30 用户：「以上的所有更新都同步更新到其它章节了吗」）
+#   按速查每条下的「详见 x.y A-n」找到正文条目，列数相同、表头至多差一格的表视为同一张表，col-center / col-bullet / col-plain / col-left 必须相同
+def _hdr_tables(txt):
+    out = []
+    for m in re.finditer(r'<tr class="hdr">(.*?)</tr>', txt):
+        cells = re.findall(r'<th([^>]*)>(.*?)</th>', m.group(1))
+        out.append(([re.sub(r'<[^>]+>|\s', '', c[1]) for c in cells], [(re.search(r'class="([^"]+)"', c[0]) or [None, ''])[1] for c in cells]))
+    return out
+try:
+    _q = open(os.path.join(REPO, 'notes_src', '0 基础知识速查区', '0 基础知识速查区.md'), encoding='utf-8').read()
+    _files = {}
+    for _f in glob.glob(os.path.join(REPO, 'notes_src', '[1-5]*', '*.md')):
+        _m = re.match(r'(\d\.\d+)', os.path.basename(_f))
+        if _m: _files[_m.group(1)] = _f
+    for _it in re.split(r'(?m)^(?=### \d+\. )', _q):
+        _m = re.match(r'### (\d+)\. (.+)', _it)
+        if not _m: continue
+        for _sec, _addr in re.findall(r'\|(\d\.\d+) ([A-Z]-\d+)\]\]', _it):
+            if _sec not in _files: continue
+            _s = open(_files[_sec], encoding='utf-8').read()
+            _a = re.search(r'(?m)^### ' + re.escape(_addr) + r'[\s\u3000]', _s)
+            if not _a: continue
+            _nx = re.search(r'(?m)^### ', _s[_a.end():]); _b = _s[_a.start(): _a.end() + (_nx.start() if _nx else len(_s))]
+            for _hq, _cq in _hdr_tables(_it):
+                for _hb, _cb in _hdr_tables(_b):
+                    if len(_hb) == len(_hq) and sum(x == y for x, y in zip(_hb, _hq)) >= max(1, len(_hq) - 1) and (any(_cq) or any(_cb)) and _cq != _cb:
+                        err('S5', '速查第 %s 条「%s」与正文 %s %s 同一张表的表头标注不一致：速查 %s，正文 %s' % (_m.group(1), _m.group(2)[:12], _sec, _addr, _cq, _cb))
+except Exception as _e:
+    sug('S5', '速查 / 正文标注对照未能完成：%s' % _e)
+
 # ---------- F 成品文件 ----------
 for p in (BOOK, QREF, BOOK[:-4] + '.docx', QREF[:-4] + '.docx'):
     if not os.path.exists(p): err('F1', '缺成品：' + os.path.relpath(p, REPO))
