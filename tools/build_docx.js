@@ -1149,8 +1149,9 @@ function htmlTableCore(html) {
                (c.colspan === 1 ? !longCols.has(ci) : shortCell(c.text)))
           : ((c.colspan === 1 && (centerCols.has(ci) || narrowSet.has(ci)))
              || (isFirstCol && c.colspan === 1)))));
-      /* 首列序号格（只有一个圈码）：圈码字形在 Word 里常回退到无粗体的字体，改排为粗体阿拉伯数字 */
-      const serial = isFirstCol && /^\s*(<strong>)?\s*[\u2460-\u2473]\s*(<\/strong>)?\s*$/.test(String(c.text));
+      /* 首列序号格：原先因圈码字形回退到无粗体字体而改排阿拉伯数字；SD-76 全书统一 Songti SC 后圈码有粗体字形，
+         2026-09-30 用户「统一序号」：表格与正文一律保留 ①②③（设 SERIAL_ARABIC=1 可恢复旧做法） */
+      const serial = process.env.SERIAL_ARABIC && isFirstCol && /^\s*(<strong>)?\s*[\u2460-\u2473]\s*(<\/strong>)?\s*$/.test(String(c.text));
       if (serial) c = Object.assign({}, c, { text: String(String(c.text).replace(/<[^>]+>/g, '').trim().charCodeAt(0) - 0x245F) });
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
