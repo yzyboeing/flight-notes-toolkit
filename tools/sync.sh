@@ -137,7 +137,12 @@ if [ "$BUILD" = 1 ]; then
     node "$TOOLKIT/build_docx.js" build/book.md "$out" || die "全书渲染失败（横版）"
     # SD-71（2026-09-29 用户）：只出横版。竖版的表格在窄版面里文字堆叠严重、不利阅读，不再产出、也不再为竖版优化排版。
     # 需要临时出竖版时手动运行：DOC_PORTRAIT=1 node "$TOOLKIT/build_docx.js" build/book.md build/737 机型理论知识笔记_竖版.docx
-    BUILT="$out"
+    # 单册《B737机型理论基础知识速查》（SD-66 / SD-74）：与全书同批生成，封面提示与版本号同全书；不带前言、不出总目录页
+    out2="build/B737机型理论基础知识速查.docx"
+    { echo "# 机型基础知识速查"; echo; echo "## 第零章　基础知识速查区"; tail -n +2 build/mod0.md; } > build/single.md
+    DOC_SINGLE=1 DOC_NOTOC=1 DOC_PREFACE="" DOC_HEADER="" DOC_SUBTITLE="数据 · 限制 · 概念" \
+      node "$TOOLKIT/build_docx.js" build/single.md "$out2" || die "单册渲染失败"
+    BUILT="$out"$'\n'"$out2"
   else
     for n in $CHANGED; do
       if [ ! -f "build/mod$n.md" ]; then warn "build/mod$n.md 不存在，跳过"; continue; fi
@@ -174,6 +179,15 @@ if [ "$BUILD" = 1 ]; then
         rm -rf "$LOTMP" "$LOLOG"; exit 1
       fi
       cp "$fresh" "$pdf" || { printf '%s✗ 写不进 %s%s\n' "$RED" "$pdf" "$RST" >&2; rm -rf "$LOTMP" "$LOLOG"; exit 1; }
+      # 打开 PDF 时直接展开书签栏（PageMode=UseOutlines）；没有 PyMuPDF 时跳过
+      python3 - "$pdf" <<'PYEOF' 2>/dev/null || true
+import sys, os
+try:
+    import pymupdf
+except ImportError:
+    import fitz as pymupdf
+p = sys.argv[1]; d = pymupdf.open(p); d.set_pagemode('UseOutlines'); d.save(p + '.tmp', garbage=3, deflate=True); d.close(); os.replace(p + '.tmp', p)
+PYEOF
       rm -rf "$LOTMP" "$LOLOG"
       python3 "$TOOLKIT/verify.py" "$pdf" || exit 1
     done || die "排版校验未通过，已中止（未提交）"
