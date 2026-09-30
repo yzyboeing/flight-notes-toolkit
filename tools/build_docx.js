@@ -384,28 +384,31 @@ function htmlTable(html) {
     border: { left: { style: BorderStyle.SINGLE, size: 12, color: barOf(r.cls), space: 8 } },
     keepNext: pre.includes(r)
   });
-  const paras = (arr) => arr.flatMap(r => balanceBr(rowText(r)).split(/<br\s*\/?>/).filter(x => x.trim()).map((sg, k, a) => new Paragraph({
+  const paras = (arr, kn) => arr.flatMap(r => balanceBr(rowText(r)).split(/<br\s*\/?>/).filter(x => x.trim()).map((sg, k, a) => new Paragraph({
     children: runs(sg.trim(), { size: 19 }),
     spacing: { before: k ? 20 : 100, after: k === a.length - 1 ? 100 : 20, line: 290 },
     /* 警示 / 前提 / 注 行移出表格后保留左侧竖条与淡底色 */
     indent: /warn|premise|note/.test(r.cls) ? { left: 120, right: 80 } : undefined,
     shading: /warn|premise|note/.test(r.cls) ? { type: ShadingType.CLEAR, color: 'auto', fill: fillOf(r.cls) } : undefined,
     border: /warn|premise|note/.test(r.cls) ? { left: { style: BorderStyle.SINGLE, size: 14, color: barOf(r.cls), space: 8 } } : undefined,
-    keepNext: pre.includes(r)
+    keepNext: kn || pre.includes(r)
   })));
-  if (!mids.length) return [...paras(pre), htmlTableCore(kept), ...paras(post)];
+  /* SD-71：表末通栏注解行（移出表格成段落）与表格末行同页 */
+  if (!mids.length) { const kl = KEEP_LAST; if (post.length) KEEP_LAST = true; const core = htmlTableCore(kept); KEEP_LAST = kl; return [...paras(pre), core, ...paras(post)]; }
   const rowsHtml = []; html.replace(trRe, (all) => { rowsHtml.push(all); return all; });
   const hdrIdx = parsed.map((r, k) => k).filter(k => k < firstData && parsed[k].cls.includes('hdr'));
   const hdrHtml = hdrIdx.map(k => rowsHtml[k]).join('\n');
   const partsOut = [...paras(pre)];
   let cur = [];
-  const flush = () => { if (cur.length) partsOut.push(htmlTableCore('<table class="ftn">\n' + hdrHtml + '\n' + cur.join('\n') + '\n</table>')); cur = []; };
+  /* SD-71：表中注解行把表拆成几段时，前一段末行、注解段与后一段首行互相「与下段同页」，不在注解处断开 */
+  const flush = (bindNext) => { if (cur.length) { const kl = KEEP_LAST; if (bindNext) KEEP_LAST = true;
+    partsOut.push(htmlTableCore('<table class="ftn">\n' + hdrHtml + '\n' + cur.join('\n') + '\n</table>')); KEEP_LAST = kl; } cur = []; };
   parsed.forEach((r, k) => {
     if (k < firstData || out.includes(r)) return;
-    if (mids.includes(k)) { flush(); partsOut.push(...paras([r])); return; }
+    if (mids.includes(k)) { flush(true); partsOut.push(...paras([r], true)); return; }
     cur.push(rowsHtml[k]);
   });
-  flush();
+  flush(post.length > 0);
   return [...partsOut, ...paras(post)];
 }
 
@@ -658,6 +661,26 @@ function htmlTableCore(html) {
       idxs.forEach(k2 => { W[k2] += Math.floor((tgt - sumW) * W[k2] / base); });
     }
   }
+  /* SD-72（2026-09-29 用户，速查区第 40 条）：表格没用满版面宽度时，不许让任何格子（尤其表头）无谓折行。
+     把剩余宽度回填给正在折行的列：表头折行的列优先，其次按「补到一行放下所需宽度」由小到大，
+     只补到刚好一行放下为止（不把短表硬撑满宽，仍守「按内容定宽、不留空白」）。 */
+  if (COMPACT || FIT_ALL) {
+    const fineVis = (t) => { const s0 = unesc(String(t).replace(/<[^>]+>/g, '').replace(/〔待补来源〕/g, '')).replace(/\*\*/g, '').trim(); let n = 0;
+      for (const ch of s0) n += /[⺀-鿿＀-￯]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n; };
+    const U = 96;   // 9pt 下每视觉单位约 96 DXA（与列宽模型同一套字宽）
+    const req = new Array(nCols).fill(0), hdrReq = new Array(nCols).fill(0);
+    parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
+      r.cells.forEach((c, ck) => { if (c.colspan !== 1) return; const k = startCol[ri][ck];
+        const bold = r.cls.includes('hdr') || c.head || k === 0;
+        const need = Math.max(0, ...String(c.text).split(/<br\s*\/?>/).map(sg => Math.ceil(fineVis(sg) * U * (bold ? 1.08 : 1.03)) + 260));
+        req[k] = Math.max(req[k], need); if (r.cls.includes('hdr')) hdrReq[k] = Math.max(hdrReq[k], need); }); });
+    let slack = TOTAL - W.reduce((a2, b2) => a2 + b2, 0);
+    const order = [...Array(nCols).keys()].filter(k => W[k] < req[k])
+      .sort((x, y) => ((W[y] < hdrReq[y]) - (W[x] < hdrReq[x])) || ((req[x] - W[x]) - (req[y] - W[y])));
+    let filled = 0;
+    for (const k of order) { const gap = req[k] - W[k]; if (gap <= slack) { W[k] += gap; slack -= gap; filled++; } }
+    if (process.env.W_LOG && filled) console.error('BACKFILL', filled, JSON.stringify(W), String(parsed[0].cells.map(c => c.text).join('/')).replace(/<[^>]+>/g, '').slice(0, 40));
+  }
   if (process.env.W_LOG && COMPACT) console.error('W', nCols, JSON.stringify(W), String(parsed[0].cells.map(c => c.text).join('/')).slice(0, 40));
 
   /* ---- 自动缩排：估算表格高度，超过一页时逐级缩小字号，尽量整表放在同一页 ---- */
@@ -775,8 +798,9 @@ function htmlTableCore(html) {
   /* 速查区：有合并单元格的表、或不到半页的表整表同页；其余大表允许分页（表头重复），避免整页留白 */
   const hasRowspan = parsed.some(r => r.cells.some(c => c.rowspan > 1));
   /* 一页放得下的表一律整表同页（宁可上一页留白，也不要拆开后多出一行重复表头） */
-  /* 半页以内的表整表同页；超过半页的表允许在行间分页，避免上一页大片空白（2026-09-29 用户授权按最优处理） */
-  const keepTogether = estimate(FS) <= BUDGET * 0.5;
+  /* SD-71（2026-09-29 用户）：一页放得下的表一律整表同页——宁可上一页留白，也不要页底只剩表头和一两行。
+     （此前「超过半页即允许分页」的规则作废。）超过一页的大表才在行间分页，见下方 orphan 规则。 */
+  const keepTogether = estimate(FS) <= BUDGET;   // 不放宽余量：真超一页的表若整表绑定，排版软件放不下时会随意断开并留下孤行，不如走下方防孤行规则
   if (process.env.FIT_LOG) console.error('TBL rows=%d est=%d fs=%d keep=%s', parsed.length, estimate(FS), FS, keepTogether);
 
   /* 顶部连续的通栏前提行 + 表头行一起作「重复标题行」（Word 要求标题行从第一行起连续） */
@@ -847,7 +871,7 @@ function htmlTableCore(html) {
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
           children: runs(seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol, size: FS }),
           spacing: { before: 20, after: 20, line: LN },
-          keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
+          keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < lead + 2 || ri >= parsed.length - 3)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
           alignment: center ? AlignmentType.CENTER : undefined
         }));
       const borders = {
@@ -1066,8 +1090,9 @@ function singleToc(ch, brk) {
   /* 2026-09-29 用户：目录页不出简介行；主题单栏竖排 */
   out.push(new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 400 : 240 }, children: [] }));
   if (n) {
-    const nc = 1, GAP = 700;
-    const colW = Math.min(TOTAL, PORTRAIT ? 7600 : 9000);
+    /* SD-71 只出横版：横版一页高度排不下单栏 32 条，改为两栏（竖版仍单栏） */
+    const nc = PORTRAIT ? 1 : 2, GAP = 900;
+    const colW = nc === 1 ? Math.min(TOTAL, 7600) : Math.floor((TOTAL - GAP) / 2);
     const per = Math.ceil(n / nc), cols = [];
     /* 主题本身没有编号，这里按顺序补 01…N，便于口头指引「看第 12 条」 */
     const lines = ch.secs.map((sec, k) => {
@@ -1530,6 +1555,20 @@ const doc = new Document({
 });
 
 Packer.toBuffer(doc).then(async b => {
+  {
+    /* SD-71：rowSpan 生成的合并延续格是空段落 <w:p/>，不带「与下段同页」；LibreOffice 要求表内段落全都设了才整表不拆。
+       同一行其他格已设 keepNext 时，给延续格补上。 */
+    const JSZip0 = require('jszip');
+    const z0 = await JSZip0.loadAsync(b);
+    let dx = await z0.file('word/document.xml').async('string');
+    let nfix = 0;
+    dx = dx.replace(/<w:tr[ >][\s\S]*?<\/w:tr>/g, tr => {
+      if (!tr.includes('<w:keepNext/>') || !tr.includes('w:vMerge w:val="continue"')) return tr;
+      return tr.replace(/(<w:tc><w:tcPr><w:vMerge w:val="continue"\/>[\s\S]*?<\/w:tcPr>)<w:p\/>/g, (m0, pre) => { nfix++; return pre + '<w:p><w:pPr><w:keepNext/></w:pPr></w:p>'; });
+    });
+    if (nfix) { z0.file('word/document.xml', dx); b = await z0.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }); }
+    if (process.env.FIT_LOG) console.error('vMerge keepNext 补 %d 格', nfix);
+  }
   if (DUPLEX) {
     /* docx 库不支持镜像页边距：生成后在 settings.xml 里补 <w:mirrorMargins/>（内侧 = left，外侧 = right） */
     const JSZip = require('jszip');
