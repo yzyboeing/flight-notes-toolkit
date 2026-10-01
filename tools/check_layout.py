@@ -20,7 +20,7 @@ def arg(flag, default=None):
 REPO = os.path.abspath(os.path.expanduser(arg('--repo', '~/flight-repos/gh-private')))
 T = os.path.dirname(os.path.abspath(__file__))
 BOOK = arg('--book') or os.path.join(REPO, 'build', 'B737机型理论知识笔记.pdf')
-QREF = arg('--qref') or os.path.join(REPO, 'build', 'B737机型理论基础知识速查.pdf')
+QREF = arg('--qref') or os.path.join(REPO, 'build', 'B737理论基础知识速查.pdf')
 def git_cfg(k):
     return subprocess.run(['git', '-C', REPO, 'config', '--get', k], capture_output=True, text=True).stdout.strip()
 EDITION, NOTICE, SIGN = git_cfg('notes.docEdition'), git_cfg('notes.docNotice'), git_cfg('notes.docPrefaceSignature')
@@ -290,7 +290,7 @@ def scan(pdf, name, header):
     return d
 
 book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录)')   # SD-96 页眉左侧为章名
-scan(QREF, '单册', 'B737机型理论基础知识速查')   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
+scan(QREF, '单册', 'B737理论基础知识速查')   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
 
 # B4 一页只有一两行（2026-09-30 用户：「尽量避免在一页中只有一两行的情况」）：正文（去页眉页脚）不超过 2 行的页
 for nm, pdf in (('全书', BOOK), ('单册', QREF)):

@@ -5,7 +5,7 @@ description: "整理、排版并验证中文《B737 机型理论知识笔记》�
 
 # 飞行理论笔记（flight-theory-notes）
 
-本技能用于维护用户的私人学习笔记《B737 机型理论知识笔记》及单册《B737 机型理论基础知识速查》。笔记源是 `~/flight-repos/gh-private/notes_src/`，工具链是本仓库（`~/flight-repos/pub/`）的 `tools/`，成品由工具链生成。
+本技能用于维护用户的私人学习笔记《B737 机型理论知识笔记》及单册《B737 理论基础知识速查》。笔记源是 `~/flight-repos/gh-private/notes_src/`，工具链是本仓库（`~/flight-repos/pub/`）的 `tools/`，成品由工具链生成。
 
 ## 规则在哪（先读这个）
 

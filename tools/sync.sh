@@ -141,11 +141,11 @@ if [ "$BUILD" = 1 ]; then
     python3 "$TOOLKIT/fit_fix.py" build/book.md "$out" || die "全书渲染失败（横版）"
     # SD-71（2026-09-29 用户）：只出横版。竖版的表格在窄版面里文字堆叠严重、不利阅读，不再产出、也不再为竖版优化排版。
     # 需要临时出竖版时手动运行：DOC_PORTRAIT=1 node "$TOOLKIT/build_docx.js" build/book.md build/737 机型理论知识笔记_竖版.docx
-    # 单册页眉「B737机型理论基础知识速查」（2026-09-30 用户：「需要」）
-    # 单册《B737机型理论基础知识速查》（SD-66 / SD-74）：与全书同批生成，封面提示与版本号同全书；不带前言、不出总目录页
-    out2="build/B737机型理论基础知识速查.docx"
-    { echo "# 机型基础知识速查"; echo; echo "## 第零章　基础知识速查区"; tail -n +2 build/mod0.md; } > build/single.md
-    DOC_SINGLE=1 DOC_NOTOC=1 DOC_PREFACE="" DOC_HEADER="B737机型理论基础知识速查" DOC_SUBTITLE="数据 · 限制 · 概念" \
+    # 单册页脚册名「B737理论基础知识速查」（2026-09-30 用户：书名由「机型基础知识速查」改为「理论基础知识速查」，SD-100）
+    # 单册《B737理论基础知识速查》（SD-66 / SD-74 / SD-100）：与全书同批生成，封面提示与版本号同全书；不带前言、不出总目录页
+    out2="build/B737理论基础知识速查.docx"
+    { echo "# 理论基础知识速查"; echo; echo "## 第零章　基础知识速查区"; tail -n +2 build/mod0.md; } > build/single.md
+    DOC_SINGLE=1 DOC_NOTOC=1 DOC_PREFACE="" DOC_HEADER="B737理论基础知识速查" DOC_SUBTITLE="数据 · 限制 · 概念" \
       python3 "$TOOLKIT/fit_fix.py" build/single.md "$out2" || die "单册渲染失败"
     BUILT="$out"$'\n'"$out2"
   else
