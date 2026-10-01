@@ -190,6 +190,7 @@ function H(text, level, brk, forceId) {
     /* 速查区竖版：排版预检发现会被拆页的表，其条目标题另起一页（BREAK_BEFORE=21,35）；
        印刷版：每个 x.y 节另起一页（紧跟章标题的第一节除外） */
     pageBreakBefore: !!brk || secBreak || (COMPACT && BREAKS.has((String(text).match(/^(\d+)\. /) || [])[1])) || itemBreak(text)
+      || (level >= 3 && PBREAK.has(String(text).replace(/\s+/g, '')))   // SD-97 孤行兜底（fit_fix 写入 P:）
   });
 }
 /* 全书预排版（book_break.py）：条目标题按出现顺序编号，BREAK_IDX 里的条目另起一页 */
@@ -336,13 +337,14 @@ function tableGap(src, i) {
    让表格保持按内容收窄，说明文字按正文宽度排，不再被挤成一长条 */
 let PROBE = false, TBL_IDX = -1, KEEP_LAST = false;
 /* KEEP_FORCE 文件（fit_fix.py 维护）：一行一个表签名＝强制整表同页；「~N:签名」＝整表同页并按第 N 级压缩（SD-80）；「!签名」＝已放弃（fit_fix 自用） */
-const KEEP_FORCE = new Set(), SHRINK = new Map(), WFIX = new Map(), SPLITOK = new Set();
+const KEEP_FORCE = new Set(), SHRINK = new Map(), WFIX = new Map(), SPLITOK = new Set(), PBREAK = new Set();
 if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
   for (const l0 of fs.readFileSync(process.env.KEEP_FORCE, 'utf8').split('\n')) {
     const l = l0.trim(); if (!l || l.startsWith('!')) continue;
     const w = l.match(/^W:(\d+):(\d+):(.+)$/);   // SD-85 实测加宽：W:列号:加宽DXA:签名
     if (w) { if (!WFIX.has(w[3])) WFIX.set(w[3], []); WFIX.get(w[3]).push([+w[1], +w[2]]); continue; }
     if (l.startsWith('S:')) { SPLITOK.add(l.slice(2)); continue; }   // SD-87 允许按块分页的块索引表
+    if (l.startsWith('P:')) { PBREAK.add(l.slice(2)); continue; }    // SD-97 孤行兜底：该条目标题另起一页
     if (/^WB?:/.test(l)) continue;
     const m = l.match(/^~(\d):(.+)$/);
     if (m) { SHRINK.set(m[2], +m[1]); KEEP_FORCE.add(m[2]); } else KEEP_FORCE.add(l);
