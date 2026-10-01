@@ -24,6 +24,10 @@ const FF_CN = { ascii: CN, hAnsi: CN, eastAsia: CN, cs: CN };
 const FF_MONO = { ascii: MONO, hAnsi: MONO, eastAsia: CN, cs: MONO };
 /* 样张（2026-09-30）：DOC_RULES=booktabs 时，简单表（无合并单元格、≤ 4 列）改三线表：去竖线，表头上粗线、表头下中线、表底粗线，行间保留浅灰细线 */
 const BOOKTABS = process.env.DOC_RULES === 'booktabs';
+const TAGCHIP = process.env.DOC_TAGCHIP === '1';
+/* 样板（2026-09-30 第 105 轮）：DOC_HDRCHAP=1 时页眉右侧显示「章名 ｜ 节名」。
+   docx 库只能写 fldSimple，LibreOffice 不渲染无缓存值的 fldSimple STYLEREF（原页眉右侧一直是空的），生成后改写为复杂域。 */
+const HDRCHAP = process.env.DOC_HDRCHAP === '1';
 /* DOC_PALETTE：整体配色方案比选（2026-09-29）。未设置＝现行方案。
    key＝数值字色，keyBg＝数值底色（荧光笔），note/noteBar＝注解条底色/竖条，warn＝警示条底色，hdr＝表头底，alt＝斑马纹，tail＝表后「注：」行底色 */
 const PALETTES = {
@@ -105,7 +109,13 @@ function runs(text, o = {}) {
     t = t.replace(/【[^】]*】/g, m0 => m0.replace(/ /g, '\u00A0')).replace(/(\d{1,2}:\d{2}) ([—–-]) (\d{1,2}:\d{2})/g, '$1\u00A0$2\u00A0$3').replace(/(\d{1,2}:\d{2}) ?～ ?(\d{1,2}:\d{2})/g, '$1⁠～⁠$2');
     t = t.replace(/([<>≤≥=＜＞≈约±]) (?=[\d−\-+.])/g, '$1\u00A0').replace(/(\d) (?=(kg|ft|kt|nm|NM|m|km|psi|psid|fpm|min|s|h|%|°|℃)(?![A-Za-z]))/g, '$1\u00A0');
     t = t.replace(/以(?=[上下内外])/g, '以\u2060');   // 避免「以上 / 以下 / 以内 / 以外」在单元格行尾拆成孤字
+    /* 样板（2026-09-30 第 105 轮）：DOC_TAGCHIP=1 时【737-NG】【737-8】等机型标签排成浅灰底小标签（不用颜色，黑白可辨；文字不变） */
+    if (TAGCHIP && kind !== 'code' && /【[^】]*737[^】]*】/.test(t) && !/^【[^】]*】$/.test(t)) {
+      t.split(/(【[^】]*737[^】]*】)/).forEach(seg => push(seg, kind)); return;
+    }
+    const chip = TAGCHIP && /^【[^】]*737[^】]*】$/.test(t);
     out.push(new TextRun({
+      ...(chip ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E4E4E4' } } : {}),
       text: t,
       font: kind === 'code' ? FF_MONO : circ ? FF_CN : FF,
       size: grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20),
@@ -2047,6 +2057,20 @@ Packer.toBuffer(doc).then(async b => {
     });
     if (nfix) { z0.file('word/document.xml', dx); b = await z0.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }); }
     if (process.env.FIT_LOG) console.error('vMerge keepNext 补 %d 格', nfix);
+  }
+  if (HDRCHAP) {
+    const JSZipH = require('jszip');
+    const zh = await JSZipH.loadAsync(b);
+    const rpr = '<w:rPr><w:rFonts w:ascii="' + EN + '" w:hAnsi="' + EN + '" w:eastAsia="' + CN + '" w:cs="' + EN + '"/><w:color w:val="' + GRAY + '"/><w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr>';
+    const fld = (sty) => '<w:r>' + rpr + '<w:fldChar w:fldCharType="begin"/></w:r><w:r>' + rpr + '<w:instrText xml:space="preserve"> STYLEREF "' + sty + '" \\* MERGEFORMAT </w:instrText></w:r>'
+      + '<w:r>' + rpr + '<w:fldChar w:fldCharType="separate"/></w:r><w:r>' + rpr + '<w:t> </w:t></w:r><w:r>' + rpr + '<w:fldChar w:fldCharType="end"/></w:r>';
+    for (const name of Object.keys(zh.files).filter(n => /^word\/header\d+\.xml$/.test(n))) {
+      let hx = await zh.file(name).async('string');
+      const hx2 = hx.replace(/<w:fldSimple w:instr="STYLEREF &quot;Heading 1&quot;">[\s\S]*?<\/w:fldSimple>/g,
+        fld('Heading 1') + '<w:r>' + rpr + '<w:t xml:space="preserve">　｜　</w:t></w:r>' + fld('Heading 2'));
+      if (hx2 !== hx) zh.file(name, hx2);
+    }
+    b = await zh.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
   }
   if (DUPLEX) {
     /* docx 库不支持镜像页边距：生成后在 settings.xml 里补 <w:mirrorMargins/>（内侧 = left，外侧 = right） */
