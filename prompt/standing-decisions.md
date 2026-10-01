@@ -595,4 +595,4 @@
 - 全书页眉：左侧当前章名（Heading 1，如「第一章　系统理论」），右侧当前节名（Heading 2，如「1.2　增压」），不再写书名。封面、前言、目录页照旧。
 - 单册《B737机型理论基础知识速查》：只有一章，左侧保留册名，右侧显示当前块名（Heading 2）。
 - 实现：docx 库生成的 fldSimple STYLEREF 在 LibreOffice 里不显示，要在生成后改写为复杂域（fldChar begin / instrText / separate / end）；章标题单独一页时 LibreOffice 会取上一章最后一节，要处理成那一页不显示节名。双面版奇偶页的左右对调同步调整。
-- 状态：规则已定，**等 Muse M4 落地后与红字纠正一起实现并全书重建**。
+- 状态：2026-09-30 已实现（pub 9abcefd、3252bac）。页眉用 STYLEREF 引用字符样式 HdrChap / HdrSec；章首页、前言、总目录、单册目录页带零宽 HdrSec 空标记，节名留空。check_layout L4 按新规则检查。
