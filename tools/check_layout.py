@@ -102,7 +102,7 @@ def body_lines(pg):
     out = []
     for b in pg.get_text('dict')['blocks']:
         for l in b.get('lines', []):
-            t = ''.join(s['text'] for s in l['spans'])
+            t = ''.join(s['text'] for s in l['spans']).replace('●', '•')   # SD-107：分条圆点排成缩小的「●」
             if t.strip(): out.append((*l['bbox'], t))
     # SD-97：页脚一行（章名 / 节名 / 页码）整行去掉——以页码所在行为准，同一行及以下都算页脚
     fy = max((l[1] for l in out if re.search(r'第\s*\d+\s*页\s*$', l[4])), default=None)
@@ -135,18 +135,17 @@ def scan(pdf, name, header):
     # L1 只出横版
     port = [i + 1 for i, p in enumerate(d) if p.rect.width < p.rect.height]
     if port: err('L1', '%s 有竖版页：%s' % (name, port[:10]))
-    # L2 字体统一（SD-105 黑体）：逐段核对字体；宋体只允许出现在 ⑪～⑳ 圈码上（黑体缺这些字形，本机 LibreOffice 只认得宋体 / 黑体两族）
+    # L2 字体统一（SD-107 思源宋体）：逐段核对，只允许 SourceHanSerifCN-Medium（正文）/ -Bold（粗体）
     bad = collections.Counter(); badx = {}
     for i, p in enumerate(d):
         for b in p.get_text('rawdict')['blocks']:
             for l in b.get('lines', []):
                 for sp in l['spans']:
                     base = sp['font'].split('+')[-1]
-                    if 'Heiti' in base: continue
+                    if base.startswith('SourceHanSerifCN-'): continue
                     t = ''.join(ch['c'] for ch in sp['chars'])
-                    if 'Songti' in base and re.fullmatch(r'[\u246A-\u2473\s]*', t): continue
                     bad[base] += 1; badx.setdefault(base, (i + 1, t[:12]))
-    for f, n in bad.items(): err('L2', '%s 出现非黑体字体 %s（%d 段，如第 %d 页「%s」）——字体须统一 Heiti SC（SD-105）' % (name, f, n, badx[f][0], badx[f][1]))
+    for f, n in bad.items(): err('L2', '%s 出现非思源宋体字体 %s（%d 段，如第 %d 页「%s」）——字体须统一思源宋体（SD-107）；多半是 LibreOffice profile 里没有字体文件' % (name, f, n, badx[f][0], badx[f][1]))
     # L3 书签栏（SD-77）
     if not d.get_toc(): err('L3', name + ' 没有书签')
     ut = [x[1] for x in d.get_toc() if '（单位：' in x[1]]
@@ -192,7 +191,7 @@ def scan(pdf, name, header):
             tw = t.bbox[2] - t.bbox[0]
             # T5 表内字号底线 8pt（SD-80）
             small = [sp['size'] for b in p.get_text('dict', clip=t.bbox)['blocks'] for l in b.get('lines', []) for sp in l['spans']
-                     if sp['text'].strip() and sp['size'] < 7.9]
+                     if sp['text'].strip() and sp['text'].strip() != '●' and sp['size'] < 7.9]   # 分条圆点「●」按半号排，不算小字
             if small: err('T5', '%s 第 %d 页：表内有 %.1fpt 的字，低于 8pt 底线' % (name, i + 1, min(small)))
             if tw > CW + 4: err('T1', '%s 第 %d 页：表格宽 %.0fpt 超过版心 %.0fpt' % (name, i + 1, tw, CW))
             rows = [[c for c in r.cells] for r in t.rows]

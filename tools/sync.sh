@@ -172,6 +172,9 @@ if [ "$BUILD" = 1 ]; then
       # 开着时默认 profile 被占用，转换会失败且不报错；独立 profile 可以并存。
       LOPROF="${TMPDIR:-/tmp}/lo-sync-profile"
       LOTMP="$(mktemp -d)"; LOLOG="$(mktemp)"
+      # SD-107：LibreOffice 不读 ~/Library/Fonts，把思源字体复制进独立 profile 的 user/fonts
+      mkdir -p "$LOPROF/user/fonts"
+      for ff in "$HOME"/Library/Fonts/SourceHan*.otf; do [ -f "$ff" ] && { cmp -s "$ff" "$LOPROF/user/fonts/$(basename "$ff")" || cp "$ff" "$LOPROF/user/fonts/"; }; done
       "$SOF" -env:UserInstallation="file://$LOPROF" \
              --headless --convert-to pdf --outdir "$LOTMP" "$f" >"$LOLOG" 2>&1
       fresh="$LOTMP/$(basename "${f%.docx}").pdf"
