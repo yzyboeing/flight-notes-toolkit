@@ -127,6 +127,8 @@ function runs(text, o = {}) {
       ...(kind === 'key' && KEY_BG && !BW ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: KEY_BG } } : {}),
       color: (kind === 'red' && !o.noRed) ? (BW ? '000000' : RED) : (kind === 'key' ? KEY_C : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000')))),
       ...(chip && TAGSTYLE === 'ink' ? { bold: true, color: '505050', size: (o.size || 20) - 2 } : {}),
+      ...(chip && TAGSTYLE === 'ink-s' ? { bold: true, color: '505050', size: (o.size || 20) - 3 } : {}),
+      ...(chip && TAGSTYLE === 'ink-i' ? { bold: true, italics: true, color: '505050', size: (o.size || 20) - 2 } : {}),
       ...(chip && TAGSTYLE === 'bold' ? { bold: true } : {})
     }));
   };
