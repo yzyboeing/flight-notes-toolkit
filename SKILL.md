@@ -45,7 +45,7 @@ description: "整理、排版并验证中文《B737 机型理论知识笔记》�
    ./sync.sh --full "改了什么"                             # 重建全书与单册、verify、排版总检查、本地提交
    # 读 build/排版检查报告.md：错误必须为 0，建议逐条有结论
    python3 ../pub/tools/check_splits.py build/B737机型理论知识笔记.pdf   # 孤行 0、本可整页的断表 0
-   pdffonts build/B737机型理论知识笔记.pdf                  # 只有 STSongti-SC
+   pdffonts build/B737机型理论知识笔记.pdf                  # 只有 STHeitiSC（黑体，SD-105）
    ```
    文字守恒：结构调整用 `tools/diff_body.py`；只改标记时去掉 HTML 标签与 `git show HEAD:<文件>` 比对，文字必须完全一致。最后渲染被改动的页目视检查（`pdftoppm`）。
 5. **交付与记录**：把 `build/` 下四个成品复制到 `~/Desktop/飞行理论笔记整理/`；本轮工作写进 00 的「每轮工作记录」顶部；新规则编 SD 号并同步整理规范、通用指令与 Muse 交接包的 `SKILL.md`。

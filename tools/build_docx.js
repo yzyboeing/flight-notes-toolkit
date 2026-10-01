@@ -14,13 +14,15 @@ const SRC = process.argv[2] || 'flight_theory_notes_prompt_v5.md';
 const OUT = process.argv[3] || 'prompt.docx';
 
 // 字体：LibreOffice 导出 PDF 时，苹方 / Helvetica Neue 的粗体和数学符号会被拆成多种替代字体。
-// 默认改用本机自带且同时覆盖中英文、数学符号和真实粗体的 Songti SC；需要时仍可用环境变量覆盖。
-const MAIN = process.env.DOC_FONT || 'Songti SC',
+// SD-105（2026-10-01 用户「所有字体改为黑体」）：默认 Heiti SC（黑体-简），同时覆盖中英文、数学符号与圈码；需要时仍可用环境变量覆盖（原 SD-76 为 Songti SC）。
+const MAIN = process.env.DOC_FONT || 'Heiti SC',
       CN   = process.env.DOC_FONT_CN   || MAIN,
       EN   = process.env.DOC_FONT_EN   || MAIN,
       MONO = process.env.DOC_FONT_MONO || 'Menlo';
 const FF = { ascii: EN, hAnsi: EN, eastAsia: CN, cs: EN };
 const FF_CN = { ascii: CN, hAnsi: CN, eastAsia: CN, cs: CN };
+const CIRC2 = process.env.DOC_FONT_CIRC || 'Songti SC';
+const FF_CIRC = { ascii: CIRC2, hAnsi: CIRC2, eastAsia: CIRC2, cs: CIRC2 };
 const FF_MONO = { ascii: MONO, hAnsi: MONO, eastAsia: CN, cs: MONO };
 /* SD-96 页眉「左章名、右节名」：页眉用 STYLEREF 引用字符样式 HdrChap（章名、前言、总目录）与 HdrSec（节名 / 速查块名）。
    章标题、前言、总目录、单册目录页各带一个零宽的 HdrSec 空标记，让这些页的节名为空，而不是沿用上一章最后一节。 */
@@ -96,8 +98,9 @@ function runs(text, o = {}) {
   const push = (t, kind) => {
     if (!t) return;
     /* 圈码 ①–⑳ 用中文字体排（西文字体没有这些字形，回退字体常没有粗体，导致首列序号不加粗） */
-    if (kind !== 'code' && /[\u2460-\u2473]/.test(t) && !/^[\u2460-\u2473]+$/.test(t)) {
-      t.split(/([\u2460-\u2473]+)/).forEach(seg => push(seg, kind)); return;
+    /* SD-105：黑体 Heiti SC 只有 ①～⑩；⑪～⑳ 单独成段，借用 Songti SC 的圈码字形（本机 LibreOffice 只认得宋体 / 黑体两族，Hiragino、Arial Unicode 都会回退成 Libertine） */
+    if (kind !== 'code' && /[\u2460-\u2473]/.test(t) && !/^([\u2460-\u2469]+|[\u246A-\u2473]+)$/.test(t)) {
+      t.split(/([\u2460-\u2469]+|[\u246A-\u2473]+)/).forEach(seg => push(seg, kind)); return;
     }
     const circ = /^[\u2460-\u2473]+$/.test(t);
     if (kind === 'red' && o.noRed) kind = 'bold';
@@ -114,7 +117,7 @@ function runs(text, o = {}) {
     const tag = kind !== 'code' && /^【[^】]*737[^】]*】$/.test(t);
     out.push(new TextRun({
       text: t,
-      font: kind === 'code' ? FF_MONO : circ ? FF_CN : FF,
+      font: kind === 'code' ? FF_MONO : (circ && /[\u246A-\u2473]/.test(t)) ? FF_CIRC : circ ? FF_CN : FF,
       size: grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20),
       bold: kind === 'bold' || kind === 'red' || kind === 'key' || kind === 'graybold' || o.bold,
       underline: (BW && kind === 'red' && !o.noRed) ? {} : undefined,
@@ -1250,7 +1253,8 @@ function htmlTableCore(html) {
   let fcN = 0, fcS = 0;
   parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
     r.cells.forEach((c, ck) => { if (startCol[ri][ck] === 0 && c.colspan === 1 && !c.head) { fcN++; if (shortTxt(c.text)) fcS++; } }); });
-  const firstIsLabel = fcN > 0 && fcS >= 0.6 * fcN;
+  const firstIsLabel = fcN > 0 && (fcS >= 0.6 * fcN || forcedCenterCols.has(0));   // 首列显式 col-center：按标签列居中加粗（SD-104）
+  if (process.env.FC_LOG && nCols > 1 && (!firstIsLabel || parallel)) console.error('FCLEFT', parallel ? 'parallel' : 'nolabel', fcS + '/' + fcN, String(hdrRow ? hdrRow.cells.map(c => c.text).join(' / ') : '').replace(/<[^>]+>/g, '').slice(0, 50), '||', unesc(String((parsed.find(r => !/hdr|note|premise|warn/.test(r.cls)) || {cells:[{text:''}]}).cells[0].text)).replace(/<[^>]+>/g, '').slice(0, 30));
   const trs = parsed.map((r, ri) => {
     const isHdr = r.cls.includes('hdr');
     const isNote = r.cls.includes('note');
