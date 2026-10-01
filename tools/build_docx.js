@@ -517,7 +517,8 @@ function htmlTableCore(html) {
           parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
             r.cells.forEach((c, k) => { if (startCol[ri][k] === col && c.colspan === 1) { const t = plainOf(c.text).replace(/\s+/g, '');
               if (t && !/^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(t)) cs.push(t); } }); });
-          const sent = cs.filter(t => pv(t) >= 30 || /[，。；]/.test(t));   // 句子：带逗号 / 分号 / 句号，或约 15 字以上；「230kt」「离地 35ft → 起落架收上」这类取值 / 分界不算（2026-10-01 用户，第 25、27、54 页）
+          const sent = /说明$/.test(hp) ? cs.filter(t => pv(t) >= 12 || /[，。；、]/.test(t))   // 「说明」列（SD-103 补，用户：「如果是说明列，那这一列是可以靠左加小黑点的」）：短说明也算句子
+            : cs.filter(t => pv(t) >= 30 || /[，。；]/.test(t));   // 句子：带逗号 / 分号 / 句号，或约 15 字以上；「230kt」「离地 35ft → 起落架收上」这类取值 / 分界不算（2026-10-01 用户，第 25、27、54 页）
           if (cs.length >= 2 && sent.length >= 0.6 * cs.length) hc.cls = ((hc.cls || '') + ' col-bullet').trim(); }); } }
     /* 不分条的列（2026-09-30 用户，速查区第 23 条：「定义……根本不需要加圆点，只需要把这个定义居中」）：
        表头显式 col-center 的列、表头为「定义 / 含义 / 释义 / 概念」的列——一格就是一个完整概念，不拆 */
