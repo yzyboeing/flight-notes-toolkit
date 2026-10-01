@@ -24,7 +24,9 @@ const FF_CN = { ascii: CN, hAnsi: CN, eastAsia: CN, cs: CN };
 const FF_MONO = { ascii: MONO, hAnsi: MONO, eastAsia: CN, cs: MONO };
 /* 样张（2026-09-30）：DOC_RULES=booktabs 时，简单表（无合并单元格、≤ 4 列）改三线表：去竖线，表头上粗线、表头下中线、表底粗线，行间保留浅灰细线 */
 const BOOKTABS = process.env.DOC_RULES === 'booktabs';
-const TAGCHIP = process.env.DOC_TAGCHIP === '1';
+/* DOC_TAGCHIP：机型标签样式比选（第 105–106 轮）。1 / gray＝浅灰底；box＝细灰框；ink＝深灰粗体小一号；bold＝黑粗 */
+const TAGSTYLE = process.env.DOC_TAGCHIP === '1' ? 'gray' : (process.env.DOC_TAGCHIP || '');
+const TAGCHIP = !!TAGSTYLE;
 /* 样板（2026-09-30 第 105 轮）：DOC_HDRCHAP=1 时页眉右侧显示「章名 ｜ 节名」。
    docx 库只能写 fldSimple，LibreOffice 不渲染无缓存值的 fldSimple STYLEREF（原页眉右侧一直是空的），生成后改写为复杂域。 */
 const HDRCHAP = process.env.DOC_HDRCHAP === '1';
@@ -115,14 +117,17 @@ function runs(text, o = {}) {
     }
     const chip = TAGCHIP && /^【[^】]*737[^】]*】$/.test(t);
     out.push(new TextRun({
-      ...(chip ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E4E4E4' } } : {}),
+      ...(chip && TAGSTYLE === 'gray' ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E4E4E4' } } : {}),
+      ...(chip && TAGSTYLE === 'box' ? { border: { style: BorderStyle.SINGLE, size: 4, color: '8C8C8C', space: 0 } } : {}),
       text: t,
       font: kind === 'code' ? FF_MONO : circ ? FF_CN : FF,
       size: grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20),
       bold: kind === 'bold' || kind === 'red' || kind === 'key' || kind === 'graybold' || o.bold,
       underline: (BW && kind === 'red' && !o.noRed) ? {} : undefined,
       ...(kind === 'key' && KEY_BG && !BW ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: KEY_BG } } : {}),
-      color: (kind === 'red' && !o.noRed) ? (BW ? '000000' : RED) : (kind === 'key' ? KEY_C : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000'))))
+      color: (kind === 'red' && !o.noRed) ? (BW ? '000000' : RED) : (kind === 'key' ? KEY_C : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000')))),
+      ...(chip && TAGSTYLE === 'ink' ? { bold: true, color: '505050', size: (o.size || 20) - 2 } : {}),
+      ...(chip && TAGSTYLE === 'bold' ? { bold: true } : {})
     }));
   };
   /* 嵌套标记：<em> 与 <strong> 可互相嵌套，红色优先（红色本身已是粗体） */
