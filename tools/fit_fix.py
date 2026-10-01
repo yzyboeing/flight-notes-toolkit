@@ -37,7 +37,7 @@ def to_pdf():
     return p
 
 # 状态：lv[sig] = 0（强制整表）/ 1～3（压缩级）；block＝放弃
-lv, block, wfix, wblock, splitok = {}, set(), {}, set(), set()   # splitok＝标题被留下的块索引表：允许按块分页（S:）     # wfix[(sig, 列)] = 加宽 DXA；wblock＝加宽也没用的格，不再试
+lv, block, wfix, wblock, splitok, pbreak = {}, set(), {}, set(), set(), set()   # pbreak＝另起一页的条目标题（P:，SD-97 孤行兜底）   # splitok＝标题被留下的块索引表：允许按块分页（S:）     # wfix[(sig, 列)] = 加宽 DXA；wblock＝加宽也没用的格，不再试
 for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
     l = l.strip()
     if not l: continue
@@ -45,6 +45,8 @@ for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
         _, k, dd, sg = l.split(':', 3); wfix[(sg, int(k))] = int(dd)
     elif l.startswith('S:'):
         splitok.add(l[2:])
+    elif l.startswith('P:'):
+        pbreak.add(l[2:])
     elif l.startswith('WB:'):
         _, k, sg = l.split(':', 2); wblock.add((sg, int(k)))
     elif l.startswith('!'): block.add(l[1:])
@@ -57,6 +59,7 @@ def save():
         for (sg, k), dd in sorted(wfix.items()): f.write('W:%d:%d:%s\n' % (k, dd, sg))
         for (sg, k) in sorted(wblock): f.write('WB:%d:%s\n' % (k, sg))
         for sg in sorted(splitok): f.write('S:' + sg + '\n')
+        for h in sorted(pbreak): f.write('P:' + h + '\n')
 
 bg = lambda x: {x[k:k + 2] for k in range(len(x) - 1)}
 def match(text, tbls):
@@ -116,10 +119,13 @@ for n in range(1, 8):
     # SD-89 只有一两行的页：上一页最后一张表收紧一级（最多到 3 级），把这一两行拉回上一页
     from layout_measure import sparse
     for x in sparse(pdf):
-        for sg in match(x['table'], tbls):
-            if sg in block or sg in splitok: continue
+        sgs = match(x['table'], tbls) if x['table'] else set()
+        live = [sg for sg in sgs if sg not in block and sg not in splitok]
+        for sg in live:
             if lv.get(sg, 0) < 3: lv[sg] = lv.get(sg, 0) + 1; ladd += 1
             else: block.add(sg); lv.pop(sg, None)
+        # 表已收紧到底（或上一页没有可收紧的表）仍只剩一两行：上一页最后一个条目标题另起一页
+        if not live and x.get('head') and x['head'] not in pbreak: pbreak.add(x['head']); ladd += 1
     splitok &= sigs
     shutil.rmtree(os.path.dirname(pdf), ignore_errors=True)
     add, up, gave, miss = 0, 0, 0, []

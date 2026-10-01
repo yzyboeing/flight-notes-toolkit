@@ -120,7 +120,10 @@ def sparse(pdf):
         if not (0 < len(ln) <= 2): continue
         try: tabs = [t for t in d[i - 1].find_tables().tables if t.bbox[1] > 0.07 * H and t.bbox[3] - t.bbox[1] > 10]
         except Exception: tabs = []
-        if not tabs: continue
-        t = max(tabs, key=lambda t: t.bbox[3])
-        out.append({'page': i + 1, 'table': norm(d[i - 1].get_text(clip=t.bbox))})
+        # 上一页最后一个条目标题（不在页顶）：表收紧也救不回时，fit_fix 让它另起一页（P:）
+        heads = [l for l in lines_of(d[i - 1]) if l[1] > 0.15 * H and re.match(r'^\s*([A-Z]-\d+|\d{1,3}\.)\s+\S', l[4])]
+        head = re.sub(r'\s+', '', heads[-1][4]) if heads else ''
+        if not tabs and not head: continue
+        t = max(tabs, key=lambda t: t.bbox[3]) if tabs else None
+        out.append({'page': i + 1, 'table': norm(d[i - 1].get_text(clip=t.bbox)) if t else '', 'head': head})
     return out
