@@ -304,7 +304,7 @@ def scan(pdf, name, header):
                     bul = sum(1 for c in cs if c.startswith('•'))
                     if serial and bul and h not in EXPLICIT_BULLET:
                         sug('T12', '%s 第 %d 页：序号表的「%s」列有自动加点——序号表其余列不加「•」（SD-102）' % (name, i + 1, h))
-                    sent = [c for c in cs if vis(c) >= 12 or re.search(r'[，。；、]', c)]
+                    sent = [c for c in cs if vis(c) >= 30 or re.search(r'[，。；]', c)]
                     if (not serial and bul == 0 and len(sent) >= 0.6 * len(cs) and h not in EXPLICIT_NOBULLET
                             and (DESC_H.match(h) or re.search(r'(条件|要求|说明|逻辑|措施|处置|要点|内容)$', h))):
                         sug('T11', '%s 第 %d 页：说明类句子列「%s」没有加「•」——整列左对齐加点（SD-102）' % (name, i + 1, h))
