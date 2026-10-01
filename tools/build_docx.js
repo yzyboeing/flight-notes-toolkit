@@ -22,14 +22,10 @@ const MAIN = process.env.DOC_FONT || 'Songti SC',
 const FF = { ascii: EN, hAnsi: EN, eastAsia: CN, cs: EN };
 const FF_CN = { ascii: CN, hAnsi: CN, eastAsia: CN, cs: CN };
 const FF_MONO = { ascii: MONO, hAnsi: MONO, eastAsia: CN, cs: MONO };
+const HEAD_BLACK = process.env.DOC_HEAD === 'black';
+const FF_BLACK = { ascii: MAIN + ' Black', hAnsi: MAIN + ' Black', eastAsia: MAIN + ' Black', cs: MAIN + ' Black' };
 /* 样张（2026-09-30）：DOC_RULES=booktabs 时，简单表（无合并单元格、≤ 4 列）改三线表：去竖线，表头上粗线、表头下中线、表底粗线，行间保留浅灰细线 */
 const BOOKTABS = process.env.DOC_RULES === 'booktabs';
-/* DOC_TAGCHIP：机型标签样式比选（第 105–106 轮）。1 / gray＝浅灰底；box＝细灰框；ink＝深灰粗体小一号；bold＝黑粗 */
-const TAGSTYLE = process.env.DOC_TAGCHIP === '1' ? 'gray' : (process.env.DOC_TAGCHIP || '');
-const TAGCHIP = !!TAGSTYLE;
-/* 样板（2026-09-30 第 105 轮）：DOC_HDRCHAP=1 时页眉右侧显示「章名 ｜ 节名」。
-   docx 库只能写 fldSimple，LibreOffice 不渲染无缓存值的 fldSimple STYLEREF（原页眉右侧一直是空的），生成后改写为复杂域。 */
-const HDRCHAP = process.env.DOC_HDRCHAP === '1';
 /* DOC_PALETTE：整体配色方案比选（2026-09-29）。未设置＝现行方案。
    key＝数值字色，keyBg＝数值底色（荧光笔），note/noteBar＝注解条底色/竖条，warn＝警示条底色，hdr＝表头底，alt＝斑马纹，tail＝表后「注：」行底色 */
 const PALETTES = {
@@ -111,14 +107,13 @@ function runs(text, o = {}) {
     t = t.replace(/【[^】]*】/g, m0 => m0.replace(/ /g, '\u00A0')).replace(/(\d{1,2}:\d{2}) ([—–-]) (\d{1,2}:\d{2})/g, '$1\u00A0$2\u00A0$3').replace(/(\d{1,2}:\d{2}) ?～ ?(\d{1,2}:\d{2})/g, '$1⁠～⁠$2');
     t = t.replace(/([<>≤≥=＜＞≈约±]) (?=[\d−\-+.])/g, '$1\u00A0').replace(/(\d) (?=(kg|ft|kt|nm|NM|m|km|psi|psid|fpm|min|s|h|%|°|℃)(?![A-Za-z]))/g, '$1\u00A0');
     t = t.replace(/以(?=[上下内外])/g, '以\u2060');   // 避免「以上 / 以下 / 以内 / 以外」在单元格行尾拆成孤字
-    /* 样板（2026-09-30 第 105 轮）：DOC_TAGCHIP=1 时【737-NG】【737-8】等机型标签排成浅灰底小标签（不用颜色，黑白可辨；文字不变） */
-    if (TAGCHIP && kind !== 'code' && /【[^】]*737[^】]*】/.test(t) && !/^【[^】]*】$/.test(t)) {
+    /* SD-95（2026-09-30 用户选 C）：【737-NG】【737-8】等机型标签是「适用范围」这类辅助信息，排成深灰 505050、粗体、比所在文字小一号，
+       让正文保持主角；不加底色或框（试过浅灰底、细框、黑粗、斜体、再小半号，均不采用）。字号保底 8pt（SD-35⑥），文字不变。 */
+    if (kind !== 'code' && /【[^】]*737[^】]*】/.test(t) && !/^【[^】]*737[^】]*】$/.test(t)) {
       t.split(/(【[^】]*737[^】]*】)/).forEach(seg => push(seg, kind)); return;
     }
-    const chip = TAGCHIP && /^【[^】]*737[^】]*】$/.test(t);
+    const tag = kind !== 'code' && /^【[^】]*737[^】]*】$/.test(t);
     out.push(new TextRun({
-      ...(chip && TAGSTYLE === 'gray' ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E4E4E4' } } : {}),
-      ...(chip && TAGSTYLE === 'box' ? { border: { style: BorderStyle.SINGLE, size: 4, color: '8C8C8C', space: 0 } } : {}),
       text: t,
       font: kind === 'code' ? FF_MONO : circ ? FF_CN : FF,
       size: grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20),
@@ -126,10 +121,7 @@ function runs(text, o = {}) {
       underline: (BW && kind === 'red' && !o.noRed) ? {} : undefined,
       ...(kind === 'key' && KEY_BG && !BW ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: KEY_BG } } : {}),
       color: (kind === 'red' && !o.noRed) ? (BW ? '000000' : RED) : (kind === 'key' ? KEY_C : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000')))),
-      ...(chip && TAGSTYLE === 'ink' ? { bold: true, color: '505050', size: (o.size || 20) - 2 } : {}),
-      ...(chip && TAGSTYLE === 'ink-s' ? { bold: true, color: '505050', size: (o.size || 20) - 3 } : {}),
-      ...(chip && TAGSTYLE === 'ink-i' ? { bold: true, italics: true, color: '505050', size: (o.size || 20) - 2 } : {}),
-      ...(chip && TAGSTYLE === 'bold' ? { bold: true } : {})
+      ...(tag ? { bold: true, color: '505050', size: Math.max(16, (grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20)) - 2) } : {})
     }));
   };
   /* 嵌套标记：<em> 与 <strong> 可互相嵌套，红色优先（红色本身已是粗体） */
@@ -186,7 +178,9 @@ function H(text, level, brk, forceId) {
   const secBreak = level === 2 && /^\d+\.\d+[\s\u3000]/.test(text) && !AFTER_H1 && !NO_SEC_BREAK;
   AFTER_H1 = level === 1;
   const HC = { 1: H1_C, 2: H2_C, 3: H3_C, 4: H3_C }[level];
-  const tr = new TextRun({ text, font: FF, size: sizes[level], bold: true, color: HC });
+  /* 样张（2026-09-30）：DOC_HEAD=black 时 H1 / H2 改用同一字体族的 Songti SC Black 字重（不换字体，守 SD-76），靠字重拉开层级 */
+  const heavy = HEAD_BLACK && level <= 2;
+  const tr = new TextRun({ text, font: heavy ? FF_BLACK : FF, size: sizes[level], bold: !heavy, color: HC });
   return new Paragraph({
     heading: level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : level === 3 ? HeadingLevel.HEADING_3 : HeadingLevel.HEADING_4,
     children: id ? [new Bookmark({ id, children: [tr] })] : [tr],
@@ -1227,10 +1221,9 @@ function htmlTableCore(html) {
   const firstIsLabel = fcN > 0 && fcS >= 0.6 * fcN;
   const rowBand = (r) => /note|premise|warn|priority/.test(r.cls);
   const simpleTbl = BOOKTABS && nCols <= 4 && parsed.every(r => r.cells.every(c => (c.rowspan || 1) === 1 && ((c.colspan || 1) === 1 || rowBand(r))));
-  if (process.env.BT_LOG) console.error('BOOKTABS', simpleTbl ? 'simple' : 'grid', nCols);
   const hdrLast = parsed.reduce((a, r, i) => r.cls.includes('hdr') ? i : a, -1);
   const bodyLast = (() => { let k = parsed.length - 1; while (k > 0 && rowBand(parsed[k])) k--; return k; })();
-  const RULE_HEAVY = { style: BorderStyle.SINGLE, size: 8, color: '000000' }, RULE_MID = { style: BorderStyle.SINGLE, size: 6, color: '000000' },
+  const RULE_HEAVY = { style: BorderStyle.SINGLE, size: 12, color: '000000' }, RULE_MID = { style: BorderStyle.SINGLE, size: 6, color: '000000' },
         RULE_NONE = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const trs = parsed.map((r, ri) => {
     const isHdr = r.cls.includes('hdr');
@@ -1321,17 +1314,13 @@ function htmlTableCore(html) {
                       : { style: BorderStyle.SINGLE, size: 2, color: LINE },
         right: { style: BorderStyle.SINGLE, size: 2, color: LINE }
       };
-      /* DOC_RULES=booktabs（2026-09-30 第 102 轮改进版）：全书统一外框——表顶、表底各一条 1pt 黑线，表头下 0.75pt 黑线，不要左右外框；
-         简单表（无合并格、≤ 4 列）不要内部线，只靠斑马纹分行；复杂表（有合并格或 > 4 列）内部线改浅灰 D0D0D0，用来看清合并关系。
-         注解 / 前提 / 警示行的左竖条保留。 */
-      if (BOOKTABS) {
-        const inner = simpleTbl ? RULE_NONE : { style: BorderStyle.SINGLE, size: 2, color: 'D0D0D0' };
-        const endRow = ri + (c.rowspan || 1) - 1;
-        borders.top = ri === 0 ? RULE_HEAVY : (hdrLast >= 0 && ri === hdrLast + 1) ? RULE_MID : ri === bodyLast + 1 ? RULE_HEAVY : inner;
-        borders.bottom = endRow === hdrLast ? RULE_MID : endRow === bodyLast ? RULE_HEAVY : endRow === parsed.length - 1 ? RULE_HEAVY : inner;
-        const band = isWarn || isPriority || isPre || isNote;
-        if (!band) borders.left = ci === 0 ? RULE_NONE : inner;
-        borders.right = ci + c.colspan >= nCols ? RULE_NONE : inner;
+      if (simpleTbl) {
+        const thin = { style: BorderStyle.SINGLE, size: 2, color: LINE };
+        borders.top = ri === 0 ? RULE_HEAVY : (hdrLast >= 0 && ri === hdrLast + 1) ? RULE_MID : thin;
+        borders.bottom = ri === hdrLast ? RULE_MID : ri === bodyLast ? RULE_HEAVY : thin;
+        if (ri === bodyLast + 1) borders.top = RULE_HEAVY;
+        if (!(isWarn || isPriority || isPre || isNote)) borders.left = RULE_NONE;
+        borders.right = RULE_NONE;
       }
       return new TableCell({
         width: { size: w, type: WidthType.DXA },
@@ -2064,20 +2053,6 @@ Packer.toBuffer(doc).then(async b => {
     });
     if (nfix) { z0.file('word/document.xml', dx); b = await z0.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }); }
     if (process.env.FIT_LOG) console.error('vMerge keepNext 补 %d 格', nfix);
-  }
-  if (HDRCHAP) {
-    const JSZipH = require('jszip');
-    const zh = await JSZipH.loadAsync(b);
-    const rpr = '<w:rPr><w:rFonts w:ascii="' + EN + '" w:hAnsi="' + EN + '" w:eastAsia="' + CN + '" w:cs="' + EN + '"/><w:color w:val="' + GRAY + '"/><w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr>';
-    const fld = (sty) => '<w:r>' + rpr + '<w:fldChar w:fldCharType="begin"/></w:r><w:r>' + rpr + '<w:instrText xml:space="preserve"> STYLEREF "' + sty + '" \\* MERGEFORMAT </w:instrText></w:r>'
-      + '<w:r>' + rpr + '<w:fldChar w:fldCharType="separate"/></w:r><w:r>' + rpr + '<w:t> </w:t></w:r><w:r>' + rpr + '<w:fldChar w:fldCharType="end"/></w:r>';
-    for (const name of Object.keys(zh.files).filter(n => /^word\/header\d+\.xml$/.test(n))) {
-      let hx = await zh.file(name).async('string');
-      const hx2 = hx.replace(/<w:fldSimple w:instr="STYLEREF &quot;Heading 1&quot;">[\s\S]*?<\/w:fldSimple>/g,
-        fld('Heading 1') + '<w:r>' + rpr + '<w:t xml:space="preserve">　｜　</w:t></w:r>' + fld('Heading 2'));
-      if (hx2 !== hx) zh.file(name, hx2);
-    }
-    b = await zh.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
   }
   if (DUPLEX) {
     /* docx 库不支持镜像页边距：生成后在 settings.xml 里补 <w:mirrorMargins/>（内侧 = left，外侧 = right） */
