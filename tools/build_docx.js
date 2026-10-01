@@ -1310,7 +1310,8 @@ function htmlTableCore(html) {
         width: { size: w, type: WidthType.DXA },
         columnSpan: c.colspan > 1 ? c.colspan : undefined,
         rowSpan: c.rowspan > 1 ? c.rowspan : undefined,
-        shading: { type: ShadingType.CLEAR, color: 'auto', fill },
+        /* SD-99 单格标黄（<td class="hl">）：只标需要特别注意的那一两格，不整行铺黄 */
+        shading: { type: ShadingType.CLEAR, color: 'auto', fill: /(^|\s)hl(\s|$)/.test(c.cls || '') ? PRIORITY_F : fill },
         borders,
         margins: { top: CM, bottom: CM, left: 90, right: 90 },
         verticalAlign: VerticalAlign.CENTER,   // 用户 2026-09-29：内容尽量靠表格中心（纵向居中），排版更舒服
