@@ -1548,7 +1548,7 @@ function chapterOpener(ch, brk) {
     children: [new TextRun({ text: no, font: FF, size: 150, bold: true, color: C('C9D8E8', '000000') })] }));
   out.push(new Paragraph({
     heading: HeadingLevel.HEADING_1, keepNext: true,
-    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: unesc(ch.text), font: FF, size: 44, bold: true, color: H1_C })] })],
+    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: unesc(ch.text), font: FF, size: 44, bold: true, color: H1_C, style: 'HdrChap' })] }), SECMARK()],
     spacing: { before: 60, after: 160 },
     border: { bottom: { style: BorderStyle.SINGLE, size: 24, color: H1_LINE, space: 8 } }
   }));
@@ -2048,7 +2048,7 @@ Packer.toBuffer(doc).then(async b => {
     let nh = 0;
     for (const name of Object.keys(zh.files).filter(n => /^word\/header\d+\.xml$/.test(n))) {
       const hx = await zh.file(name).async('string');
-      const hx2 = hx.replace(/<w:r>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t[^>]*>§HDR(CHAP|SEC)§<\/w:t><\/w:r>/g, (m0, rp, k) => {
+      const hx2 = hx.replace(/<w:r>(<w:rPr>(?:(?!<\/w:r>)[\s\S])*?<\/w:rPr>)?<w:t[^>]*>§HDR(CHAP|SEC)§<\/w:t><\/w:r>/g, (m0, rp, k) => {
         nh++; rp = rp || '';
         const sty = k === 'CHAP' ? 'HdrChap' : 'HdrSec';
         return '<w:r>' + rp + '<w:fldChar w:fldCharType="begin"/></w:r><w:r>' + rp + '<w:instrText xml:space="preserve"> STYLEREF "' + sty + '" </w:instrText></w:r>'
