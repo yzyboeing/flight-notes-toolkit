@@ -1213,7 +1213,7 @@ function htmlTableCore(html) {
   if (process.env.BT_LOG) console.error('BOOKTABS', simpleTbl ? 'simple' : 'grid', nCols);
   const hdrLast = parsed.reduce((a, r, i) => r.cls.includes('hdr') ? i : a, -1);
   const bodyLast = (() => { let k = parsed.length - 1; while (k > 0 && rowBand(parsed[k])) k--; return k; })();
-  const RULE_HEAVY = { style: BorderStyle.SINGLE, size: 8, color: '000000' }, RULE_MID = { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+  const RULE_HEAVY = { style: BorderStyle.SINGLE, size: 8, color: '000000' }, RULE_MID = { style: BorderStyle.SINGLE, size: 6, color: '000000' },
         RULE_NONE = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const trs = parsed.map((r, ri) => {
     const isHdr = r.cls.includes('hdr');
@@ -1304,13 +1304,17 @@ function htmlTableCore(html) {
                       : { style: BorderStyle.SINGLE, size: 2, color: LINE },
         right: { style: BorderStyle.SINGLE, size: 2, color: LINE }
       };
-      if (simpleTbl) {
-        const thin = { style: BorderStyle.SINGLE, size: 2, color: LINE };
-        borders.top = ri === 0 ? RULE_HEAVY : (hdrLast >= 0 && ri === hdrLast + 1) ? RULE_MID : thin;
-        borders.bottom = ri === hdrLast ? RULE_MID : ri === bodyLast ? RULE_HEAVY : thin;
-        if (ri === bodyLast + 1) borders.top = RULE_HEAVY;
-        if (!(isWarn || isPriority || isPre || isNote)) borders.left = RULE_NONE;
-        borders.right = RULE_NONE;
+      /* DOC_RULES=booktabs（2026-09-30 第 102 轮改进版）：全书统一外框——表顶、表底各一条 1pt 黑线，表头下 0.75pt 黑线，不要左右外框；
+         简单表（无合并格、≤ 4 列）不要内部线，只靠斑马纹分行；复杂表（有合并格或 > 4 列）内部线改浅灰 D0D0D0，用来看清合并关系。
+         注解 / 前提 / 警示行的左竖条保留。 */
+      if (BOOKTABS) {
+        const inner = simpleTbl ? RULE_NONE : { style: BorderStyle.SINGLE, size: 2, color: 'D0D0D0' };
+        const endRow = ri + (c.rowspan || 1) - 1;
+        borders.top = ri === 0 ? RULE_HEAVY : (hdrLast >= 0 && ri === hdrLast + 1) ? RULE_MID : ri === bodyLast + 1 ? RULE_HEAVY : inner;
+        borders.bottom = endRow === hdrLast ? RULE_MID : endRow === bodyLast ? RULE_HEAVY : endRow === parsed.length - 1 ? RULE_HEAVY : inner;
+        const band = isWarn || isPriority || isPre || isNote;
+        if (!band) borders.left = ci === 0 ? RULE_NONE : inner;
+        borders.right = ci + c.colspan >= nCols ? RULE_NONE : inner;
       }
       return new TableCell({
         width: { size: w, type: WidthType.DXA },
