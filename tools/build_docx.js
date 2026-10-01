@@ -496,20 +496,51 @@ function htmlTableCore(html) {
       return (k > 0 && k < arr.length - 1) ? k + 1 : arr.length; };
     const CONT = /^(但|但是|因此|所以|即|其中|否则|此时|然后|随后|并且|而且|而|且|或|→|（|\()/;   // 「而」开头的转折续句（1.3 原因表，M3-006）   // 「且 / 或」开头的是上一条件的延续（速查第 120 条两列对照）
     const STRUCT = /^([①-⑳]|\d+[.、)）]\s|[A-Z]-\d+|第 ?\d+ ?[条步]|注[：:]|[▪•·–—-]\s)/;
+    /* SD-102 句子列自动加点、时机类列居中（2026-10-01 用户，速查第 5、6、7、53、65、74、83、85、93、99、108、124 条等：
+       「说明 / 条件 / 限制 / 定义」这类列「统一靠左，前面加小圆点」；「时机 / 总则 / 类别」列「整体居中」）：
+       表头没有显式 col-* 标注时，非首列表头属下列说明类、且六成以上的格是句子（≥ 约 6 字或带句读）→ 视作 col-bullet；
+       全是短语 / 取值的列不动（SD-84：短语、单个词居中不加点）。非首列表头为「时机 / 宣布时机 / 总则 / 类别」→ 视作 col-center。
+       序号表（首列全是 ①② / 1、2）不自动加点。 */
+    { const DESC = /^(说明|具体说明|条件|触发条件|限制|限值|条件 \/ 限值|定义|处置|处置流程|措施|要求|具体要求|内容|具体内容|描述|工作逻辑|控制逻辑|功能|作用|现象|结果|数值|标准|备注|原因|原理|工作原理|要点|注意事项|适用范围|逻辑|方法|做法|操作|动作|含义|影响|后果)$/;
+      const CENTERH = /^(时机|宣布时机|总则|类别)$/;
+      const hr0 = parsed.find(r => r.cls.includes('hdr'));
+      const serial0 = (() => { let n = 0; for (let ri = 0; ri < parsed.length; ri++) { const r = parsed[ri]; if (/hdr|note|premise|warn/.test(r.cls)) continue;
+        const c0 = r.cells.find((c, k) => startCol[ri][k] === 0); if (!c0) continue;
+        if (!/^\s*([\u2460-\u2473]|\d{1,2})\s*$/.test(plainOf(c0.text))) return false; n++; } return n >= 2; })();
+      if (hr0 && !process.env.NO_AUTO_COLS) { const hri0 = parsed.indexOf(hr0);
+        hr0.cells.forEach((hc, hk) => { const col = startCol[hri0][hk];
+          if (hc.colspan !== 1 || col === 0 || /(^|\s)col-(center|bullet|plain|left)(\s|$)/.test(hc.cls || '')) return;
+          const hp = plainOf(hc.text).replace(/\s+/g, ' ');
+          if (CENTERH.test(hp)) { hc.cls = ((hc.cls || '') + ' col-center').trim(); return; }
+          if (serial0 || !DESC.test(hp)) return;
+          const cs = [];
+          parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+            r.cells.forEach((c, k) => { if (startCol[ri][k] === col && c.colspan === 1) { const t = plainOf(c.text).replace(/\s+/g, '');
+              if (t && !/^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(t)) cs.push(t); } }); });
+          const sent = cs.filter(t => pv(t) >= 12 || /[，。；、]/.test(t));
+          if (cs.length >= 2 && sent.length >= 0.6 * cs.length) hc.cls = ((hc.cls || '') + ' col-bullet').trim(); }); } }
     /* 不分条的列（2026-09-30 用户，速查区第 23 条：「定义……根本不需要加圆点，只需要把这个定义居中」）：
        表头显式 col-center 的列、表头为「定义 / 含义 / 释义 / 概念」的列——一格就是一个完整概念，不拆 */
     const noSemCols = new Set(), bulletCols = new Set();   // 表头 class="col-bullet"：整列每格按项加「•」（SD-84 显式标注）
     { const hr = parsed.find(r => r.cls.includes('hdr'));
       if (hr) { const hri = parsed.indexOf(hr);
         hr.cells.forEach((hc, hk) => { if (hc.colspan !== 1) return;
-          if (/(^|\s)col-center(\s|$)/.test(hc.cls || '') || /^(定义|含义|释义|概念)$/.test(plainOf(hc.text).replace(/\s+/g, '')))
+          if (/(^|\s)col-center(\s|$)/.test(hc.cls || '') || (/^(定义|含义|释义|概念)$/.test(plainOf(hc.text).replace(/\s+/g, '')) && !/(^|\s)col-bullet(\s|$)/.test(hc.cls || '')))
             noSemCols.add(startCol[hri][hk]);
           if (/(^|\s)col-plain(\s|$)/.test(hc.cls || '')) noSemCols.add(startCol[hri][hk]);   // 整列不分条、不统一加点，对齐照常（两型对照表，SD-84）
           if (/(^|\s)col-bullet(\s|$)/.test(hc.cls || '')) bulletCols.add(startCol[hri][hk]); }); } }
+    /* 序号表不自动加点（2026-10-01 用户，1.2 A-1：「前面有序号标注的这一列时，后面的内容前面是不需要加小圆点的」）：
+       首列每个数据格都是序号（①～⑳ / 1～99）的表，序号已经编了项，其余列不再自动分条加「•」；表头显式 col-bullet 的列除外（用户点名要加点的）。 */
+    const serialTbl = (() => { let n = 0;
+      for (let ri = 0; ri < parsed.length; ri++) { const r = parsed[ri]; if (/hdr|note|premise|warn/.test(r.cls)) continue;
+        const c0 = r.cells.find((c, k) => startCol[ri][k] === 0); if (!c0) continue;
+        if (!/^\s*([\u2460-\u2473]|\d{1,2})\s*$/.test(plainOf(c0.text))) return false; n++; }
+      return n >= 2; })();
     parsed.forEach((r, ri) => {
       if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => {
         if (c.head || startCol[ri][k] === 0 || noSemCols.has(startCol[ri][k])) return;
+        if (serialTbl && !bulletCols.has(startCol[ri][k])) return;
         if (bulletCols.has(startCol[ri][k]) && c.colspan === 1) {   // 显式整列加点：每段按「；」拆项（各 ≥ 约 6 字），延续句悬挂对齐
           const s1 = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
           const p1 = plainOf(c.text).replace(/\s+/g, '');
@@ -1294,7 +1325,8 @@ function htmlTableCore(html) {
           spacing: { before: 20, after: 20, line: LN },
           indent: hierarchy ? { left: parentFlags[pi] ? 180 : 360, hanging: 140 } : mk === '\uE001' ? { left: 200, hanging: 200 } : mk === '\uE004' ? { left: 200 } : mk === '\uE005' ? { left: 380, hanging: 180 } : mk === '\uE002\uE002' ? { left: 560, hanging: 180 } : mk === '\uE002' ? { left: 360, hanging: 180 } : undefined,
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
-          alignment: (hierarchy || semMarked) ? undefined : (center ? AlignmentType.CENTER : undefined)
+          /* 单格居中（<td class="center">，2026-10-01 用户，速查 120「条件」跨列格）优先于列规则 */
+          alignment: /(^|\s)center(\s|$)/.test(c.cls || '') ? AlignmentType.CENTER : (hierarchy || semMarked) ? undefined : (center ? AlignmentType.CENTER : undefined)
         });
       });
       const borders = {
