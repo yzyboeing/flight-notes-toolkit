@@ -191,7 +191,15 @@ try:
     import pymupdf
 except ImportError:
     import fitz as pymupdf
-p = sys.argv[1]; d = pymupdf.open(p); d.set_pagemode('UseOutlines'); d.save(p + '.tmp', garbage=3, deflate=True); d.close(); os.replace(p + '.tmp', p)
+import re
+p = sys.argv[1]; d = pymupdf.open(p); d.set_pagemode('UseOutlines')
+# 2026-10-01 用户：「去掉所有目录中的单位符号例如 m/kt」——书签里去掉标题末尾的「（单位：…）」括注（可嵌套一层括号），正文标题保留
+toc = d.get_toc(simple=False); ch = 0
+for e in toc:
+    t = re.sub(r'\s*（单位：(?:[^（）]|（[^（）]*）)*）', '', e[1])
+    if t != e[1]: e[1] = t; ch += 1
+if ch: d.set_toc(toc)
+d.save(p + '.tmp', garbage=3, deflate=True); d.close(); os.replace(p + '.tmp', p)
 PYEOF
       rm -rf "$LOTMP" "$LOLOG"
       python3 "$TOOLKIT/verify.py" "$pdf" || exit 1

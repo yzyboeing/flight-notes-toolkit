@@ -149,6 +149,8 @@ def scan(pdf, name, header):
     for f, n in bad.items(): err('L2', '%s 出现非黑体字体 %s（%d 段，如第 %d 页「%s」）——字体须统一 Heiti SC（SD-105）' % (name, f, n, badx[f][0], badx[f][1]))
     # L3 书签栏（SD-77）
     if not d.get_toc(): err('L3', name + ' 没有书签')
+    ut = [x[1] for x in d.get_toc() if '（单位：' in x[1]]
+    if ut: err('L3', '%s 书签目录里有单位括注 %d 条（如「%s」）——目录不写「（单位：…）」（2026-10-01 用户）' % (name, len(ut), ut[0][:30]))
     if 'UseOutlines' not in (d.pdf_catalog() and d.xref_get_key(d.pdf_catalog(), 'PageMode')[1] or ''):
         err('L3', name + ' 打开时未展开书签栏（PageMode 应为 UseOutlines）')
     # C 封面（SD-73 / SD-74）
