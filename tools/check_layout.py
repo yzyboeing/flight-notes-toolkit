@@ -135,13 +135,18 @@ def scan(pdf, name, header):
     # L1 只出横版
     port = [i + 1 for i, p in enumerate(d) if p.rect.width < p.rect.height]
     if port: err('L1', '%s 有竖版页：%s' % (name, port[:10]))
-    # L2 字体统一（SD-76）
-    bad = collections.Counter()
-    for p in d:
-        for f in p.get_fonts():
-            base = f[3].split('+')[-1]
-            if 'Songti' not in base: bad[base] += 1
-    for f, n in bad.items(): err('L2', '%s 出现非宋体字体 %s（%d 页）——字体须统一 Songti SC（SD-76）' % (name, f, n))
+    # L2 字体统一（SD-105 黑体）：逐段核对字体；宋体只允许出现在 ⑪～⑳ 圈码上（黑体缺这些字形，本机 LibreOffice 只认得宋体 / 黑体两族）
+    bad = collections.Counter(); badx = {}
+    for i, p in enumerate(d):
+        for b in p.get_text('rawdict')['blocks']:
+            for l in b.get('lines', []):
+                for sp in l['spans']:
+                    base = sp['font'].split('+')[-1]
+                    if 'Heiti' in base: continue
+                    t = ''.join(ch['c'] for ch in sp['chars'])
+                    if 'Songti' in base and re.fullmatch(r'[\u246A-\u2473\s]*', t): continue
+                    bad[base] += 1; badx.setdefault(base, (i + 1, t[:12]))
+    for f, n in bad.items(): err('L2', '%s 出现非黑体字体 %s（%d 段，如第 %d 页「%s」）——字体须统一 Heiti SC（SD-105）' % (name, f, n, badx[f][0], badx[f][1]))
     # L3 书签栏（SD-77）
     if not d.get_toc(): err('L3', name + ' 没有书签')
     if 'UseOutlines' not in (d.pdf_catalog() and d.xref_get_key(d.pdf_catalog(), 'PageMode')[1] or ''):
@@ -260,6 +265,20 @@ def scan(pdf, name, header):
                 if cen and lef:
                     sug('T7', '%s 第 %d 页：第 %d 列 %d 格居中、%d 格左对齐（如「%s」）——统一对齐' % (
                         name, i + 1, k + 1, len(cen), len(lef), lef[0][1][0][2].strip()[:18]))
+            # T13 首列靠左（SD-104，2026-10-01 用户：「一般第一列都是居中」）：首列是标签 / 短句却左对齐。首列是长句 / 问句 / 条件句（≥ 约 30 字或带句号）的允许左对齐，不报
+            try:
+                fc = [r[0] for r in info[1:] if r and r[0] and r[0][1] and (len(r) < 2 or r[1] is not None)]
+                fc = [x for x in fc if not PH.match(''.join(l[2] for l in x[1]))]
+                def fct(x): return ''.join(l[2] for l in x[1]).strip()
+                def fleft(x):
+                    cx = (x[0][0] + x[0][2]) / 2
+                    return any(abs((l[0] + l[1]) / 2 - cx) > 4 and l[0] - x[0][0] < PAD + 2 for l in x[1]) and any((x[0][2] - x[0][0]) - (l[1] - l[0]) > PAD + 8 for l in x[1])
+                lf = [x for x in fc if fleft(x)]
+                longs = [x for x in fc if vis(re.sub(r'[（(][^）)]*[）)]', '', fct(x))) > 60 or '。' in fct(x) or fct(x).startswith('•')]
+                if len(fc) >= 2 and len(lf) >= max(2, len(fc) // 2) and len(longs) < 0.4 * len(fc):
+                    sug('T13', '%s 第 %d 页：首列「%s」等 %d 格左对齐——首列一般居中（标签 / 短句），表头标 col-center；首列是长句 / 问句的可保留左对齐' % (
+                        name, i + 1, fct(lf[0])[:16], len(lf)))
+            except Exception: pass
             # T10 引语后的子项被排成同级（2026-09-30 用户，速查第 6 条）：「• ……：」后面紧跟的仍是「•」
             for r in info[1:]:
                 for x in r:
