@@ -22,10 +22,9 @@ const MAIN = process.env.DOC_FONT || 'Songti SC',
 const FF = { ascii: EN, hAnsi: EN, eastAsia: CN, cs: EN };
 const FF_CN = { ascii: CN, hAnsi: CN, eastAsia: CN, cs: CN };
 const FF_MONO = { ascii: MONO, hAnsi: MONO, eastAsia: CN, cs: MONO };
-const HEAD_BLACK = process.env.DOC_HEAD === 'black';
-const FF_BLACK = { ascii: MAIN + ' Black', hAnsi: MAIN + ' Black', eastAsia: MAIN + ' Black', cs: MAIN + ' Black' };
-/* 样张（2026-09-30）：DOC_RULES=booktabs 时，简单表（无合并单元格、≤ 4 列）改三线表：去竖线，表头上粗线、表头下中线、表底粗线，行间保留浅灰细线 */
-const BOOKTABS = process.env.DOC_RULES === 'booktabs';
+/* SD-96 页眉「左章名、右节名」：页眉用 STYLEREF 引用字符样式 HdrChap（章名、前言、总目录）与 HdrSec（节名 / 速查块名）。
+   章标题、前言、总目录、单册目录页各带一个零宽的 HdrSec 空标记，让这些页的节名为空，而不是沿用上一章最后一节。 */
+const SECMARK = () => new TextRun({ text: '\u200B', style: 'HdrSec' });
 /* DOC_PALETTE：整体配色方案比选（2026-09-29）。未设置＝现行方案。
    key＝数值字色，keyBg＝数值底色（荧光笔），note/noteBar＝注解条底色/竖条，warn＝警示条底色，hdr＝表头底，alt＝斑马纹，tail＝表后「注：」行底色 */
 const PALETTES = {
@@ -178,12 +177,10 @@ function H(text, level, brk, forceId) {
   const secBreak = level === 2 && /^\d+\.\d+[\s\u3000]/.test(text) && !AFTER_H1 && !NO_SEC_BREAK;
   AFTER_H1 = level === 1;
   const HC = { 1: H1_C, 2: H2_C, 3: H3_C, 4: H3_C }[level];
-  /* 样张（2026-09-30）：DOC_HEAD=black 时 H1 / H2 改用同一字体族的 Songti SC Black 字重（不换字体，守 SD-76），靠字重拉开层级 */
-  const heavy = HEAD_BLACK && level <= 2;
-  const tr = new TextRun({ text, font: heavy ? FF_BLACK : FF, size: sizes[level], bold: !heavy, color: HC });
+  const tr = new TextRun({ text, font: FF, size: sizes[level], bold: true, color: HC, style: level === 1 ? 'HdrChap' : level === 2 ? 'HdrSec' : undefined });
   return new Paragraph({
     heading: level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : level === 3 ? HeadingLevel.HEADING_3 : HeadingLevel.HEADING_4,
-    children: id ? [new Bookmark({ id, children: [tr] })] : [tr],
+    children: (id ? [new Bookmark({ id, children: [tr] })] : [tr]).concat(level === 1 ? [SECMARK()] : []),
     spacing: { before: level === 1 ? 320 : 220, after: level === 1 ? 140 : 100 },
     /* 印刷版层级（2026-09-29）：章标题下粗黑线；节标题下细线；条目标题左侧竖条 */
     border: level === 1 ? { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 6 } }
@@ -1219,12 +1216,6 @@ function htmlTableCore(html) {
   parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
     r.cells.forEach((c, ck) => { if (startCol[ri][ck] === 0 && c.colspan === 1 && !c.head) { fcN++; if (shortTxt(c.text)) fcS++; } }); });
   const firstIsLabel = fcN > 0 && fcS >= 0.6 * fcN;
-  const rowBand = (r) => /note|premise|warn|priority/.test(r.cls);
-  const simpleTbl = BOOKTABS && nCols <= 4 && parsed.every(r => r.cells.every(c => (c.rowspan || 1) === 1 && ((c.colspan || 1) === 1 || rowBand(r))));
-  const hdrLast = parsed.reduce((a, r, i) => r.cls.includes('hdr') ? i : a, -1);
-  const bodyLast = (() => { let k = parsed.length - 1; while (k > 0 && rowBand(parsed[k])) k--; return k; })();
-  const RULE_HEAVY = { style: BorderStyle.SINGLE, size: 12, color: '000000' }, RULE_MID = { style: BorderStyle.SINGLE, size: 6, color: '000000' },
-        RULE_NONE = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const trs = parsed.map((r, ri) => {
     const isHdr = r.cls.includes('hdr');
     const isNote = r.cls.includes('note');
@@ -1314,14 +1305,6 @@ function htmlTableCore(html) {
                       : { style: BorderStyle.SINGLE, size: 2, color: LINE },
         right: { style: BorderStyle.SINGLE, size: 2, color: LINE }
       };
-      if (simpleTbl) {
-        const thin = { style: BorderStyle.SINGLE, size: 2, color: LINE };
-        borders.top = ri === 0 ? RULE_HEAVY : (hdrLast >= 0 && ri === hdrLast + 1) ? RULE_MID : thin;
-        borders.bottom = ri === hdrLast ? RULE_MID : ri === bodyLast ? RULE_HEAVY : thin;
-        if (ri === bodyLast + 1) borders.top = RULE_HEAVY;
-        if (!(isWarn || isPriority || isPre || isNote)) borders.left = RULE_NONE;
-        borders.right = RULE_NONE;
-      }
       return new TableCell({
         width: { size: w, type: WidthType.DXA },
         columnSpan: c.colspan > 1 ? c.colspan : undefined,
@@ -1530,7 +1513,7 @@ function singleToc(ch, brk) {
   out.push(new Paragraph({
     heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, keepNext: true,
     spacing: { before: 0, after: 120 },
-    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: '目录', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C })] })]
+    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: '目录', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()]
   }));
   const hr = (sz, col, after) => new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after, line: 20 },
     children: [new TextRun({ text: '', size: 2 })],
@@ -1867,7 +1850,7 @@ function buildToc() {
     /* 标题两页都写「总目录」（用户 2026-09-29）；只有第一页进 PDF 书签，避免重复 */
     out.push(new Paragraph({ pageBreakBefore: pg > 0 || (!DUPLEX && pg === 0), alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 },
       outlineLevel: pg ? undefined : 0,
-      children: [new TextRun({ text: '总目录', font: FF, size: pg ? 28 : 40, bold: true, characterSpacing: pg ? 20 : 60, color: H1_C })] }));
+      children: [new TextRun({ text: '总目录', font: FF, size: pg ? 28 : 40, bold: true, characterSpacing: pg ? 20 : 60, color: H1_C, style: 'HdrChap' }), SECMARK()] }));
     out.push(rule({ size: 24, color: H1_LINE, after: 40 }), rule({ size: 4, color: C(INK2, '000000'), after: 0 }));
     if (pg === 0) out.push(new Paragraph({ spacing: { before: 0, after: 120 }, children: [] }));
     const pc = cols.slice(pg * PER, pg * PER + PER).map(c => c.map((l, k) => tocLine(l, colW, { first: k === 0 })));
@@ -1918,7 +1901,7 @@ function buildPreface() {
   const out = [];
   out.push(new Paragraph({ pageBreakBefore: !DUPLEX, alignment: AlignmentType.CENTER, spacing: { before: PORTRAIT ? 600 : 200, after: 120 },
     outlineLevel: 0,
-    children: [new TextRun({ text: '前言', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C })] }));
+    children: [new TextRun({ text: '前言', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' }), SECMARK()] }));
   out.push(rule({ size: 24, color: H1_LINE, after: 40 }), rule({ size: 4, color: C(INK2, '000000'), after: 0 }));
   out.push(new Paragraph({ spacing: { before: 0, after: 360 }, children: [] }));
   const ind = PORTRAIT ? 600 : 1800;
@@ -1961,7 +1944,9 @@ const hdrPara = (left, right) => new Paragraph({
 });
 /* 页眉书名：页眉没有机型标签，写全机型（DOC_HEADER，缺省为书名） */
 const titleRun = () => new TextRun({ text: process.env.DOC_HEADER || docTitle, font: hdrFont, size: 16, color: GRAY });
-const chapRun = () => new TextRun({ children: [new SimpleField('STYLEREF "Heading 1"', '')], font: hdrFont, size: 16, color: GRAY });
+/* 占位文字，生成后在页眉 XML 里换成 STYLEREF 复杂域（docx 库只能写 fldSimple，LibreOffice 不渲染无缓存值的 fldSimple，原页眉章名因此一直空白） */
+const chapRun = () => new TextRun({ text: '§HDRCHAP§', font: hdrFont, size: 16, color: GRAY });
+const secRun = () => new TextRun({ text: '§HDRSEC§', font: hdrFont, size: 16, color: GRAY });
 const pageRun = () => new TextRun({ children: ['第 ', PageNumber.CURRENT, ' 页'], font: hdrFont, size: 18, color: GRAY });
 const tocRun = () => new TextRun({ text: '目　录', font: hdrFont, size: 16, color: GRAY });
 const prefRun = () => new TextRun({ text: '前　言', font: hdrFont, size: 16, color: GRAY });
@@ -1970,15 +1955,16 @@ let SECTIONS;
 if (!DUPLEX) {
   SECTIONS = [{
     properties: { page: PAGE, titlePage: true },
-    headers: { first: emptyHF().header, default: new Header({ children: [hdrPara(titleRun, chapRun)] }) },
+    /* SD-96：全书左章名、右节名；单册左册名、右块名 */
+    headers: { first: emptyHF().header, default: new Header({ children: [hdrPara(SINGLE ? titleRun : chapRun, secRun)] }) },
     /* 封面不显示页码；正文页码在右下角，小五号（9pt），仅「第 X 页」 */
     footers: { first: emptyHF().footer, default: new Footer({ children: [footPara(AlignmentType.RIGHT)] }) },
     children: front.concat(body)
   }];
 } else {
   const HF = {
-    headers: { default: new Header({ children: [hdrPara(null, chapRun)] }),      // 奇数页（右页）：章名靠外侧
-               even: new Header({ children: [hdrPara(titleRun, null)] }) },       // 偶数页（左页）：书名靠外侧
+    headers: { default: new Header({ children: [hdrPara(SINGLE ? titleRun : chapRun, secRun)] }),      // SD-96：奇偶页同为左章名、右节名
+               even: new Header({ children: [hdrPara(SINGLE ? titleRun : chapRun, secRun)] }) },
     footers: { default: new Footer({ children: [footPara(AlignmentType.RIGHT)] }),
                even: new Footer({ children: [footPara(AlignmentType.LEFT)] }) }
   };
@@ -2019,6 +2005,7 @@ const doc = new Document({
   },
   styles: {
     default: { document: { run: { font: FF, size: 20 } } },
+    characterStyles: [{ id: 'HdrChap', name: 'HdrChap' }, { id: 'HdrSec', name: 'HdrSec' }],
     paragraphStyles: [
       { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true,
         paragraph: { outlineLevel: 0 },
@@ -2053,6 +2040,23 @@ Packer.toBuffer(doc).then(async b => {
     });
     if (nfix) { z0.file('word/document.xml', dx); b = await z0.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }); }
     if (process.env.FIT_LOG) console.error('vMerge keepNext 补 %d 格', nfix);
+  }
+  {
+    /* SD-96：页眉占位换成 STYLEREF 复杂域（沿用占位文字的字体、字号、颜色） */
+    const JSZipH = require('jszip');
+    const zh = await JSZipH.loadAsync(b);
+    let nh = 0;
+    for (const name of Object.keys(zh.files).filter(n => /^word\/header\d+\.xml$/.test(n))) {
+      const hx = await zh.file(name).async('string');
+      const hx2 = hx.replace(/<w:r>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t[^>]*>§HDR(CHAP|SEC)§<\/w:t><\/w:r>/g, (m0, rp, k) => {
+        nh++; rp = rp || '';
+        const sty = k === 'CHAP' ? 'HdrChap' : 'HdrSec';
+        return '<w:r>' + rp + '<w:fldChar w:fldCharType="begin"/></w:r><w:r>' + rp + '<w:instrText xml:space="preserve"> STYLEREF "' + sty + '" </w:instrText></w:r>'
+          + '<w:r>' + rp + '<w:fldChar w:fldCharType="separate"/></w:r><w:r>' + rp + '<w:t xml:space="preserve"> </w:t></w:r><w:r>' + rp + '<w:fldChar w:fldCharType="end"/></w:r>';
+      });
+      if (hx2 !== hx) zh.file(name, hx2);
+    }
+    if (nh) b = await zh.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
   }
   if (DUPLEX) {
     /* docx 库不支持镜像页边距：生成后在 settings.xml 里补 <w:mirrorMargins/>（内侧 = left，外侧 = right） */
