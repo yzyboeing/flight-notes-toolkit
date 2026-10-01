@@ -85,6 +85,18 @@ if not (os.path.exists(BOOK) and os.path.exists(QREF)):
     print('成品不全，先跑 sync.sh --full'); ERR and [print(' ', r, m) for r, m in ERR]; sys.exit(1)
 
 # ---------- 逐页分析（两本都查） ----------
+DESC_H = re.compile(r'^(说明|具体说明|条件|触发条件|限制|限值|条件 / 限值|定义|处置|处置流程|措施|要求|具体要求|内容|具体内容|描述|工作逻辑|控制逻辑|功能|作用|现象|结果|数值|标准|备注|原因|原理|工作原理|要点|注意事项|适用范围|逻辑|方法|做法|操作|动作|含义|影响|后果)$')
+def _explicit(cls_re):
+    out = set()
+    try:
+        bk = open(os.path.join(REPO, 'build', 'book.md'), encoding='utf-8').read()
+        for m in re.finditer(r'<th class="([^"]*)">(.*?)</th>', bk):
+            if re.search(cls_re, m.group(1)): out.add(re.sub(r'<[^>]+>', '', m.group(2)).strip())
+    except Exception: pass
+    return out
+EXPLICIT_BULLET = _explicit(r'col-bullet')
+EXPLICIT_NOBULLET = _explicit(r'col-(center|plain|left)')
+
 def body_lines(pg):
     """本页正文的视觉行：[(x0, y0, x1, y1, text)]，去掉页眉页脚。"""
     out = []
@@ -278,8 +290,27 @@ def scan(pdf, name, header):
                     if (prev[1] - prev[0]) < (x[0][2] - x[0][0]) - PAD - 18 or re.match(r'\s*[（(]', x[1][-1][2]) or explicit_br(x[1][-2][2]): continue
                     if 0 < len(last) <= 2 and not re.match(r'[•–▪]', x[1][-1][2].strip()):
                         sug('T8', '%s 第 %d 页：「%s…」折行后末行只剩「%s」——调列宽让它少折一行' % (name, i + 1, x[1][0][2].strip()[:14], last))
+            # SD-102：序号表（首列全是 ①② / 1、2）——T4 不报（序号表不分条）；T12 报自动加点；非序号表的说明类句子列没加点报 T11
+            try:
+                ctext = lambda x: ''.join(l[2] for l in x[1]).strip() if x else ''
+                firsts = [ctext(r[0]) for r in info[1:] if r and r[0]]
+                serial = len(firsts) >= 2 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2})', f) for f in firsts)
+                hdrs = [ctext(x) for x in info[0]] if info else []
+                for k, h in enumerate(hdrs):
+                    if k == 0 or not h: continue
+                    cs = [ctext(r[k]) for r in info[1:] if k < len(r) and r[k]]
+                    cs = [c for c in cs if c and not re.fullmatch(r'[—\-–/无\s]+', c)]
+                    if len(cs) < 2: continue
+                    bul = sum(1 for c in cs if c.startswith('•'))
+                    if serial and bul and h not in EXPLICIT_BULLET:
+                        sug('T12', '%s 第 %d 页：序号表的「%s」列有自动加点——序号表其余列不加「•」（SD-102）' % (name, i + 1, h))
+                    sent = [c for c in cs if vis(c) >= 12 or re.search(r'[，。；、]', c)]
+                    if (not serial and bul == 0 and len(sent) >= 0.6 * len(cs) and h not in EXPLICIT_NOBULLET
+                            and (DESC_H.match(h) or re.search(r'(条件|要求|说明|逻辑|措施|处置|要点|内容)$', h))):
+                        sug('T11', '%s 第 %d 页：说明类句子列「%s」没有加「•」——整列左对齐加点（SD-102）' % (name, i + 1, h))
+            except Exception: serial = False
             # T4 并列长句未分条（SD-78）：一格内 ≥2 个「；」、各分句 ≥ 20 字宽、却没有 •
-            for r in info[1:]:
+            for r in ([] if serial else info[1:]):
                 for x in r:
                     if not x: continue
                     txt = ''.join(l[2] for l in x[1]).strip()
