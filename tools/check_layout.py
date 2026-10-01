@@ -21,7 +21,6 @@ REPO = os.path.abspath(os.path.expanduser(arg('--repo', '~/flight-repos/gh-priva
 T = os.path.dirname(os.path.abspath(__file__))
 BOOK = arg('--book') or os.path.join(REPO, 'build', 'B737机型理论知识笔记.pdf')
 QREF = arg('--qref') or os.path.join(REPO, 'build', 'B737机型理论基础知识速查.pdf')
-HEADER = 'B737-NG / B737-8 机型理论知识笔记'
 def git_cfg(k):
     return subprocess.run(['git', '-C', REPO, 'config', '--get', k], capture_output=True, text=True).stdout.strip()
 EDITION, NOTICE, SIGN = git_cfg('notes.docEdition'), git_cfg('notes.docNotice'), git_cfg('notes.docPrefaceSignature')
@@ -143,15 +142,16 @@ def scan(pdf, name, header):
     yv = [b[1] for b in cov if '版本号' in b[4]]; yn = [b[1] for b in cov if '特别提示' in b[4]]
     if yv and yn and not yn[0] < yv[0]: err('C2', '%s 封面顺序应为：特别提示在上、版本号在下（SD-74）' % name)
     if re.search(r'版次|第\s*\d+\s*版', ''.join(b[4] for b in cov)): err('C1', name + ' 封面不写「版次」，直接写版本号（SD-73）')
-    # 页眉（SD-73；单册不设页眉）
+    # 页眉（SD-96：全书左章名、右节名，章首页 / 前言 / 总目录只有左侧；单册左册名、右块名）
     miss = []
     for i in range(1, len(d)):
-        tops = sorted((b for b in d[i].get_text('blocks') if b[4].strip()), key=lambda b: b[1])
-        has = bool(tops) and tops[0][3] < 0.08 * H and nosp(tops[0][4]) == nosp(header) if header else False
+        tops = sorted((b for b in d[i].get_text('blocks') if b[4].strip() and b[3] < 0.08 * H), key=lambda b: b[0])
+        htxt = nosp(''.join(b[4] for b in tops))
+        has = bool(htxt) and re.match(header, htxt) is not None and 'Error' not in htxt and '§' not in htxt if header else False
         if header and not has: miss.append(i + 1)
         if not header and tops and tops[0][3] < 0.08 * H and '机型' in tops[0][4] and '第' not in tops[0][4]:
             miss.append(i + 1)
-    if miss: err('L4', '%s 页眉不符（应为「%s」）：第 %s 页' % (name, header or '无页眉', miss[:12]))
+    if miss: err('L4', '%s 页眉不符（应以「%s」开头）：第 %s 页' % (name, header or '无页眉', miss[:12]))
     # 版心 / 页边距（SD-73：720 DXA = 36pt）
     over = []
     for i, p in enumerate(d):
@@ -285,8 +285,8 @@ def scan(pdf, name, header):
                         sug('T4', '%s 第 %d 页：「%s…」含 %d 个并列长分句，考虑按语义分条加「•」' % (name, i + 1, txt[:20], len(parts)))
     return d
 
-book = scan(BOOK, '全书', HEADER)
-scan(QREF, '单册', 'B737机型理论基础知识速查')   # 单册页眉（2026-09-30 用户定）
+book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录)')   # SD-96 页眉左侧为章名
+scan(QREF, '单册', 'B737机型理论基础知识速查')   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
 
 # B4 一页只有一两行（2026-09-30 用户：「尽量避免在一页中只有一两行的情况」）：正文（去页眉页脚）不超过 2 行的页
 for nm, pdf in (('全书', BOOK), ('单册', QREF)):
