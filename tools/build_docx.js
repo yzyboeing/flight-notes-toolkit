@@ -14,15 +14,18 @@ const SRC = process.argv[2] || 'flight_theory_notes_prompt_v5.md';
 const OUT = process.argv[3] || 'prompt.docx';
 
 // 字体：LibreOffice 导出 PDF 时，苹方 / Helvetica Neue 的粗体和数学符号会被拆成多种替代字体。
-// SD-105（2026-10-01 用户「所有字体改为黑体」）：默认 Heiti SC（黑体-简），同时覆盖中英文、数学符号与圈码；需要时仍可用环境变量覆盖（原 SD-76 为 Songti SC）。
-const MAIN = process.env.DOC_FONT || 'Heiti SC',
+// SD-107（2026-10-01 用户看样张选第三种）：正文思源宋体 Medium，粗体用同字族 Bold（见 BOLDF）；覆盖中英文、数学符号与 ①～⑳。
+// 字体文件装在 ~/Library/Fonts，转 PDF 时 sync.sh / fit_fix.py 会复制进 LibreOffice 的 profile（LibreOffice 不读系统字体目录）。历史：SD-76 宋体 → SD-105 黑体 → SD-107 思源宋体。
+const MAIN = process.env.DOC_FONT || 'Source Han Serif CN Medium',
       CN   = process.env.DOC_FONT_CN   || MAIN,
       EN   = process.env.DOC_FONT_EN   || MAIN,
       MONO = process.env.DOC_FONT_MONO || 'Menlo';
 const FF = { ascii: EN, hAnsi: EN, eastAsia: CN, cs: EN };
 const FF_CN = { ascii: CN, hAnsi: CN, eastAsia: CN, cs: CN };
-const CIRC2 = process.env.DOC_FONT_CIRC || 'Songti SC';
+const CIRC2 = process.env.DOC_FONT_CIRC || MAIN;   // 思源宋体自带 ⑪～⑳；黑体时期曾借宋体字形
+const BOLDF = process.env.DOC_FONT_BOLD !== undefined ? process.env.DOC_FONT_BOLD : (MAIN === 'Source Han Serif CN Medium' ? 'Source Han Serif CN' : '');
 const FF_CIRC = { ascii: CIRC2, hAnsi: CIRC2, eastAsia: CIRC2, cs: CIRC2 };
+const DOT_BIG = (process.env.DOC_DOT || (MAIN.startsWith('Source Han') ? 'big' : 'plain')) === 'big';
 const FF_MONO = { ascii: MONO, hAnsi: MONO, eastAsia: CN, cs: MONO };
 /* SD-96 页眉「左章名、右节名」：页眉用 STYLEREF 引用字符样式 HdrChap（章名、前言、总目录）与 HdrSec（节名 / 速查块名）。
    章标题、前言、总目录、单册目录页各带一个零宽的 HdrSec 空标记，让这些页的节名为空，而不是沿用上一章最后一节。 */
@@ -114,6 +117,9 @@ function runs(text, o = {}) {
     if (kind !== 'code' && /【[^】]*737[^】]*】/.test(t) && !/^【[^】]*737[^】]*】$/.test(t)) {
       t.split(/(【[^】]*737[^】]*】)/).forEach(seg => push(seg, kind)); return;
     }
+    /* SD-107：思源宋体的「•」字形偏小，分条圆点改排实心圆「●」、约半号、略上提，观感与原宋体的「•」一致 */
+    if (kind !== 'code' && kind !== 'dot' && DOT_BIG && /^• /.test(t)) { push('●', 'dot'); push(t.slice(1), kind); return; }
+    if (kind === 'dot') { const sz = o.size || 20; out.push(new TextRun({ text: t, font: FF, size: Math.max(8, Math.round(sz * 0.5)), position: String(Math.round(sz * 0.16)), color: o.color || '000000' })); return; }
     const tag = kind !== 'code' && /^【[^】]*737[^】]*】$/.test(t);
     out.push(new TextRun({
       text: t,
@@ -2103,6 +2109,25 @@ Packer.toBuffer(doc).then(async b => {
       if (hx2 !== hx) zh.file(name, hx2);
     }
     if (nh) b = await zh.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  }
+  if (BOLDF && BOLDF !== MAIN) {
+    /* 字体比选（2026-10-01）：正文用中间字重（如思源宋体 Medium）时，粗体要用该字族真正的 Bold 字形，不让排版软件模拟加粗：
+       把带 <w:b/> 的 rPr 里的正文字体名换成 DOC_FONT_BOLD（如「Source Han Serif CN」，其 Bold 字形即 SemiBold / Bold） */
+    const JSZipB = require('jszip');
+    const zb = await JSZipB.loadAsync(b);
+    const esc = MAIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let nb = 0;
+    for (const name of Object.keys(zb.files).filter(n => /^word\/(document|styles|header\d+|footer\d+)\.xml$/.test(n))) {
+      const x = await zb.file(name).async('string');
+      const x2 = x.replace(/<w:rPr>(?:(?!<\/w:rPr>)[\s\S])*?<\/w:rPr>/g, rp => {
+        if (!/<w:b\/>|<w:b w:val="(true|1|on)"\/>/.test(rp)) return rp;
+        const r2 = rp.replace(new RegExp('"' + esc + '"', 'g'), '"' + BOLDF + '"');
+        if (r2 !== rp) nb++;
+        return r2;
+      });
+      if (x2 !== x) zb.file(name, x2);
+    }
+    if (nb) b = await zb.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
   }
   if (DUPLEX) {
     /* docx 库不支持镜像页边距：生成后在 settings.xml 里补 <w:mirrorMargins/>（内侧 = left，外侧 = right） */

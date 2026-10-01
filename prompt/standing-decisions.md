@@ -660,3 +660,11 @@
 - **规则**：PDF 书签（目录）去掉标题末尾的「（单位：…）」，正文标题保留（sync.sh 生成 PDF 后处理；检查器 L3 报残留）。总目录页只列到节，本来没有单位。
 - **规则全集**：`prompt/muse/校对指令_排版完全审核_M5.md` 第三节按 Z 总体原则、A 对齐、F 父子层级、B 加点、U 表格使用、M 表文搭配、N 注、H 标题、D 颜色、G 分页版式、S 符号重编；本清单的 A～E 与之对应（A→A、B7/B8→F、B→B、C→U/M/G、D→D）。
 - 速查第 1 条机身长差值确认为 +0.03（用户 2026-10-01）。
+
+## SD-107 全书字体改为思源宋体（2026-10-01 用户）
+- 用户原话：「宋体更漂亮一点，但是就是太细了」→ 看六种样张后「选第三种，思源宋体，全书重建」。
+- **规则**：正文 Source Han Serif CN **Medium**，粗体（红 / 蓝 / 黑粗、表头、首列标签、标题）用同字族 **Bold**（生成器把带 <w:b/> 的字体名换成「Source Han Serif CN」）；⑪～⑳ 用思源宋体自带字形。取代 SD-105 黑体。
+- **字体来源**：Adobe 官方 GitHub（adobe-fonts/source-han-serif 2.003R，14_SourceHanSerifCN.zip；同时装了 source-han-sans 2.005R 的 CN 版备用），装在 ~/Library/Fonts。LibreOffice 不读系统字体目录，sync.sh 与 fit_fix.py 转 PDF 前把 SourceHan*.otf 复制进 profile 的 user/fonts。
+- **分条圆点**：思源宋体的「•」偏小，生成器改排实心圆「●」、半号、上提（DOC_DOT=plain 可恢复）；检查器把「●」视同「•」、不计 T5 小字。
+- **检查器 L2**：只允许 SourceHanSerifCN-*。
+- **结果**：全书 455 → 587 页、单册 64 → 80 页；2.7 块索引表加 ~2 压缩整表同页。

@@ -28,7 +28,16 @@ def build(dump):
     r = subprocess.run(['node', os.path.join(T, 'build_docx.js'), MD, OUT], env=env)
     if r.returncode: sys.exit('build_docx.js 失败')
 
+def lo_fonts(prof):
+    # SD-107：LibreOffice 不读 ~/Library/Fonts，把思源字体复制进 profile 的 user/fonts（已存在且大小相同就跳过）
+    import glob
+    fd = os.path.join(prof, 'user', 'fonts'); os.makedirs(fd, exist_ok=True)
+    for f in glob.glob(os.path.expanduser('~/Library/Fonts/SourceHan*.otf')):
+        t = os.path.join(fd, os.path.basename(f))
+        if not os.path.exists(t) or os.path.getsize(t) != os.path.getsize(f): shutil.copy2(f, t)
+
 def to_pdf():
+    lo_fonts(PROF)
     d = tempfile.mkdtemp()
     subprocess.run([SOF, '-env:UserInstallation=file://' + PROF, '--headless', '--convert-to', 'pdf', '--outdir', d, OUT],
                    capture_output=True)
