@@ -28,7 +28,7 @@ for i, pg in enumerate(d):
     blocks = [b for b in pg.get_text('blocks') if b[4].strip()]
     # 去掉页眉页脚：按内容识别（页码行、页眉书名 / 章名是本页最上面、且整块在版心之上的那一块），不写死坐标——页边距改了也适用
     # SD-97：页脚一行含章名 / 节名 / 页码，可能分成几个块——以页码块所在高度为准，同一行及以下都算页脚
-    fy = min((x[1] for x in blocks if re.search(r'第\s*\d+\s*页\s*$', x[4])), default=H)
+    fy = max((x[1] for x in blocks if re.search(r'第\s*\d+\s*页\s*$', x[4])), default=H)
     foot = [x for x in blocks if x[1] >= fy - 2]
     tops = sorted(blocks, key=lambda x: x[1])
     hy = tops[0][3] if tops and tops[0][3] < 0.08 * H and tops[0] not in foot else 0

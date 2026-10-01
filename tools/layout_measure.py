@@ -74,7 +74,7 @@ def lonely(pdf):
     info = []
     for p in d:
         bl = [b for b in p.get_text('blocks') if b[4].strip() and b[1] > 0.06 * H]
-        fy = min((b[1] for b in bl if re.search(r'第\s*\d+\s*页\s*$', b[4])), default=H + 1)   # SD-97 页脚一行：章名 / 节名 / 页码
+        fy = max((b[1] for b in bl if re.search(r'第\s*\d+\s*页\s*$', b[4])), default=H + 1)   # SD-97 页脚一行：章名 / 节名 / 页码；取最下面一个「第 N 页」（正文「出处 …第 51 页」也会匹配）
         bl = [b for b in bl if b[1] < fy - 2]
         try: tabs = [t for t in p.find_tables().tables if t.bbox[1] > 0.07 * H and t.bbox[3] - t.bbox[1] > 10]
         except Exception: tabs = []
@@ -115,7 +115,7 @@ def sparse(pdf):
     d = pymupdf.open(pdf); H = d[0].rect.height; out = []
     for i in range(1, len(d) - 1):
         ln = [l for l in lines_of(d[i]) if l[1] > 0.06 * H]
-        fy = min((l[1] for l in ln if re.search(r'第\s*\d+\s*页\s*$', l[4])), default=H + 1)   # SD-97 页脚整行去掉
+        fy = max((l[1] for l in ln if re.search(r'第\s*\d+\s*页\s*$', l[4])), default=H + 1)   # SD-97 页脚整行去掉
         ln = [l for l in ln if l[1] < fy - 2]
         if not (0 < len(ln) <= 2): continue
         try: tabs = [t for t in d[i - 1].find_tables().tables if t.bbox[1] > 0.07 * H and t.bbox[3] - t.bbox[1] > 10]

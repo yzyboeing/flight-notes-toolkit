@@ -93,7 +93,7 @@ def body_lines(pg):
             t = ''.join(s['text'] for s in l['spans'])
             if t.strip(): out.append((*l['bbox'], t))
     # SD-97：页脚一行（章名 / 节名 / 页码）整行去掉——以页码所在行为准，同一行及以下都算页脚
-    fy = min((l[1] for l in out if re.search(r'第\s*\d+\s*页\s*$', l[4])), default=None)
+    fy = max((l[1] for l in out if re.search(r'第\s*\d+\s*页\s*$', l[4])), default=None)
     return [l for l in out if fy is None or l[1] < fy - 2]
 
 def cell_lines(lines, bb):
@@ -148,7 +148,7 @@ def scan(pdf, name, header):
     miss = []
     for i in range(1, len(d)):
         bl = [b for b in d[i].get_text('blocks') if b[4].strip()]
-        fy = min((b[1] for b in bl if re.search(r'第\s*\d+\s*页\s*$', b[4])), default=None)
+        fy = max((b[1] for b in bl if re.search(r'第\s*\d+\s*页\s*$', b[4])), default=None)
         ftxt = nosp(''.join(b[4] for b in sorted((b for b in bl if fy is not None and b[1] >= fy - 2), key=lambda b: b[0])))
         toptxt = [b for b in bl if b[3] < 0.06 * H]
         has = bool(ftxt) and re.match(header, ftxt) is not None and 'Error' not in ftxt and '§' not in ftxt and not toptxt if header else False
