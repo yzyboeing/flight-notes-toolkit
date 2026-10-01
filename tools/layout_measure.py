@@ -73,7 +73,9 @@ def lonely(pdf):
     d = pymupdf.open(pdf); H = d[0].rect.height
     info = []
     for p in d:
-        bl = [b for b in p.get_text('blocks') if b[4].strip() and not re.match(r'\s*第\s*\d+\s*页', b[4]) and b[1] > 0.06 * H]
+        bl = [b for b in p.get_text('blocks') if b[4].strip() and b[1] > 0.06 * H]
+        fy = min((b[1] for b in bl if re.search(r'第\s*\d+\s*页\s*$', b[4])), default=H + 1)   # SD-97 页脚一行：章名 / 节名 / 页码
+        bl = [b for b in bl if b[1] < fy - 2]
         try: tabs = [t for t in p.find_tables().tables if t.bbox[1] > 0.07 * H and t.bbox[3] - t.bbox[1] > 10]
         except Exception: tabs = []
         info.append((bl, tabs))
@@ -112,7 +114,9 @@ def sparse(pdf):
        fit_fix 把那张表收紧一级，腾出空间把这一两行拉回上一页。"""
     d = pymupdf.open(pdf); H = d[0].rect.height; out = []
     for i in range(1, len(d) - 1):
-        ln = [l for l in lines_of(d[i]) if l[1] > 0.06 * H and not re.match(r'\s*第\s*\d+\s*页\s*$', l[4])]
+        ln = [l for l in lines_of(d[i]) if l[1] > 0.06 * H]
+        fy = min((l[1] for l in ln if re.search(r'第\s*\d+\s*页\s*$', l[4])), default=H + 1)   # SD-97 页脚整行去掉
+        ln = [l for l in ln if l[1] < fy - 2]
         if not (0 < len(ln) <= 2): continue
         try: tabs = [t for t in d[i - 1].find_tables().tables if t.bbox[1] > 0.07 * H and t.bbox[3] - t.bbox[1] > 10]
         except Exception: tabs = []

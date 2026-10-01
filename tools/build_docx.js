@@ -185,8 +185,7 @@ function H(text, level, brk, forceId) {
     /* 印刷版层级（2026-09-29）：章标题下粗黑线；节标题下细线；条目标题左侧竖条 */
     border: level === 1 ? { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 6 } }
           : level === 2 ? { bottom: { style: BorderStyle.SINGLE, size: 6, color: H2_LINE, space: 4 } }
-          : (level === 3 && isItem) ? { left: { style: BorderStyle.SINGLE, size: 18, color: H3_BAR, space: 6 } } : undefined,
-    indent: (level === 3 && isItem) ? { left: 60 } : undefined,
+          : undefined,   // SD-97：条目标题不再画左侧竖条
     keepNext: true,                                  // 标题永远与下文同页
     /* 速查区竖版：排版预检发现会被拆页的表，其条目标题另起一页（BREAK_BEFORE=21,35）；
        印刷版：每个 x.y 节另起一页（紧跟章标题的第一节除外） */
@@ -1449,8 +1448,7 @@ function tocLine(e, w, o = {}) {
   if (e.chap) return new Paragraph({
     keepNext: true,
     tabStops: [{ type: TabStopType.RIGHT, position: w - 60 }],
-    shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E6E6E6' },
-    border: { left: { style: BorderStyle.SINGLE, size: 24, color: '000000', space: 4 } },
+    shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E6E6E6' },   // SD-97：去掉左侧粗竖条，只留浅灰底
     indent: { left: 80 },
     spacing: { before: o.first ? 0 : 200, after: 60, line: 280 },
     children: [
@@ -1518,7 +1516,7 @@ function singleToc(ch, brk) {
   const hr = (sz, col, after) => new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after, line: 20 },
     children: [new TextRun({ text: '', size: 2 })],
     border: { bottom: { style: BorderStyle.SINGLE, size: sz, color: col, space: 2 } } });
-  out.push(hr(24, H1_LINE, 40), hr(4, C(INK2, '000000'), 0));
+  out.push(hr(12, H1_LINE, 0));   // SD-97：单线
   /* 2026-09-29 用户：目录页不出简介行；主题单栏竖排 */
   out.push(new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 400 : 240 }, children: [] }));
   if (n) {
@@ -1658,7 +1656,7 @@ while (i < src.length) {
   }
   if (!ln.trim()) { i++; continue; }
   /* 表后说明块（2026-09-29 印刷版统一）：注 / 公司差异 / 解释 / 出处 同一缩进、同一字号、左侧细线，连续几行成一块 */
-  const TAIL = { indent: { left: 240 }, border: { left: { style: BorderStyle.SINGLE, size: 6, color: LINE, space: 8 } } };
+  const TAIL = { indent: { left: 240 } };   // SD-97：表后说明块只缩进，不画左侧细线
   if (/^(注：|解释：|公司差异：)/.test(ln.trim())) {    // SD-33 解释（灰色）/ SD-34 公司差异、注（标签加粗）
     let t = ln.trim();
     const exp = /^解释：/.test(t);
@@ -1742,7 +1740,7 @@ const coverTxt = (text, size, o = {}) => new Paragraph({
 function coverOverview() {
   if (!BOOK || OUTLINE.length < 2) return [];
   const W = [1100, BOXW - 1100];
-  const B = (last) => ({ top: NB, left: NB, right: NB, bottom: last ? NB : { style: BorderStyle.SINGLE, size: 4, color: LINE } });
+  const B = () => ({ top: NB, left: NB, right: NB, bottom: NB });   // SD-97：章节列表不画行间分隔线
   const rows = OUTLINE.map((ch, k) => {
     const [cn, ct] = splitChap(ch.text), last = k === OUTLINE.length - 1;
     return new TableRow({ cantSplit: true, children: [
@@ -1800,24 +1798,20 @@ const coverNoticeCompact = (before = 0) => [
 ];
 const coverSingle = [
   new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 2600 : 600 }, children: [] }),
-  rule({ size: 24, color: '000000', after: 50 }),
-  rule({ size: 4, color: '000000', after: 0 }),
+  rule({ size: 24, color: '000000', after: 0 }),   // SD-97：只留上下两条粗线，去掉内侧细线
   coverTxt(process.env.DOC_LABEL || 'B737-NG　/　B737-8', 24, { before: PORTRAIT ? 520 : 280, bold: true, color: '404040', cs: 80 }),
   coverTxt(docTitle, 72, { before: 140, after: 140, bold: true, outline: true }),
   coverTxt(process.env.DOC_SUBTITLE || '', 26, { after: PORTRAIT ? 520 : 280, color: GRAY, cs: 60 }),
-  rule({ size: 4, color: '000000', after: 50 }),
   rule({ size: 24, color: '000000', after: 0 }),
   new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 5200 : 1500 }, children: [] }),
   ...coverNoticeBlock(0),
 ];
 const coverFull = [
   new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 900 : 150 }, children: [] }),
-  rule({ size: 24, color: '000000', after: 50 }),
-  rule({ size: 4, color: '000000', after: 0 }),
+  rule({ size: 24, color: '000000', after: 0 }),   // SD-97：只留上下两条粗线，去掉内侧细线
   coverTxt(process.env.DOC_LABEL || 'B737-NG　/　B737-8', 24, { before: PORTRAIT ? 560 : 280, bold: true, color: '404040', cs: 80 }),
   coverTxt(docTitle, 76, { before: 120, after: 120, bold: true, outline: true }),
   coverTxt(process.env.DOC_SUBTITLE || '系统 · 运行 · 训练', 26, { after: PORTRAIT ? 560 : 120, color: GRAY, cs: 60 }),
-  rule({ size: 4, color: '000000', after: 50 }),
   rule({ size: 24, color: '000000', after: 0 }),
   new Paragraph({ spacing: { before: 0, after: PORTRAIT ? 600 : 40 }, children: [] }),
   ...coverOverview(),
@@ -1851,7 +1845,7 @@ function buildToc() {
     out.push(new Paragraph({ pageBreakBefore: pg > 0 || (!DUPLEX && pg === 0), alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 },
       outlineLevel: pg ? undefined : 0,
       children: [new TextRun({ text: '总目录', font: FF, size: pg ? 28 : 40, bold: true, characterSpacing: pg ? 20 : 60, color: H1_C, style: 'HdrChap' }), SECMARK()] }));
-    out.push(rule({ size: 24, color: H1_LINE, after: 40 }), rule({ size: 4, color: C(INK2, '000000'), after: 0 }));
+    out.push(rule({ size: 12, color: H1_LINE, after: 0 }));
     if (pg === 0) out.push(new Paragraph({ spacing: { before: 0, after: 120 }, children: [] }));
     const pc = cols.slice(pg * PER, pg * PER + PER).map(c => c.map((l, k) => tocLine(l, colW, { first: k === 0 })));
     out.push(pc.length === 1 && PORTRAIT ? colsTable(pc, colW, GAP) : colsTable(pc.length < PER ? pc.concat([[]]) : pc, colW, GAP));
@@ -1866,7 +1860,7 @@ function buildTopicIndex() {
   const out = [new Paragraph({ pageBreakBefore: true, alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 },
     outlineLevel: 0,
     children: [new TextRun({ text: '主题线索引', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C })] })];
-  out.push(rule({ size: 24, color: H1_LINE, after: 40 }), rule({ size: 4, color: C(INK2, '000000'), after: 0 }));
+  out.push(rule({ size: 12, color: H1_LINE, after: 0 }));
   out.push(new Paragraph({ spacing: { before: 0, after: 200 }, children: [] }));
   const lines = fs.readFileSync(tp, 'utf8').split(/\r?\n/);
   let k = 0;
@@ -1902,7 +1896,7 @@ function buildPreface() {
   out.push(new Paragraph({ pageBreakBefore: !DUPLEX, alignment: AlignmentType.CENTER, spacing: { before: PORTRAIT ? 600 : 200, after: 120 },
     outlineLevel: 0,
     children: [new TextRun({ text: '前言', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' }), SECMARK()] }));
-  out.push(rule({ size: 24, color: H1_LINE, after: 40 }), rule({ size: 4, color: C(INK2, '000000'), after: 0 }));
+  out.push(rule({ size: 12, color: H1_LINE, after: 0 }));
   out.push(new Paragraph({ spacing: { before: 0, after: 360 }, children: [] }));
   const ind = PORTRAIT ? 600 : 1800;
   paras.forEach(t => {
@@ -1932,7 +1926,8 @@ const CONTENT_W = (PORTRAIT ? 11906 : 16838) - M_IN - M_OUT;
 const hdrFont = FF;
 const emptyHF = () => ({ header: new Header({ children: [new Paragraph({ children: [] })] }),
                          footer: new Footer({ children: [new Paragraph({ children: [] })] }) });
-/* 页眉：书名 + 当前章名（STYLEREF 域），下细线。单面：左书名右章名；双面：奇数页（右页）章名靠外（右），偶数页（左页）书名靠外（左） */
+/* SD-97：页眉内容移到页脚（顶端留空、不画线）；保留 hdrPara 供前言 / 目录分节（双面）使用。
+   旧注：页眉：书名 + 当前章名（STYLEREF 域），下细线。单面：左书名右章名；双面：奇数页（右页）章名靠外（右），偶数页（左页）书名靠外（左） */
 const hdrPara = (left, right) => new Paragraph({
   tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_W }],
   border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: LINE, space: 4 } },
@@ -1951,22 +1946,28 @@ const pageRun = () => new TextRun({ children: ['第 ', PageNumber.CURRENT, ' 页
 const tocRun = () => new TextRun({ text: '目　录', font: hdrFont, size: 16, color: GRAY });
 const prefRun = () => new TextRun({ text: '前　言', font: hdrFont, size: 16, color: GRAY });
 const footPara = (align) => new Paragraph({ alignment: align, children: [pageRun()] });
+/* SD-97 页脚（用户：页眉放到最下端，只画右下端半截线）：右下角一组「章名　节名　　第 X 页」（单册「册名　块名」），
+   上方一条浅灰短线只覆盖右侧约四成版心宽；左侧留白，顶端不放页眉。 */
+const footNav = () => new Paragraph({
+  alignment: AlignmentType.RIGHT,
+  indent: { left: Math.round(CONTENT_W * 0.6) },
+  border: { top: { style: BorderStyle.SINGLE, size: 4, color: LINE, space: 4 } },
+  children: [SINGLE ? titleRun() : chapRun(), new TextRun({ text: '　', size: 16 }), secRun(), new TextRun({ text: '　　', size: 16 }), pageRun()]
+});
 let SECTIONS;
 if (!DUPLEX) {
   SECTIONS = [{
     properties: { page: PAGE, titlePage: true },
-    /* SD-96：全书左章名、右节名；单册左册名、右块名 */
-    headers: { first: emptyHF().header, default: new Header({ children: [hdrPara(SINGLE ? titleRun : chapRun, secRun)] }) },
-    /* 封面不显示页码；正文页码在右下角，小五号（9pt），仅「第 X 页」 */
-    footers: { first: emptyHF().footer, default: new Footer({ children: [footPara(AlignmentType.RIGHT)] }) },
+    /* SD-97：顶端不放页眉；章名 / 节名与页码同在页脚一行（封面不显示） */
+    headers: { first: emptyHF().header, default: emptyHF().header },
+    footers: { first: emptyHF().footer, default: new Footer({ children: [footNav()] }) },
     children: front.concat(body)
   }];
 } else {
   const HF = {
-    headers: { default: new Header({ children: [hdrPara(SINGLE ? titleRun : chapRun, secRun)] }),      // SD-96：奇偶页同为左章名、右节名
-               even: new Header({ children: [hdrPara(SINGLE ? titleRun : chapRun, secRun)] }) },
-    footers: { default: new Footer({ children: [footPara(AlignmentType.RIGHT)] }),
-               even: new Footer({ children: [footPara(AlignmentType.LEFT)] }) }
+    headers: { default: emptyHF().header, even: emptyHF().header },      // SD-97：章名 / 节名移到页脚
+    footers: { default: new Footer({ children: [footNav()] }),
+               even: new Footer({ children: [footNav()] }) }
   };
   const e = emptyHF(), e2 = emptyHF();
   const starts = CHAP_IDX.length ? CHAP_IDX : [body.length];
@@ -1978,11 +1979,11 @@ if (!DUPLEX) {
       children: cover },
     /* 前言：从右页开始，页眉写「前言」 */
     ...(preface.length ? [{ properties: { page: PAGE, type: SectionType.ODD_PAGE },
-      headers: { default: new Header({ children: [hdrPara(null, prefRun)] }), even: new Header({ children: [hdrPara(prefRun, null)] }) },
+      headers: { default: emptyHF().header, even: emptyHF().header },   // SD-97
       footers: HF.footers, children: preface }] : []),
     /* 目录：从右页开始；页眉外侧固定写「目录」（STYLEREF 在目录页会取到第零章，不用） */
     { properties: { page: PAGE, type: SectionType.ODD_PAGE },
-      headers: { default: new Header({ children: [hdrPara(null, tocRun)] }), even: new Header({ children: [hdrPara(tocRun, null)] }) },
+      headers: { default: emptyHF().header, even: emptyHF().header },   // SD-97
       footers: HF.footers, children: toc.concat(body.slice(0, starts[0])) },
     /* 每章一节，从右页开始；章首页（节内第一页）不排页眉页脚 */
     ...starts.map((st, k) => { const f = emptyHF();
@@ -2046,7 +2047,7 @@ Packer.toBuffer(doc).then(async b => {
     const JSZipH = require('jszip');
     const zh = await JSZipH.loadAsync(b);
     let nh = 0;
-    for (const name of Object.keys(zh.files).filter(n => /^word\/header\d+\.xml$/.test(n))) {
+    for (const name of Object.keys(zh.files).filter(n => /^word\/(header|footer)\d+\.xml$/.test(n))) {
       const hx = await zh.file(name).async('string');
       const hx2 = hx.replace(/<w:r>(<w:rPr>(?:(?!<\/w:r>)[\s\S])*?<\/w:rPr>)?<w:t[^>]*>§HDR(CHAP|SEC)§<\/w:t><\/w:r>/g, (m0, rp, k) => {
         nh++; rp = rp || '';

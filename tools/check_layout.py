@@ -92,7 +92,9 @@ def body_lines(pg):
         for l in b.get('lines', []):
             t = ''.join(s['text'] for s in l['spans'])
             if t.strip(): out.append((*l['bbox'], t))
-    return out
+    # SD-97：页脚一行（章名 / 节名 / 页码）整行去掉——以页码所在行为准，同一行及以下都算页脚
+    fy = min((l[1] for l in out if re.search(r'第\s*\d+\s*页\s*$', l[4])), default=None)
+    return [l for l in out if fy is None or l[1] < fy - 2]
 
 def cell_lines(lines, bb):
     """落在格子里的视觉行（按基线聚类），返回 [(x0, x1, text)]。"""
@@ -142,16 +144,18 @@ def scan(pdf, name, header):
     yv = [b[1] for b in cov if '版本号' in b[4]]; yn = [b[1] for b in cov if '特别提示' in b[4]]
     if yv and yn and not yn[0] < yv[0]: err('C2', '%s 封面顺序应为：特别提示在上、版本号在下（SD-74）' % name)
     if re.search(r'版次|第\s*\d+\s*版', ''.join(b[4] for b in cov)): err('C1', name + ' 封面不写「版次」，直接写版本号（SD-73）')
-    # 页眉（SD-96：全书左章名、右节名，章首页 / 前言 / 总目录只有左侧；单册左册名、右块名）
+    # 页脚导航（SD-97：顶端不放页眉；右下角「章名　节名　　第 X 页」，章首页 / 前言 / 总目录只有章名；单册「册名　块名」）
     miss = []
     for i in range(1, len(d)):
-        tops = sorted((b for b in d[i].get_text('blocks') if b[4].strip() and b[3] < 0.08 * H), key=lambda b: b[0])
-        htxt = nosp(''.join(b[4] for b in tops))
-        has = bool(htxt) and re.match(header, htxt) is not None and 'Error' not in htxt and '§' not in htxt if header else False
+        bl = [b for b in d[i].get_text('blocks') if b[4].strip()]
+        fy = min((b[1] for b in bl if re.search(r'第\s*\d+\s*页\s*$', b[4])), default=None)
+        ftxt = nosp(''.join(b[4] for b in sorted((b for b in bl if fy is not None and b[1] >= fy - 2), key=lambda b: b[0])))
+        toptxt = [b for b in bl if b[3] < 0.06 * H]
+        has = bool(ftxt) and re.match(header, ftxt) is not None and 'Error' not in ftxt and '§' not in ftxt and not toptxt if header else False
         if header and not has: miss.append(i + 1)
         if not header and tops and tops[0][3] < 0.08 * H and '机型' in tops[0][4] and '第' not in tops[0][4]:
             miss.append(i + 1)
-    if miss: err('L4', '%s 页眉不符（应以「%s」开头）：第 %s 页' % (name, header or '无页眉', miss[:12]))
+    if miss: err('L4', '%s 页脚导航不符（应以「%s」开头、顶端不放页眉）：第 %s 页' % (name, header or '无', miss[:12]))
     # 版心 / 页边距（SD-73：720 DXA = 36pt）
     over = []
     for i, p in enumerate(d):
@@ -292,7 +296,7 @@ scan(QREF, '单册', 'B737机型理论基础知识速查')   # 单册页眉左�
 for nm, pdf in (('全书', BOOK), ('单册', QREF)):
     dd = pymupdf.open(pdf); Hh = dd[0].rect.height
     for i in range(1, len(dd) - 1):
-        ln = [l for l in body_lines(dd[i]) if l[1] > 0.06 * Hh and not re.match(r'\s*第\s*\d+\s*页\s*$', l[4])]
+        ln = [l for l in body_lines(dd[i]) if l[1] > 0.06 * Hh]
         if 0 < len(ln) <= 2:
             err('B4', '%s 第 %d 页只有 %d 行（「%s」）——调整上一页间距或内容，避免孤页' % (nm, i + 1, len(ln), ln[0][4].strip()[:20]))
 
