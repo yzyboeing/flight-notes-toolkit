@@ -547,6 +547,8 @@ function htmlTableCore(html) {
           const p1 = plainOf(c.text).replace(/\s+/g, '');
           if (!s1.length || /^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(p1) || s1.some(x => STRUCT.test(plainOf(x)) && !/^\s*[-–—]\s+/.test(plainOf(x)))) return;
           const out1 = [];
+          const allDash = s1.length >= 2 && s1.every(x => /^\s*[-–—]\s+/.test(plainOf(x)));   // 整格都是「- 」：并列列表，排「•」（不是子项）
+          if (allDash) { c.text = s1.map(x => MK_B + x.replace(/^\s*[-–—]\s+/, '')).join('<br>'); return; }
           s1.forEach((x, xi) => { const pp = splitOut(x, /[；;]/);
             const pieces = pp && pp.length >= 2 && pp.every(y => pv(String(y).replace(/[；;，,。]/g, '')) >= 12) ? pp : [x];
             if (/^\s*[-–—]\s+/.test(plainOf(x))) { out1.push(MK_C + MK_C + x.replace(/^\s*[-–—]\s+/, '')); return; }   // 源文件「- 」子项 → 「–」子项
