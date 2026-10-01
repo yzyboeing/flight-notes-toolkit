@@ -512,7 +512,7 @@ function htmlTableCore(html) {
           if (hc.colspan !== 1 || col === 0 || /(^|\s)col-(center|bullet|plain|left)(\s|$)/.test(hc.cls || '')) return;
           const hp = plainOf(hc.text).replace(/\s+/g, ' ');
           if (CENTERH.test(hp)) { hc.cls = ((hc.cls || '') + ' col-center').trim(); return; }
-          if (serial0 || !DESC.test(hp)) return;
+          if (serial0 || !(DESC.test(hp) || /(条件|要求|说明|逻辑|措施|处置|要点|内容)$/.test(hp))) return;   // 表头以这些词结尾的复合词也算（「触发推力条件」「供氧要求」）
           const cs = [];
           parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
             r.cells.forEach((c, k) => { if (startCol[ri][k] === col && c.colspan === 1) { const t = plainOf(c.text).replace(/\s+/g, '');
