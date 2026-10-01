@@ -1942,17 +1942,16 @@ const titleRun = () => new TextRun({ text: process.env.DOC_HEADER || docTitle, f
 /* 占位文字，生成后在页眉 XML 里换成 STYLEREF 复杂域（docx 库只能写 fldSimple，LibreOffice 不渲染无缓存值的 fldSimple，原页眉章名因此一直空白） */
 const chapRun = () => new TextRun({ text: '§HDRCHAP§', font: hdrFont, size: 16, color: GRAY });
 const secRun = () => new TextRun({ text: '§HDRSEC§', font: hdrFont, size: 16, color: GRAY });
-const pageRun = () => new TextRun({ children: ['第 ', PageNumber.CURRENT, ' 页'], font: hdrFont, size: 18, color: GRAY });
+const pageRun = () => new TextRun({ children: ['第 ', PageNumber.CURRENT, ' 页'], font: hdrFont, size: 16, color: GRAY });
 const tocRun = () => new TextRun({ text: '目　录', font: hdrFont, size: 16, color: GRAY });
 const prefRun = () => new TextRun({ text: '前　言', font: hdrFont, size: 16, color: GRAY });
 const footPara = (align) => new Paragraph({ alignment: align, children: [pageRun()] });
-/* SD-97 页脚（用户：页眉放到最下端，只画右下端半截线）：右下角一组「章名　节名　　第 X 页」（单册「册名　块名」），
-   上方一条浅灰短线只覆盖右侧约四成版心宽；左侧留白，顶端不放页眉。 */
+/* SD-97 页脚（用户选方案 C）：顶端不放页眉；右下角一行「章名　节名 ｜ 第 X 页」（单册「册名　块名 ｜ 第 X 页」），
+   不画横线，导航与页码之间一根浅灰短竖线；导航与页码同为 8pt 灰字。章首页 / 前言 / 总目录只有章名。 */
 const footNav = () => new Paragraph({
   alignment: AlignmentType.RIGHT,
-  indent: { left: Math.round(CONTENT_W * 0.6) },
-  border: { top: { style: BorderStyle.SINGLE, size: 4, color: LINE, space: 4 } },
-  children: [SINGLE ? titleRun() : chapRun(), new TextRun({ text: '　', size: 16 }), secRun(), new TextRun({ text: '　　', size: 16 }), pageRun()]
+  children: [SINGLE ? titleRun() : chapRun(), new TextRun({ text: '　', size: 16, color: GRAY }), secRun(),
+    new TextRun({ text: '　｜　', size: 16, color: 'BFBFBF' }), pageRun()]
 });
 let SECTIONS;
 if (!DUPLEX) {
