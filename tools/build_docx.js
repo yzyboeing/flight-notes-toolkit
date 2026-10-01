@@ -79,7 +79,7 @@ const M_TOP = 720, M_BOT = 720, M_HDR = 360, M_FTR = 360;
 const HIDE_TBD = process.env.SHOW_TBD !== '1';   // 成品默认不显示〔待补来源〕（用户要求：表格与正文内不标来源）
 // DOC_PORTRAIT=1：竖版 A4（iPad 阅读版）；默认横版
 const PORTRAIT = process.env.DOC_PORTRAIT === '1';
-/* DOC_SINGLE=1：单册（单章成书，如「机型基础知识速查」）——封面重排、章首页改为纯目录页 */
+/* DOC_SINGLE=1：单册（单章成书，如「理论基础知识速查」）——封面重排、章首页改为纯目录页 */
 const SINGLE = process.env.DOC_SINGLE === '1';
 const PAGE_W = PORTRAIT ? 11906 : 16838, PAGE_HT = PORTRAIT ? 16838 : 11906;
 const TOTAL = PAGE_W - M_IN - M_OUT;   // 表格最大宽度＝版心宽度，随页边距自适应（2026-09-30 用户）
