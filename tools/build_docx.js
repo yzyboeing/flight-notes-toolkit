@@ -1944,16 +1944,20 @@ const titleRun = () => new TextRun({ text: process.env.DOC_HEADER || docTitle, f
 /* 占位文字，生成后在页眉 XML 里换成 STYLEREF 复杂域（docx 库只能写 fldSimple，LibreOffice 不渲染无缓存值的 fldSimple，原页眉章名因此一直空白） */
 const chapRun = () => new TextRun({ text: '§HDRCHAP§', font: hdrFont, size: 16, color: GRAY });
 const secRun = () => new TextRun({ text: '§HDRSEC§', font: hdrFont, size: 16, color: GRAY });
-const pageRun = () => new TextRun({ children: ['第 ', PageNumber.CURRENT, ' 页'], font: hdrFont, size: 16, color: GRAY });
+/* 页码：「第」「页」与页码域分成独立的段，页码域用占位文字、生成后换成 PAGE 复杂域——
+   docx 库把三者写在同一个 run 里，LibreOffice 读进来时域后面的数字和「页」不继承 8pt，会大一号 */
+const pageRun = () => [new TextRun({ text: '第 ', font: hdrFont, size: 16, color: GRAY }),
+  new TextRun({ text: '§HDRPAGE§', font: hdrFont, size: 16, color: GRAY }),
+  new TextRun({ text: ' 页', font: hdrFont, size: 16, color: GRAY })];
 const tocRun = () => new TextRun({ text: '目　录', font: hdrFont, size: 16, color: GRAY });
 const prefRun = () => new TextRun({ text: '前　言', font: hdrFont, size: 16, color: GRAY });
-const footPara = (align) => new Paragraph({ alignment: align, children: [pageRun()] });
+const footPara = (align) => new Paragraph({ alignment: align, children: pageRun() });
 /* SD-97 页脚（用户选方案 C）：顶端不放页眉；右下角一行「章名　节名 ｜ 第 X 页」（单册「册名　块名 ｜ 第 X 页」），
    不画横线，导航与页码之间一根浅灰短竖线；导航与页码同为 8pt 灰字。章首页 / 前言 / 总目录只有章名。 */
 const footNav = () => new Paragraph({
   alignment: AlignmentType.RIGHT,
   children: [SINGLE ? titleRun() : chapRun(), new TextRun({ text: '　', size: 16, color: GRAY }), secRun(),
-    new TextRun({ text: '　｜　', size: 16, color: 'BFBFBF' }), pageRun()]
+    new TextRun({ text: '　｜　', size: 16, color: 'BFBFBF' }), ...pageRun()]
 });
 let SECTIONS;
 if (!DUPLEX) {
@@ -2050,10 +2054,10 @@ Packer.toBuffer(doc).then(async b => {
     let nh = 0;
     for (const name of Object.keys(zh.files).filter(n => /^word\/(header|footer)\d+\.xml$/.test(n))) {
       const hx = await zh.file(name).async('string');
-      const hx2 = hx.replace(/<w:r>(<w:rPr>(?:(?!<\/w:r>)[\s\S])*?<\/w:rPr>)?<w:t[^>]*>§HDR(CHAP|SEC)§<\/w:t><\/w:r>/g, (m0, rp, k) => {
+      const hx2 = hx.replace(/<w:r>(<w:rPr>(?:(?!<\/w:r>)[\s\S])*?<\/w:rPr>)?<w:t[^>]*>§HDR(CHAP|SEC|PAGE)§<\/w:t><\/w:r>/g, (m0, rp, k) => {
         nh++; rp = rp || '';
-        const sty = k === 'CHAP' ? 'HdrChap' : 'HdrSec';
-        return '<w:r>' + rp + '<w:fldChar w:fldCharType="begin"/></w:r><w:r>' + rp + '<w:instrText xml:space="preserve"> STYLEREF "' + sty + '" </w:instrText></w:r>'
+        const instr = k === 'PAGE' ? 'PAGE' : 'STYLEREF "' + (k === 'CHAP' ? 'HdrChap' : 'HdrSec') + '"';
+        return '<w:r>' + rp + '<w:fldChar w:fldCharType="begin"/></w:r><w:r>' + rp + '<w:instrText xml:space="preserve"> ' + instr + ' </w:instrText></w:r>'
           + '<w:r>' + rp + '<w:fldChar w:fldCharType="separate"/></w:r><w:r>' + rp + '<w:t xml:space="preserve"> </w:t></w:r><w:r>' + rp + '<w:fldChar w:fldCharType="end"/></w:r>';
       });
       if (hx2 !== hx) zh.file(name, hx2);
