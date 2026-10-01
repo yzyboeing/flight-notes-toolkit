@@ -712,6 +712,15 @@ function htmlTableCore(html) {
         const marked = cs.filter(c => String(c.text).includes(MK_B));
         if (marked.length >= 2 && marked.every(c => (String(c.text).match(/\uE001/g) || []).length === 1 && !/[\uE002\uE003\uE004]/.test(String(c.text))))
           marked.forEach(c => { c.text = String(c.text).replace(/[\uE001]/g, ''); }); }); }
+    /* B4（Muse M5-141 / 238 / 245 / 254 / 267 / 275，2026-10-01 用户同意）：序号表（首列全是 ①② / 1、2）其余列不加「•」——
+       前面「同列统一」「长格按「；」分条」等步骤可能已加了点，这里统一去掉；表头显式 col-bullet 的列（用户点名）保留；「引语 + – 子项」层级不动 */
+    { const serB4 = (() => { let n = 0; for (let ri = 0; ri < parsed.length; ri++) { const r = parsed[ri]; if (/hdr|note|premise|warn/.test(r.cls)) continue;
+        const c0 = r.cells.find((c, k) => startCol[ri][k] === 0); if (!c0) continue;
+        if (!/^\s*([\u2460-\u2473]|\d{1,2})\s*$/.test(plainOf(c0.text))) return false; n++; } return n >= 2; })();
+      if (serB4) parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+        r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (col === 0 || bulletCols.has(col)) return;
+          const t = String(c.text); if (!/[\uE001\uE004]/.test(t) || /[\uE002\uE003]/.test(t)) return;
+          c.text = t.replace(/[\uE001\uE004]/g, ''); }); }); }
   }
 
   if (process.env.CELL_DUMP && !PROBE) {   // 复审用：把分条后的每格文字（含标记）写出，供 audit_cells.py 查同列 / 同格不统一
@@ -1331,7 +1340,7 @@ function htmlTableCore(html) {
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
         const mk = (seg.match(/^[\uE001-\uE005]+/) || [''])[0]; seg = seg.slice(mk.length);
-        const prefix = hierarchy ? (parentFlags[pi] ? '▪ ' : (hasParent ? '– ' : '')) : mk === '\uE001' ? '• ' : mk.startsWith('\uE002') ? '– ' : '';
+        const prefix = hierarchy ? (parentFlags[pi] ? '• ' : (hasParent ? '– ' : '')) :   /* 父项统一「•」（Muse M5-149 / 258，2026-10-01） */ mk === '\uE001' ? '• ' : mk.startsWith('\uE002') ? '– ' : '';
         return new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
           children: runs(prefix + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol, size: FS }),
