@@ -25,6 +25,7 @@ const FF_CN = { ascii: CN, hAnsi: CN, eastAsia: CN, cs: CN };
 const CIRC2 = process.env.DOC_FONT_CIRC || MAIN;   // 思源宋体自带 ⑪～⑳；黑体时期曾借宋体字形
 const BOLDF = process.env.DOC_FONT_BOLD !== undefined ? process.env.DOC_FONT_BOLD : (MAIN === 'Source Han Serif CN Medium' ? 'Source Han Serif CN' : '');
 const FF_CIRC = { ascii: CIRC2, hAnsi: CIRC2, eastAsia: CIRC2, cs: CIRC2 };
+const DOT_CHAR = process.env.DOC_DOT_CHAR || '●', DOT_SCALE = +(process.env.DOC_DOT_SCALE || 0.38), DOT_RAISE = +(process.env.DOC_DOT_RAISE || 0.2), DOT_GAP = +(process.env.DOC_DOT_GAP || 40);   // 2026-10-01 用户选 6 号：0.38 号、上提、2pt 间距   // 分条圆点：字符 / 相对字号 / 上提（比选用）
 const DOT_BIG = (process.env.DOC_DOT || (MAIN.startsWith('Source Han') ? 'big' : 'plain')) === 'big';
 const FF_MONO = { ascii: MONO, hAnsi: MONO, eastAsia: CN, cs: MONO };
 /* SD-96 页眉「左章名、右节名」：页眉用 STYLEREF 引用字符样式 HdrChap（章名、前言、总目录）与 HdrSec（节名 / 速查块名）。
@@ -119,7 +120,7 @@ function runs(text, o = {}) {
     }
     /* SD-107：思源宋体的「•」字形偏小，分条圆点改排实心圆「●」、约半号、略上提，观感与原宋体的「•」一致 */
     if (kind !== 'code' && kind !== 'dot' && DOT_BIG && /^• /.test(t)) { push('●', 'dot'); push(t.slice(1), kind); return; }
-    if (kind === 'dot') { const sz = o.size || 20; out.push(new TextRun({ text: t, font: FF, size: Math.max(8, Math.round(sz * 0.5)), position: String(Math.round(sz * 0.16)), color: o.color || '000000' })); return; }
+    if (kind === 'dot') { const sz = o.size || 20; out.push(new TextRun({ text: DOT_CHAR, font: FF, size: Math.max(6, Math.round(sz * DOT_SCALE)), position: String(Math.round(sz * DOT_RAISE)), ...(DOT_GAP ? { characterSpacing: DOT_GAP } : {}), color: o.color || '000000' })); return; }
     const tag = kind !== 'code' && /^【[^】]*737[^】]*】$/.test(t);
     out.push(new TextRun({
       text: t,
