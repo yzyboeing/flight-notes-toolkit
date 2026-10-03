@@ -218,6 +218,11 @@ PYEOF
         warn "总检查：$(sed -n '3p' build/排版检查报告.md) —— 错误必须改到 0，详见 build/排版检查报告.md"
       fi
     fi
+    # SD-111：每次全量重建同时更新《笔记结构索引》（给噜噜判断知识点放哪里），随新基线一起交给噜噜
+    if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/notes_index.py" ]; then
+      python3 "$TOOLKIT/notes_index.py" notes_src "build/B737机型理论知识笔记.pdf" build/笔记结构索引.md "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null)" >/dev/null 2>&1 \
+        && ok "笔记结构索引已更新：build/笔记结构索引.md" || warn "笔记结构索引生成失败（不影响成品）"
+    fi
   else
     warn "未装 LibreOffice，跳过排版校验（空白页 / 表格跨页查不了）"
     warn "补装：brew install --cask libreoffice"
