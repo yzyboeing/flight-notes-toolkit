@@ -1508,7 +1508,7 @@ function tocLine(e, w, o = {}) {
     tabStops: [{ type: TabStopType.RIGHT, position: w - 60 }],
     shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E6E6E6' },   // SD-97：去掉左侧粗竖条，只留浅灰底
     indent: { left: 80 },
-    spacing: { before: o.first ? 0 : 200, after: 60, line: 280 },
+    spacing: o.tight ? { before: o.first ? 0 : 120, after: 30, line: 260 } : { before: o.first ? 0 : 200, after: 60, line: 280 },
     children: [
       new InternalHyperlink({ anchor: e.id, children: [
         new TextRun({ text: e.cn + (e.cn ? '　' : '') + e.ct, font: FF, size: 22, bold: true, color: '000000' }),
@@ -1539,7 +1539,7 @@ function tocLine(e, w, o = {}) {
     tabStops: [...(e.num ? [{ type: TabStopType.LEFT, position: NUMW }] : []),
                { type: TabStopType.RIGHT, position: w, leader: LeaderType.DOT }],
     indent: e.num ? { left: NUMW, hanging: NUMW } : undefined,
-    spacing: o.loose ? { before: 60, after: 60, line: 300 } : { before: 20, after: 20, line: 240 },
+    spacing: o.loose ? { before: 60, after: 60, line: 300 } : o.tight ? { before: 8, after: 8, line: 230 } : { before: 20, after: 20, line: 240 },
     children: [
       new InternalHyperlink({ anchor: e.id, children: [
         ...(e.num ? [new TextRun({ text: e.num + '\t', font: FF, size: 20, color: '000000' })] : []),
@@ -1918,7 +1918,10 @@ function buildToc() {
       children: [new TextRun({ text: '总目录', font: FF, size: pg ? 28 : 40, bold: true, characterSpacing: pg ? 20 : 60, color: H1_C, style: 'HdrChap' }), SECMARK()] }));
     out.push(rule({ size: 12, color: H1_LINE, after: 0 }));
     if (pg === 0) out.push(new Paragraph({ spacing: { before: 0, after: 120 }, children: [] }));
-    const pc = cols.slice(pg * PER, pg * PER + PER).map(c => c.map((l, k) => tocLine(l, colW, { first: k === 0 })));
+    /* 2026-10-02：某一栏行数多（如第四章 23 节）时整页收紧行距，避免整栏被挤到下一页、留下只有标题的空页 */
+    const pgCols = cols.slice(pg * PER, pg * PER + PER);
+    const tight = pgCols.some(c => wt(c) > 23);
+    const pc = pgCols.map(c => c.map((l, k) => tocLine(l, colW, { first: k === 0, tight })));
     out.push(pc.length === 1 && PORTRAIT ? colsTable(pc, colW, GAP) : colsTable(pc.length < PER ? pc.concat([[]]) : pc, colW, GAP));
   }
   return out;
