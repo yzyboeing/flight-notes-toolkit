@@ -218,6 +218,15 @@ PYEOF
         warn "总检查：$(sed -n '3p' build/排版检查报告.md) —— 错误必须改到 0，详见 build/排版检查报告.md"
       fi
     fi
+    # SD-114 联动检查：改动有没有按逻辑同步到全笔记（引用完整性是错误；旧写法残留 / 同值异色 / 联动面是提醒）
+    if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/check_linkage.py" ]; then
+      echo; info "[4c] 联动检查（check_linkage.py，对比上一个 baseline/* 标签）"
+      if LK="$(python3 "$TOOLKIT/check_linkage.py" --repo "$ROOT" --out build/联动检查报告.md 2>&1)"; then
+        ok "$LK"
+      else
+        warn "$LK —— 断链必须改到 0，详见 build/联动检查报告.md"
+      fi
+    fi
     # SD-111：每次全量重建同时更新《笔记结构索引》（给噜噜判断知识点放哪里），随新基线一起交给噜噜
     if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/notes_index.py" ]; then
       python3 "$TOOLKIT/notes_index.py" notes_src "build/B737机型理论知识笔记.pdf" build/笔记结构索引.md "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null)" >/dev/null 2>&1 \
