@@ -1613,14 +1613,19 @@ function qrTopicPage() {
     const m = comp && s.match(/^####\s+(\d+)\.\s+(.+)$/);
     if (m) items.push({ n: m[1], t: unesc(m[2].trim()) });
   }
+  /* SD-106：目录性质的页面不写单位；按主题查也不写机型标签（用户 2026-10-03） */
+  const clean = (t) => String(t).replace(/（单位：[^）]*）/g, '').replace(/【[^】]*】/g, '').replace(/\s{2,}/g, ' ').trim();
   const blocks = [];
   for (const tp of topics) {
     const got = [];
-    for (const key of tp.items) {
-      const it = items.find(x => x.t.startsWith(key));
-      if (it) got.push(it); else console.error('速查主题索引：找不到条目「' + key + '」');
+    for (const ent of tp.items) {
+      /* 「标题前缀|简称」：按前缀找条目，页面只显示简称（用户 2026-10-03：尽量简洁一目了然）；无简称则显示前缀 */
+      const [key, short] = String(ent).split('|');
+      const hit = items.filter(x => x.t.startsWith(key));
+      if (hit.length > 1) console.error('速查主题索引：前缀「' + key + '」匹配到多条，取第一条');
+      if (hit.length) got.push({ n: hit[0].n, t: short || key }); else console.error('速查主题索引：找不到条目「' + key + '」');
     }
-    if (got.length) blocks.push([{ chap: true, id: 'QRI_' + got[0].n, cn: '', ct: tp.theme }].concat(got.map(it => ({ id: 'QRI_' + it.n, num: it.n, text: it.t }))));
+    if (got.length) blocks.push([{ chap: true, id: 'QRI_' + got[0].n, cn: '', ct: clean(tp.theme) }].concat(got.map(it => ({ id: 'QRI_' + it.n, num: it.n, text: clean(it.t) }))));
   }
   if (!blocks.length) return [];
   const out = [new Paragraph({ pageBreakBefore: true, alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 120 },
@@ -1672,8 +1677,9 @@ function chapterOpener(ch, brk) {
     const nc = n <= 10 ? 1 : (PORTRAIT ? 2 : (n > 20 ? 3 : 2)), GAP = 600;
     const colW = nc === 1 ? Math.min(TOTAL, 9000) : Math.floor((TOTAL - GAP * (nc - 1)) / nc);
     const per = Math.ceil(n / nc), cols = [];
-    for (let c = 0; c < nc; c++) cols.push(ch.secs.slice(c * per, (c + 1) * per).map((s, k) => {
-      if (s.part) return tocLine({ chap: true, id: s.id, cn: '', ct: s.text }, colW, { tight: true, first: k === 0 });
+    /* 用户 2026-10-03：全书「本章速查主题」不列章标题行，只列组（单册目录仍分章） */
+    const secs0 = ch.secs.filter(s => !s.part), per0 = Math.ceil(secs0.length / nc);
+    for (let c = 0; c < nc; c++) cols.push(secs0.slice(c * per0, (c + 1) * per0).map((s) => {
       const [num, t] = splitSec(s.text); return tocLine({ id: s.id, num, text: t }, colW, { numW: 600 });
     }));
     const tb = colsTable(cols, colW, GAP);
