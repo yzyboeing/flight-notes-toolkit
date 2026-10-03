@@ -155,6 +155,10 @@ if [ "$BUILD" = 1 ]; then
     # 单册《B737理论基础知识速查》（SD-66 / SD-74 / SD-100）：与全书同批生成，封面提示与版本号同全书；不带前言、不出总目录页
     out2="build/B737理论基础知识速查.docx"
     { echo "# 理论基础知识速查"; echo; echo "## 第零章　基础知识速查区"; tail -n +2 build/mod0.md; } > build/single.md
+    # SD-116（2026-10-02 用户）：单册另附 4.21 记忆项目、4.22 机动飞行，作为目录里可点击的主题组
+    if [ -f "$TOOLKIT/single_extra.py" ] && [ -f build/mod4.md ]; then
+      python3 "$TOOLKIT/single_extra.py" build/single.md build/mod4.md "${SINGLE_EXTRA:-4.21,4.22}" || warn "单册追加记忆项目 / 机动飞行失败"
+    fi
     DOC_SINGLE=1 DOC_NOTOC=1 DOC_PREFACE="" DOC_HEADER="B737理论基础知识速查" DOC_SUBTITLE="数据 · 限制 · 概念" \
       python3 "$TOOLKIT/fit_fix.py" build/single.md "$out2" || die "单册渲染失败"
     BUILT="$out"$'\n'"$out2"
