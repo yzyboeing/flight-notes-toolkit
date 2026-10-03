@@ -120,6 +120,16 @@ if [ "$BUILD" = 1 ]; then
   DOC_AUTHOR="${DOC_AUTHOR:-$(git config --get notes.docAuthor || git config user.name)}"
   export DOC_AUTHOR
   # 封面版次与声明（可选）：git config notes.docEdition "20260930"；git config notes.docNotice "…"
+  # SD-115（2026-10-02 用户）：笔记有更新，版本号就随当天日期更新——notes_src 相对上一个 baseline/* 标签有改动（含未提交）时，全量重建把版本号设为今天
+  if [ "$FULL" = 1 ] && [ -z "${DOC_EDITION:-}" ]; then
+    LASTBL="$(git tag --list 'baseline/*' --sort=-creatordate | head -1)"
+    if [ -z "$LASTBL" ] || ! git diff --quiet "$LASTBL" -- notes_src 2>/dev/null; then
+      TODAY="$(date +%Y%m%d)"
+      if [ "$(git config --get notes.docEdition)" != "$TODAY" ]; then
+        git config notes.docEdition "$TODAY"; ok "版本号更新为 $TODAY（笔记相对 ${LASTBL:-初始} 有改动）"
+      fi
+    fi
+  fi
   DOC_EDITION="${DOC_EDITION:-$(git config --get notes.docEdition)}"; export DOC_EDITION
   DOC_NOTICE="${DOC_NOTICE:-$(git config --get notes.docNotice)}"; export DOC_NOTICE
   DOC_PREFACE="${DOC_PREFACE:-$ROOT/前言.md}"; export DOC_PREFACE   # SD-51 前言页（文件不存在则不出前言）
