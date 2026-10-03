@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """单册追加正文节（SD-116）：把指定的正文节（默认 4.21 记忆项目、4.22 机动飞行）按速查区的层级追加到 single.md 末尾，
-成为单册目录里可点击的主题组。
+成为单册目录里可点击的主题组（组名不带节号）。
 
 用法：python3 single_extra.py build/single.md build/mod4.md [4.21,4.22]
 - 节标题「## 4.21　记忆项目」→ 主题组「### 记忆项目（4.21）」；条目「### N. 标题」→「#### N. 标题」（编号不变，与全书一致）
@@ -17,7 +17,7 @@ for ln in lines:
     if m:
         cur = m.group(1) if m.group(1) in want else None
         if cur:
-            out += ['', '', f'### {m.group(2).strip()}（{cur}）', '']
+            out += ['', '', f'### {m.group(2).strip()}', '']   # 用户 2026-10-03：速查里不标 4.21 / 4.22
         continue
     if cur is None:
         continue
@@ -32,7 +32,7 @@ if not out:
 # 追加内容要落在速查区的 %%COMPACT%% 范围内，生成器才会给主题组建目录条目（可点击）
 body = open(single, encoding='utf-8').read().rstrip('\n')
 extra = '\n'.join(out).rstrip('\n')
-extra = '%%PART%% 附录　模拟机记忆项目与机动飞行（第四章）\n' + extra   # SD-117：目录里单独一段
+extra = '%%PART%% 附录　模拟机记忆项目与机动飞行\n' + extra   # SD-117：目录里单独一段
 if body.endswith('%%ENDCOMPACT%%'):
     body = body[:-len('%%ENDCOMPACT%%')].rstrip('\n') + '\n' + extra + '\n\n%%ENDCOMPACT%%\n'
 else:
