@@ -120,6 +120,12 @@ for ln in diff.split('\n'):
         cur[1].append(ln[1:])
     elif ln.startswith('+'):
         cur[2].append(ln[1:])
+# 原样搬走的行（重排、移动）不算改动：同一行文字在别处又被加回来
+_rem = {l for h in hunks for l in h[1] if l.strip()}
+_add = {l for h in hunks for l in h[2] if l.strip()}
+_moved = _rem & _add
+hunks = [(h[0], [l for l in h[1] if l not in _moved], [l for l in h[2] if l not in _moved]) for h in hunks]
+hunks = [h for h in hunks if h[1] or h[2]]
 changed_rels = {h[0] for h in hunks if h[0]}
 added_lines = {(h[0], a) for h in hunks for a in h[2]}
 

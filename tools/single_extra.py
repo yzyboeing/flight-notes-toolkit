@@ -32,6 +32,7 @@ if not out:
 # 追加内容要落在速查区的 %%COMPACT%% 范围内，生成器才会给主题组建目录条目（可点击）
 body = open(single, encoding='utf-8').read().rstrip('\n')
 extra = '\n'.join(out).rstrip('\n')
+extra = '%%PART%% 附录　模拟机记忆项目与机动飞行（第四章）\n' + extra   # SD-117：目录里单独一段
 if body.endswith('%%ENDCOMPACT%%'):
     body = body[:-len('%%ENDCOMPACT%%')].rstrip('\n') + '\n' + extra + '\n\n%%ENDCOMPACT%%\n'
 else:
