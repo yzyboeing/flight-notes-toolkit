@@ -223,6 +223,23 @@ PYEOF
       python3 "$TOOLKIT/notes_index.py" notes_src "build/B737机型理论知识笔记.pdf" build/笔记结构索引.md "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null)" >/dev/null 2>&1 \
         && ok "笔记结构索引已更新：build/笔记结构索引.md" || warn "笔记结构索引生成失败（不影响成品）"
     fi
+    # 私有库自带全部规则与交接资料（2026-10-02 用户：库交给任何新 AI 都能接手）：每次全量重建同步一次副本
+    if [ "$FULL" = 1 ]; then
+      mkdir -p "$ROOT/规则" "$ROOT/交接" "$ROOT/协作/噜噜"
+      cp "$TOOLKIT/../prompt/portable-instruction.md" "$ROOT/规则/规则总纲.md" 2>/dev/null
+      cp "$TOOLKIT/../prompt/layout-checklist.md"     "$ROOT/规则/排版检查清单.md" 2>/dev/null
+      cp "$TOOLKIT/../prompt/standing-decisions.md"   "$ROOT/规则/长期决策.md" 2>/dev/null
+      [ -f build/笔记结构索引.md ] && cp build/笔记结构索引.md "$ROOT/笔记结构索引.md"
+      HAND="$HOME/Desktop/飞行理论笔记整理"
+      if [ -d "$HAND" ]; then
+        cp "$HAND/00_先读我_AI交接.md" "$ROOT/交接/" 2>/dev/null
+        cp "$HAND"/AI交接/0*.md "$ROOT/交接/" 2>/dev/null
+        rm -rf "$ROOT/协作/噜噜"; mkdir -p "$ROOT/协作/噜噜"
+        cp "$HAND"/Muse交接包/*.md "$HAND"/噜噜_*.md "$ROOT/协作/噜噜/" 2>/dev/null
+        [ -f "$HAND/噜噜收件箱/README.md" ] && cp "$HAND/噜噜收件箱/README.md" "$ROOT/协作/噜噜/噜噜收件箱_README.md"
+      fi
+      ok "规则 / 结构索引 / 交接快照 / 噜噜指令 已同步进私有库"
+    fi
   else
     warn "未装 LibreOffice，跳过排版校验（空白页 / 表格跨页查不了）"
     warn "补装：brew install --cask libreoffice"
@@ -233,6 +250,7 @@ fi
 
 # ---------- 5. 提交推送 ----------
 echo; info "[5/5] 提交"
+[ -n "$(git status --porcelain)" ] && DIRTY=1   # 全量重建同步的规则副本 / 索引也要提交
 if [ "$DIRTY" = 0 ]; then
   warn "工作区无改动，跳过提交（成品已重建）"
   # 没东西可提交，不代表没东西可推——之前的提交可能还堆在本地
