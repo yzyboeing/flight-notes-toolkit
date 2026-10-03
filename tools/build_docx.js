@@ -1512,11 +1512,11 @@ function tocLine(e, w, o = {}) {
     tabStops: [{ type: TabStopType.RIGHT, position: w - 60 }],
     shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E6E6E6' },   // SD-97：去掉左侧粗竖条，只留浅灰底
     indent: { left: 80 },
-    spacing: o.tight ? { before: o.first ? 0 : 120, after: 30, line: 260 } : { before: o.first ? 0 : 200, after: 60, line: 280 },
+    spacing: o.small ? { before: o.first ? 0 : 50, after: 0, line: 215 } : o.tight ? { before: o.first ? 0 : 120, after: 30, line: 260 } : { before: o.first ? 0 : 200, after: 60, line: 280 },
     children: [
       new InternalHyperlink({ anchor: e.id, children: [
-        new TextRun({ text: e.cn + (e.cn ? '　' : '') + e.ct, font: FF, size: 22, bold: true, color: '000000' }),
-        new TextRun({ text: '\t', size: 22 }), new PageReference(e.id) ] })
+        new TextRun({ text: e.cn + (e.cn ? '　' : '') + e.ct, font: FF, size: o.small ? 19 : 22, bold: true, color: '000000' }),
+        new TextRun({ text: '\t', size: o.small ? 19 : 22 }), new PageReference(e.id) ] })
     ]
   });
   /* 说明行：带 id 时整行做成内部超链接（例：总目录里第零章下的「速查主题」跳到本章首页的主题清单） */
@@ -1543,12 +1543,12 @@ function tocLine(e, w, o = {}) {
     tabStops: [...(e.num ? [{ type: TabStopType.LEFT, position: NUMW }] : []),
                { type: TabStopType.RIGHT, position: w, leader: LeaderType.DOT }],
     indent: e.num ? { left: NUMW, hanging: NUMW } : undefined,
-    spacing: o.loose ? { before: 60, after: 60, line: 300 } : o.tight ? { before: 8, after: 8, line: 230 } : { before: 20, after: 20, line: 240 },
+    spacing: o.small ? { before: 0, after: 0, line: 200 } : o.loose ? { before: 60, after: 60, line: 300 } : o.tight ? { before: 8, after: 8, line: 230 } : { before: 20, after: 20, line: 240 },
     children: [
       new InternalHyperlink({ anchor: e.id, children: [
-        ...(e.num ? [new TextRun({ text: e.num + '\t', font: FF, size: 20, color: '000000' })] : []),
-        new TextRun({ text: e.text, font: FF, size: 20, color: '000000' }),
-        new TextRun({ text: '\t', size: 20 }), new PageReference(e.id) ] })
+        ...(e.num ? [new TextRun({ text: e.num + '\t', font: FF, size: o.small ? 17 : 20, color: '000000' })] : []),
+        new TextRun({ text: e.text, font: FF, size: o.small ? 17 : 20, color: '000000' }),
+        new TextRun({ text: '\t', size: o.small ? 17 : 20 }), new PageReference(e.id) ] })
     ]
   });
 }
@@ -1598,6 +1598,52 @@ function singleToc(ch, brk) {
     for (let c = 0; c < nc; c++) cols.push(lines.slice(c * per, (c + 1) * per).map((l, k) => tocLine(l, colW, { numW: 560, loose: per <= 16, tight: per > 16, first: k === 0 })));
     out.push(colsTable(cols, colW, GAP));
   }
+  return out.concat(qrTopicPage());   // SD-118 单册：目录之后「按主题查」
+}
+/* SD-118 按主题查：速查条目按主题表（DOC_QRTOPICS，JSON，按标题前缀匹配）列出，点击跳到条目；编号随条目自动更新 */
+function qrTopicPage() {
+  const fp = process.env.DOC_QRTOPICS;
+  if (!fp || !fs.existsSync(fp)) return [];
+  let topics;
+  try { topics = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (e) { console.error('速查主题索引读取失败：' + e.message); return []; }
+  const items = []; let comp = false;
+  for (const s of src) {
+    if (/^%%COMPACT%%\s*$/.test(s)) { comp = true; continue; }
+    if (/^%%ENDCOMPACT%%\s*$/.test(s)) { comp = false; continue; }
+    const m = comp && s.match(/^####\s+(\d+)\.\s+(.+)$/);
+    if (m) items.push({ n: m[1], t: unesc(m[2].trim()) });
+  }
+  const blocks = [];
+  for (const tp of topics) {
+    const got = [];
+    for (const key of tp.items) {
+      const it = items.find(x => x.t.startsWith(key));
+      if (it) got.push(it); else console.error('速查主题索引：找不到条目「' + key + '」');
+    }
+    if (got.length) blocks.push([{ chap: true, id: 'QRI_' + got[0].n, cn: '', ct: tp.theme }].concat(got.map(it => ({ id: 'QRI_' + it.n, num: it.n, text: it.t }))));
+  }
+  if (!blocks.length) return [];
+  const out = [new Paragraph({ pageBreakBefore: true, alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 120 },
+    children: [new Bookmark({ id: 'QRTOPIC', children: [new TextRun({ text: '按主题查', font: FF, size: 32, bold: true, characterSpacing: 60, color: H1_C })] })] })];
+  out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: 20 }, children: [new TextRun({ text: '', size: 2 })],
+    border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
+  out.push(new Paragraph({ spacing: { before: 0, after: 60, line: 120 }, children: [] }));
+  const nc = PORTRAIT ? 2 : 3, GAP = 500;
+  const colW = Math.floor((TOTAL - GAP * (nc - 1)) / nc);
+  /* 不拆主题，把主题块按顺序切成 nc 栏，使最长一栏最短（长标题按两行估算） */
+  const hgt = (b) => b.reduce((a, l) => a + (l.chap ? 1.4 : (String(l.text).length > 24 ? 2 : 1)), 0);
+  const H = blocks.map(hgt), pre = [0]; H.forEach(h => pre.push(pre[pre.length - 1] + h));
+  const seg = (i, j) => pre[j] - pre[i];
+  let best = null;
+  const rec = (start, left, cuts) => {
+    if (left === 1) { const c = cuts.concat([blocks.length]); let st = 0, mx = 0; c.forEach(e => { mx = Math.max(mx, seg(st, e)); st = e; }); if (!best || mx < best.mx) best = { mx, c }; return; }
+    for (let e = start + 1; e <= blocks.length - left + 1; e++) rec(e, left - 1, cuts.concat([e]));
+  };
+  rec(0, Math.min(nc, blocks.length), []);
+  const cols = []; let st = 0;
+  best.c.forEach(e => { cols.push([].concat(...blocks.slice(st, e))); st = e; });
+  while (cols.length < nc) cols.push([]);
+  out.push(colsTable(cols.map(c => c.map((l, k) => tocLine(l, colW, { numW: 460, small: true, first: k === 0 }))), colW, GAP));
   return out;
 }
 /* 章首页：大号章序号 → 章名（Heading 1，页眉 STYLEREF 取它）+ 粗线 → 本章简介 → 本章各节与页码 */
@@ -1632,6 +1678,7 @@ function chapterOpener(ch, brk) {
     }));
     const tb = colsTable(cols, colW, GAP);
     out.push(tb);
+    if (quick) out.push(...qrTopicPage());   // SD-118
   }
   return out;
 }
@@ -1698,7 +1745,8 @@ while (i < src.length) {
     i++; continue;
   }
   if (/^#####\s+/.test(ln)) { body.push(H(ln.replace(/^#####\s+/, ''), 4, pendingBreak || HEAD_BREAK.has(i))); pendingBreak = false; i++; continue; }
-  if (/^####\s+/.test(ln)) { body.push(H(ln.replace(/^####\s+/, ''), 3, pendingBreak || HEAD_BREAK.has(i))); pendingBreak = false; i++; continue; }
+  if (/^####\s+/.test(ln)) { const t4 = ln.replace(/^####\s+/, ''), qn = COMPACT && t4.match(/^(\d+)\.\s/);   // SD-118：速查条目加书签 QRI_n，供「按主题查」跳转
+    body.push(H(t4, 3, pendingBreak || HEAD_BREAK.has(i), qn ? 'QRI_' + qn[1] : undefined)); pendingBreak = false; i++; continue; }
   if (/^###\s+/.test(ln)) {
     const t3 = ln.replace(/^###\s+/, '').trim();
     body.push(H(t3, 2, pendingBreak || HEAD_BREAK.has(i), COMPACT ? 'QRB_' + (QRB_N++) : undefined));

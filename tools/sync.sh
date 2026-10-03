@@ -131,6 +131,8 @@ if [ "$BUILD" = 1 ]; then
     fi
   fi
   DOC_EDITION="${DOC_EDITION:-$(git config --get notes.docEdition)}"; export DOC_EDITION
+  # SD-118 速查「按主题查」索引（主题表按条目标题引用）
+  DOC_QRTOPICS="${DOC_QRTOPICS:-$ROOT/速查主题索引.json}"; export DOC_QRTOPICS
   DOC_NOTICE="${DOC_NOTICE:-$(git config --get notes.docNotice)}"; export DOC_NOTICE
   DOC_PREFACE="${DOC_PREFACE:-$ROOT/前言.md}"; export DOC_PREFACE   # SD-51 前言页（文件不存在则不出前言）
   DOC_PREFACE_SIGNATURE="${DOC_PREFACE_SIGNATURE:-$(git config --get notes.docPrefaceSignature)}"; export DOC_PREFACE_SIGNATURE
