@@ -504,7 +504,7 @@ function htmlTableCore(html) {
        子项每段都以「。」结尾（或都不以「。」结尾）时整串都是子项 */
     const kidCount = (arr) => { const k = arr.findIndex(x => /[。．]$/.test(plainOf(x)));
       return (k > 0 && k < arr.length - 1) ? k + 1 : arr.length; };
-    const CONT = /^(但|但是|因此|所以|即|其中|否则|此时|然后|随后|并且|而且|而|且|或|→|（|\()/;   // 「而」开头的转折续句（1.3 原因表，M3-006）   // 「且 / 或」开头的是上一条件的延续（速查第 120 条两列对照）
+    const CONT = /^(但|但是|因此|所以|即(?!使)|其中|否则|此时|然后|随后|并且|而且|而|且|或|→|（|\()/;   // 「即使」是新句，不是「即」续句（M8-014）   // 「而」开头的转折续句（1.3 原因表，M3-006）   // 「且 / 或」开头的是上一条件的延续（速查第 120 条两列对照）
     const STRUCT = /^([①-⑳]|\d+[.、)）]\s|[A-Z]-\d+|第 ?\d+ ?[条步]|注[：:]|[▪•·–—-]\s)/;
     /* SD-102 句子列自动加点、时机类列居中（2026-10-01 用户，速查第 5、6、7、53、65、74、83、85、93、99、108、124 条等：
        「说明 / 条件 / 限制 / 定义」这类列「统一靠左，前面加小圆点」；「时机 / 总则 / 类别」列「整体居中」）：
@@ -1413,7 +1413,7 @@ if (rawSrc.startsWith('---')) {                 // 跳过 YAML front matter
 const src = (() => {
   const L0 = rawSrc.split(/\r?\n/), out = [];
   let inT = false, inC = false;
-  const special = t => /^(#{1,6}\s|<table|\||```|%%|---|解释：|注：|出处：|公司差异：|来源：|详见\s|<tr|<\/table)/.test(t);
+  const special = t => /^(#{1,6}\s|<table|\||```|%%|---|解释：|(?:<strong>)?警告：|注：|出处：|公司差异：|来源：|详见\s|<tr|<\/table)/.test(t);
   for (let k = 0; k < L0.length; k++) {
     let t = L0[k];
     if (/^```/.test(t)) inC = !inC;
@@ -1715,6 +1715,19 @@ while (i < src.length) {
   if (!ln.trim()) { i++; continue; }
   /* 表后说明块（2026-09-29 印刷版统一）：注 / 公司差异 / 解释 / 出处 同一缩进、同一字号、左侧细线，连续几行成一块 */
   const TAIL = { indent: { left: 240 } };   // SD-97：表后说明块只缩进，不画左侧细线
+  /* M6 警示条（2026-10-02 M8-008）：表外段落「警告：……」与表内 warn 行移出后同一式样——左竖条 + 淡底，
+     只有「警告：」两字标红，正文照常（<em> 仍标红）。 */
+  { const wm = ln.trim().match(/^(?:<strong>)?警告：(?:<\/strong>)?/);
+    if (wm) {
+      body.push(new Paragraph({
+        children: [new TextRun({ text: '警告：', font: FF, size: 19, bold: true, color: BW ? '000000' : RED }),
+                   ...runs(ln.trim().slice(wm[0].length), { size: 19 })],
+        spacing: { before: 100, after: 100, line: 290 }, indent: { left: 120, right: 80 },
+        shading: { type: ShadingType.CLEAR, color: 'auto', fill: PRIORITY_F },
+        border: { left: { style: BorderStyle.SINGLE, size: 14, color: PRIORITY_BAR_C, space: 8 } }
+      }));
+      i++; continue;
+    } }
   if (/^(注：|解释：|公司差异：)/.test(ln.trim())) {    // SD-33 解释（灰色）/ SD-34 公司差异、注（标签加粗）
     let t = ln.trim();
     const exp = /^解释：/.test(t);
