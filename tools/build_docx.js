@@ -506,6 +506,29 @@ function htmlTableCore(html) {
       return (k > 0 && k < arr.length - 1) ? k + 1 : arr.length; };
     const CONT = /^(但|但是|因此|所以|即(?!使)|其中|否则|此时|然后|随后|并且|而且|而|且|或|→|（|\()/;   // 「即使」是新句，不是「即」续句（M8-014）   // 「而」开头的转折续句（1.3 原因表，M3-006）   // 「且 / 或」开头的是上一条件的延续（速查第 120 条两列对照）
     const STRUCT = /^([①-⑳]|\d+[.、)）]\s|[A-Z]-\d+|第 ?\d+ ?[条步]|注[：:]|[▪•·–—-]\s)/;
+    /* SD-119 对照表统一（2026-10-03 用户，速查第 11、40 条、1.6 C-4）：表头几列是并列的机型 / 方式（≥ 2 列含 737-NG / 737-8，或有跨列的共有格），
+       同一张表只用一种逻辑——① 格子都是一两句短内容：整表居中、不加点（第 40 条）；② 有格子含 ≥ 3 段、父子层级或「- 」子项：
+       共有格（跨列）居中，独有格靠左加点（第 11 条三种复飞）。表头已显式 col-bullet 的（用户点名加点）按 ②；首格 class="no-cmp" 不参与。 */
+    { const hrC = parsed.find(r => r.cls.includes('hdr'));
+      if (hrC && !process.env.NO_CMP && hrC.cells.every(c => c.colspan === 1) && hrC.cells.length >= 3 && !/(^|\s)no-cmp(\s|$)/.test(hrC.cells[0].cls || '')) {
+        const hriC = parsed.indexOf(hrC), vh0 = hrC.cells.filter((c, k) => startCol[hriC][k] >= 1);
+        const TY = /737[- ]?NG|737-8|737 ?MAX/, tyCols = vh0.filter(c => TY.test(plainOf(c.text)));
+        const typeH = tyCols.length >= 2;
+        /* 并列方式：变体列表头（去括注）全部同前缀或同后缀（≥ 2 字），如「A/P 复飞 | F/D 复飞 | 单发 F/D 复飞」；「VIS 要求 | RVR 要求 | 机组 / 设备附加条件」不算 */
+        const hn = vh0.map(c => plainOf(c.text).replace(/[（(][^）)]*[）)]/g, '').trim());
+        const affix = hn.length >= 2 && (hn.every(x => x.length >= 3 && x.slice(-2) === hn[0].slice(-2)) || hn.every(x => x.length >= 3 && x.slice(0, 2) === hn[0].slice(0, 2)));
+        const vh = typeH ? tyCols : vh0;
+        const body = parsed.filter(r => r !== hrC && !/hdr|note|premise|warn/.test(r.cls));
+        const shared = body.some(r => r.cells.some((c, k) => startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2));
+        if ((typeH || (shared && affix)) && body.length >= 2 && !body.every(r => { const c0 = r.cells.find((c, k) => startCol[parsed.indexOf(r)][k] === 0); return c0 && /^\s*([\u2460-\u2473]|\d{1,2})\s*$/.test(plainOf(c0.text)); })) {
+          const segsOf = (c) => String(c.text).split(/<br\s*\/?>/).map(plainOf).filter(Boolean);
+          const longT = vh.some(c => /(^|\s)col-bullet(\s|$)/.test(c.cls || '')) || body.some(r => r.cells.some((c, k) => { if (startCol[parsed.indexOf(r)][k] < 1) return false;
+            const sg = segsOf(c); return sg.length >= 3 || sg.some(x => /^[-–—]\s/.test(x)) || sg.slice(0, -1).some(x => /[：:]$/.test(x)); }));
+          const strip = (t) => String(t || '').replace(/(^|\s)col-(center|bullet|plain|left)(?=\s|$)/g, ' ').trim();
+          vh.forEach(c => { c.cls = (strip(c.cls) + (longT ? ' col-bullet' : ' col-center')).trim(); });
+          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) { c.cls = ((c.cls || '') + ' center').trim(); c.cmpShared = true; } }));
+          if (process.env.CMP_LOG) console.error('CMP', TBL_IDX, longT ? 'long' : 'short', vh.map(c => plainOf(c.text)).join(' | '));
+        } } }
     /* SD-102 句子列自动加点、时机类列居中（2026-10-01 用户，速查第 5、6、7、53、65、74、83、85、93、99、108、124 条等：
        「说明 / 条件 / 限制 / 定义」这类列「统一靠左，前面加小圆点」；「时机 / 总则 / 类别」列「整体居中」）：
        表头没有显式 col-* 标注时，非首列表头属下列说明类、且六成以上的格是句子（≥ 约 6 字或带句读）→ 视作 col-bullet；
@@ -550,18 +573,19 @@ function htmlTableCore(html) {
     parsed.forEach((r, ri) => {
       if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => {
-        if (c.head || startCol[ri][k] === 0 || noSemCols.has(startCol[ri][k])) return;
+        if (c.head || startCol[ri][k] === 0 || (noSemCols.has(startCol[ri][k]) && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) || c.cmpShared) return;
         if (serialTbl && !bulletCols.has(startCol[ri][k])) return;
-        if (bulletCols.has(startCol[ri][k]) && c.colspan === 1) {   // 显式整列加点：每段按「；」拆项（各 ≥ 约 6 字），延续句悬挂对齐
+        if ((bulletCols.has(startCol[ri][k]) && c.colspan === 1) || /(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) {   // 显式整列加点：每段按「；」拆项（各 ≥ 约 6 字），延续句悬挂对齐
           const s1 = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
           const p1 = plainOf(c.text).replace(/\s+/g, '');
-          if (!s1.length || /^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(p1) || s1.some(x => STRUCT.test(plainOf(x)) && !/^\s*[-–—]\s+/.test(plainOf(x)))) return;
+          if (!s1.length || /^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(p1) || s1.some(x => STRUCT.test(plainOf(x)) && !/^\s*[-–—]\s+/.test(plainOf(x)) && !/^注[：:]/.test(plainOf(x)))) return;
           const out1 = [];
           const allDash = s1.length >= 2 && s1.every(x => /^\s*[-–—]\s+/.test(plainOf(x)));   // 整格都是「- 」：并列列表，排「•」（不是子项）
           if (allDash) { c.text = s1.map(x => MK_B + x.replace(/^\s*[-–—]\s+/, '')).join('<br>'); return; }
           s1.forEach((x, xi) => { const pp = splitOut(x, /[；;]/);
-            const pieces = pp && pp.length >= 2 && pp.every(y => pv(String(y).replace(/[；;，,。]/g, '')) >= 12) ? pp : [x];
-            if (/^\s*[-–—]\s+/.test(plainOf(x))) { out1.push(MK_C + MK_C + x.replace(/^\s*[-–—]\s+/, '')); return; }   // 源文件「- 」子项 → 「–」子项
+            const pieces = pp && pp.length >= 2 && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '') && pp.every(y => pv(String(y).replace(/[；;，,。]/g, '')) >= 12) ? pp : [x];   // 单格加点（cell-bullet）只按 <br> 分项：「最低标准：……；……」带标签的段落是一项（速查 125）
+            if (/^\s*[-–—]\s+/.test(plainOf(x))) { out1.push(MK_C + MK_C + x.replace(/^\s*[-–—]\s+/, '')); return; }
+            if (/^注[：:]/.test(plainOf(x))) { out1.push(MK_Q + x); return; }   // 加点列里的「注：」行：不加点，缩进与圆点项文字对齐（速查 125，2026-10-03）   // 源文件「- 」子项 → 「–」子项
             pieces.forEach(y => out1.push(((xi > 0 || out1.length) && CONT.test(plainOf(y)) ? MK_Q : MK_B) + y)); });
           c.text = out1.join('<br>'); return;
         }
@@ -1303,7 +1327,7 @@ function htmlTableCore(html) {
         let t = unesc(String(c.text).replace(/<br\s*\/?>/g, '').replace(/<[^>]+>/g, '')).replace(/〔待补来源〕/g, '');
         for (let k = 0; k < 3; k++) t = t.replace(/[（(][^（）()]*[）)]/g, '');
         return vis(t.trim()) <= 30 && !/[，。；]/.test(t); })();
-      const rawParas = String(c.text).split(/<br\s*\/?>/);
+      let rawParas = String(c.text).split(/<br\s*\/?>/);
       const plainParas = rawParas.map(seg => unesc(seg.replace(/<[^>]+>/g, '')).trim());
       const contentParas = plainParas.filter(Boolean);
       const enumN2 = contentParas.filter(p => /^([①-⑳]|\d+[.、)）]|[a-zA-Z][)）]|第 ?\d+ ?[条步])/.test(p)).length;
@@ -1312,7 +1336,7 @@ function htmlTableCore(html) {
         return pi < plainParas.length - 1 && /[：:]$/.test(p) && vis(p) <= 70 && !/[，。；]/.test(body);
       });
       const semMarked = /[\uE001-\uE005]/.test(String(c.text));
-      const hierarchy = !semMarked && !isHdr && !c.head && rawParas.length >= 3 && parentFlags.some(Boolean)
+      const hierarchy = !c.cmpShared && !semMarked && !isHdr && !c.head && rawParas.length >= 3 && parentFlags.some(Boolean)
         && !plainParas.slice(1).some(p => /^[①-⑳]\s*/.test(p));
       /* SD-78（2026-09-30 用户，速查区第 8 / 12 / 15 条）：同一格内 ≥ 2 条彼此独立的并列句（原文以 <br> 分开）→ 每条前加「•」、悬挂缩进、左齐。
          已有编号（①②③ / 1. / A-1）、【机型】开头、首段以「：」引出（SD-75 父子层级）、括注续行的，不加；只有一句的格子不加。 */
@@ -1338,6 +1362,21 @@ function htmlTableCore(html) {
          2026-09-30 用户「统一序号」：表格与正文一律保留 ①②③（设 SERIAL_ARABIC=1 可恢复旧做法） */
       const serial = process.env.SERIAL_ARABIC && isFirstCol && /^\s*(<strong>)?\s*[\u2460-\u2473]\s*(<\/strong>)?\s*$/.test(String(c.text));
       if (serial) c = Object.assign({}, c, { text: String(String(c.text).replace(/<[^>]+>/g, '').trim().charCodeAt(0) - 0x245F) });
+      /* 括注整句另起一行（用户 2026-10-03，1.6 慢车表「空中结冰环境（发动机防冰开且无进近形态时）」）：
+         居中格里「名称（括注）」一行排不下时，括注不在中间断开，整句另起一行、同样居中；名称本身排得下才拆 */
+      if (center && !hierarchy && !semMarked && !isNote && !isPre && !isWarn) {
+        const fvw = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 180; };
+        const split = [];
+        rawParas.forEach(seg => {
+          const k = seg.lastIndexOf('（'), tail = k > 0 ? seg.slice(k) : '';
+          const tailP = unesc(tail.replace(/<[^>]+>/g, '')).trim(), headP = unesc(seg.slice(0, k).replace(/<[^>]+>/g, '')).trim();
+          if (k > 0 && /^（[^（）]+）$/.test(tailP) && !/[（）]/.test(headP) && headP.length >= 2 && !/[，。；：:]$/.test(headP)
+              && fvw(seg) > w && fvw(seg.slice(0, k)) <= w && (seg.slice(0, k).match(/<[^/][^>]*>/g) || []).length === (seg.slice(0, k).match(/<\/[^>]+>/g) || []).length) {
+            split.push(seg.slice(0, k).trimEnd(), tail);
+            if (process.env.PAREN_LOG) console.error('PAREN', TBL_IDX, headP, tailP);
+          } else split.push(seg); });
+        rawParas = split;
+      }
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
         const mk = (seg.match(/^[\uE001-\uE005]+/) || [''])[0]; seg = seg.slice(mk.length);
@@ -1633,7 +1672,7 @@ function qrTopicPage() {
   out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: 20 }, children: [new TextRun({ text: '', size: 2 })],
     border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
   out.push(new Paragraph({ spacing: { before: 0, after: 60, line: 120 }, children: [] }));
-  const nc = PORTRAIT ? 2 : 3, GAP = 500;
+  const nc = PORTRAIT ? 2 : 4, GAP = 360;   // 主题增至 13 个，横版 4 栏仍一页（2026-10-03）
   const colW = Math.floor((TOTAL - GAP * (nc - 1)) / nc);
   /* 不拆主题，把主题块按顺序切成 nc 栏，使最长一栏最短（长标题按两行估算） */
   const hgt = (b) => b.reduce((a, l) => a + (l.chap ? 1.4 : (String(l.text).length > 24 ? 2 : 1)), 0);
