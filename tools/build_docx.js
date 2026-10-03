@@ -184,7 +184,7 @@ function H(text, level, brk, forceId) {
   const id = forceId || (level <= 2 ? bmk(text) : null);
   text = unesc(String(text));
   const isItem = /^(\d+\. |[A-Z]-\d+\u3000)/.test(text);
-  const secBreak = level === 2 && /^\d+\.\d+[\s\u3000]/.test(text) && !AFTER_H1 && !NO_SEC_BREAK;
+  const secBreak = level === 2 && /^\d+\.\d+[\s\u3000]/.test(text) && !AFTER_H1 && !NO_SEC_BREAK && !COMPACT;   // 速查组名带节号（SD-117）不另起一页
   AFTER_H1 = level === 1;
   const HC = { 1: H1_C, 2: H2_C, 3: H3_C, 4: H3_C }[level];
   const tr = new TextRun({ text, font: FF, size: sizes[level], bold: true, color: HC, style: level === 1 ? 'HdrChap' : level === 2 ? 'HdrSec' : undefined });
@@ -1488,12 +1488,16 @@ const OUTLINE = [];
     let m;
     if ((m = s.match(/^##\s+(.*)$/))) { cur = { id: 'CHAP_' + OUTLINE.length, text: m[1].trim(), desc: '', secs: [] }; OUTLINE.push(cur); continue; }
     if (cur && (m = s.match(/^%%CHAPDESC%%\s*(.*)$/))) { cur.desc = unesc(m[1].trim()); continue; }
+    /* SD-117 速查区章标记：目录里显示为章标题行（灰底、可点击，跳到该章第一组），正文不显示 */
+    if (cur && (m = s.match(/^%%PART%%\s*(.*)$/))) { cur.secs.push({ part: true, id: null, text: unesc(m[1].trim()) }); continue; }
     if (cur && (m = s.match(/^###\s+(.*)$/))) {
-      const t = m[1].trim(), id = bmk(t) || (comp ? 'QRB_' + (q++) : null);   // 速查区主题块无编号，另起书签 QRB_n
+      const t = m[1].trim(), id = comp ? 'QRB_' + (q++) : bmk(t);   // 速查区主题块一律用 QRB_n（SD-117 组名以节号开头，不能当正文节）
       if (id) cur.secs.push({ id, text: unesc(t) });
     }
   }
 }
+OUTLINE.forEach(ch => { ch.secs.forEach((s, k) => { if (s.part) { const nx = ch.secs.slice(k + 1).find(x => !x.part); s.id = nx ? nx.id : ch.id; } }); });
+const realSecs = (ch) => ch.secs.filter(s => !s.part);
 /* 只有按「第X章」分章的笔记（全书 / 单章分册）才排章首页、总览封面和自生成目录；整理规范等其他文档仍用旧版式 */
 const BOOK = OUTLINE.length > 0 && OUTLINE.every(ch => /^第.{1,3}章[\s\u3000]/.test(unesc(ch.text)));
 const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
@@ -1583,12 +1587,15 @@ function singleToc(ch, brk) {
     const colW = nc === 1 ? Math.min(TOTAL, 7600) : Math.floor((TOTAL - GAP) / 2);
     const per = Math.ceil(n / nc), cols = [];
     /* 主题本身没有编号，这里按顺序补 01…N，便于口头指引「看第 12 条」 */
-    const lines = ch.secs.map((sec, k) => {
-      const [, t] = splitSec(sec.text);
-      return { id: sec.id, num: String(k + 1).padStart(2, '0'), text: t };
+    let kk = 0;
+    const lines = ch.secs.map((sec) => {
+      if (sec.part) return { chap: true, id: sec.id, cn: '', ct: sec.text };
+      const [sn, t] = splitSec(sec.text);
+      /* SD-117：组名带节号时显示节号（与全书第零章首页、正文节号一致）；没有节号的（飞机概况、附录）不编号 */
+      ++kk; return { id: sec.id, num: sn || '', text: t };
     });
     /* 2026-10-02：每栏超过 16 行（速查主题 33 组）时不用宽松行距，避免目录挤出第二页 */
-    for (let c = 0; c < nc; c++) cols.push(lines.slice(c * per, (c + 1) * per).map(l => tocLine(l, colW, { numW: 560, loose: per <= 16 })));
+    for (let c = 0; c < nc; c++) cols.push(lines.slice(c * per, (c + 1) * per).map((l, k) => tocLine(l, colW, { numW: 560, loose: per <= 16, tight: per > 16, first: k === 0 })));
     out.push(colsTable(cols, colW, GAP));
   }
   return out;
@@ -1619,7 +1626,8 @@ function chapterOpener(ch, brk) {
     const nc = n <= 10 ? 1 : (PORTRAIT ? 2 : (n > 20 ? 3 : 2)), GAP = 600;
     const colW = nc === 1 ? Math.min(TOTAL, 9000) : Math.floor((TOTAL - GAP * (nc - 1)) / nc);
     const per = Math.ceil(n / nc), cols = [];
-    for (let c = 0; c < nc; c++) cols.push(ch.secs.slice(c * per, (c + 1) * per).map(s => {
+    for (let c = 0; c < nc; c++) cols.push(ch.secs.slice(c * per, (c + 1) * per).map((s, k) => {
+      if (s.part) return tocLine({ chap: true, id: s.id, cn: '', ct: s.text }, colW, { tight: true, first: k === 0 });
       const [num, t] = splitSec(s.text); return tocLine({ id: s.id, num, text: t }, colW, { numW: 600 });
     }));
     const tb = colsTable(cols, colW, GAP);
@@ -1665,6 +1673,7 @@ while (i < src.length) {
   }
   if (/^%%PAGEBREAK%%\s*$/.test(ln)) { pendingBreak = true; i++; continue; }
   if (/^%%CHAPDESC%%/.test(ln)) { i++; continue; }   // 章简介：已排在章首页
+  if (/^%%PART%%/.test(ln)) { i++; continue; }      // SD-117 速查区章标记：只用于目录
   if (/^%%COMPACT%%\s*$/.test(ln)) { COMPACT = true; i++; continue; }
   if (/^%%ENDCOMPACT%%\s*$/.test(ln)) { COMPACT = false; i++; continue; }
   if (/^%%NAV%%\s*$/.test(ln)) {
@@ -1692,7 +1701,7 @@ while (i < src.length) {
   if (/^####\s+/.test(ln)) { body.push(H(ln.replace(/^####\s+/, ''), 3, pendingBreak || HEAD_BREAK.has(i))); pendingBreak = false; i++; continue; }
   if (/^###\s+/.test(ln)) {
     const t3 = ln.replace(/^###\s+/, '').trim();
-    body.push(H(t3, 2, pendingBreak || HEAD_BREAK.has(i), (COMPACT && !bmk(t3)) ? 'QRB_' + (QRB_N++) : undefined));
+    body.push(H(t3, 2, pendingBreak || HEAD_BREAK.has(i), COMPACT ? 'QRB_' + (QRB_N++) : undefined));
     pendingBreak = false; i++; continue;
   }
   if (/^---\s*$/.test(ln)) { i++; continue; }
@@ -1903,8 +1912,8 @@ function buildToc() {
     const [cn, ct] = splitChap(ch.text);
     const quick = ch.secs.length && ch.secs.every(s => /^QRB_/.test(s.id));
     const ls = [{ chap: true, id: ch.id, cn, ct }];
-    if (quick) ls.push({ note: '速查主题清单（共 ' + ch.secs.length + ' 项）', id: ch.id, jump: true });
-    else ch.secs.forEach(s => { const [num, text] = splitSec(s.text); ls.push({ id: s.id, num, text }); });
+    if (quick) ls.push({ note: '速查主题清单（共 ' + realSecs(ch).length + ' 项）', id: ch.id, jump: true });
+    else ch.secs.filter(s => !s.part).forEach(s => { const [num, text] = splitSec(s.text); ls.push({ id: s.id, num, text }); });
     return ls;
   });
   const wt = ls => ls.reduce((a, l) => a + (l.chap ? 1.8 : 1), 0);
