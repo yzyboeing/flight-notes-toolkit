@@ -147,6 +147,9 @@ def frags(a, b):
                 ll = a.rfind('<', 0, l + 1); rr = a.find('>', r - 1)
                 if ll >= 0 and rr >= 0: seg = a[ll:rr + 1]
             vis = plain(seg).strip()
+            # 只有数字和标点的片段（条目重编号、页码）不算写法变化
+            if not re.search(r'[\u4e00-\u9fffA-Za-z]', vis):
+                continue
             if len(vis) >= 3 and seg not in b:
                 out.append(seg)
     return out
@@ -157,6 +160,8 @@ for rel_h, rem, add in hunks:
     if not rel_h or not rem or not add:
         continue
     for r_line in rem:
+        if re.match(r'^### \d+\. ', r_line) or re.match(r'^<!-- 详见', r_line):
+            continue   # 速查条目标题重编号、详见注释不算
         best = max(add, key=lambda x: SequenceMatcher(None, r_line, x, autojunk=False).ratio())
         if SequenceMatcher(None, r_line, best, autojunk=False).ratio() < 0.5:
             continue
@@ -225,6 +230,8 @@ clash, reach = [], []
 done = set()
 for rel_h, rem, add in hunks:
     if not rel_h: continue
+    # 速查条目自己「详见」指向的正文节，本来就该一样，不算联动面 / 异色
+    own = set(re.findall(r'\[\[(\d+\.\d+) ', '\n'.join(add)))
     for a in add:
         for tok, c, big, snip in num_ctx(a):
             if len(big) < 2: continue
@@ -233,6 +240,7 @@ for rel_h, rem, add in hunks:
             done.add(key)
             for rel2, n, c2, big2, snip2, l2 in index.get(tok, []):
                 if (rel2, l2) in added_lines: continue
+                if sec_id(rel2) in own: continue
                 if len(big & big2) < 2: continue
                 if c2 != c and not (c == '无' and c2 == '无'):
                     if not allowed('异色', tok, rel2):
