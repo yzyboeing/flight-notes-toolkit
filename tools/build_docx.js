@@ -1587,7 +1587,8 @@ function singleToc(ch, brk) {
       const [, t] = splitSec(sec.text);
       return { id: sec.id, num: String(k + 1).padStart(2, '0'), text: t };
     });
-    for (let c = 0; c < nc; c++) cols.push(lines.slice(c * per, (c + 1) * per).map(l => tocLine(l, colW, { numW: 560, loose: true })));
+    /* 2026-10-02：每栏超过 16 行（速查主题 33 组）时不用宽松行距，避免目录挤出第二页 */
+    for (let c = 0; c < nc; c++) cols.push(lines.slice(c * per, (c + 1) * per).map(l => tocLine(l, colW, { numW: 560, loose: per <= 16 })));
     out.push(colsTable(cols, colW, GAP));
   }
   return out;
