@@ -29,6 +29,12 @@ for ln in lines:
     out.append(ln)
 if not out:
     sys.exit('single_extra：没有找到要追加的节 ' + ','.join(want))
-with open(single, 'a', encoding='utf-8') as f:
-    f.write('\n'.join(out).rstrip('\n') + '\n')
+# 追加内容要落在速查区的 %%COMPACT%% 范围内，生成器才会给主题组建目录条目（可点击）
+body = open(single, encoding='utf-8').read().rstrip('\n')
+extra = '\n'.join(out).rstrip('\n')
+if body.endswith('%%ENDCOMPACT%%'):
+    body = body[:-len('%%ENDCOMPACT%%')].rstrip('\n') + '\n' + extra + '\n\n%%ENDCOMPACT%%\n'
+else:
+    body = body + '\n\n%%COMPACT%%\n' + extra + '\n\n%%ENDCOMPACT%%\n'
+open(single, 'w', encoding='utf-8').write(body)
 print('单册追加：' + '、'.join(want))
