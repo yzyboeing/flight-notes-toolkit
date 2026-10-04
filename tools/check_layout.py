@@ -251,7 +251,7 @@ def scan(pdf, name, header):
                 # SD-119 修订（用户 2026-10-03「除了父子关系之外，去掉所有单独的句子之前的小圆点」）：单句格不加点是对的，
                 # 只有没加点、格内却有多句（中间有「；」或「。」）的才算不统一
                 multi = lambda x: len([p for p in re.split(r'[；]', ''.join(l[2] for l in x[1]).strip()) if len(p.strip()) >= 4]) >= 2
-                nbs = [x for x in cells if x not in bul and sentence(x) and multi(x)]
+                nbs = [x for x in cells if x not in bul and sentence(x)]   # 2026-10-03 用户退回：一列要加点就整列都加（单句也加）
                 # 取值列（有「持续」「≥ 800m」这类不带句号的短值格）：长的并列格加点、短值居中不加点，是允许的差异（用户第 52 条）
                 valcol = any(len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) < 12 and not ''.join(l[2] for l in x[1]).strip().endswith('。')
                              for x in cells if x not in bul)
@@ -325,15 +325,16 @@ def scan(pdf, name, header):
                     cs = [c for c in cs if c and not re.fullmatch(r'[—\-–/无\s]+', c)]
                     if len(cs) < 2: continue
                     bul = sum(1 for c in cs if c.startswith('•') and '–' not in c)   # 「• 引语：」+「– 子项」是 F2 层级写法，不算自动加点
-                    single_b = sum(1 for c in cs if c.count('•') == 1 and '–' not in c and len(c) < 80)   # 2026-10-03：序号表多条要点可加点，只报单句带点
-                    if serial and single_b and h not in EXPLICIT_BULLET:
+                    single_b = sum(1 for c in cs if c.count('•') == 1 and '–' not in c and len(c) < 80)
+                    multi_b = any(c.count('•') >= 2 for c in cs)   # 2026-10-03 用户：一列要加点就整列都加——序号表这一列有多条加点时，单句加点是对的
+                    if serial and single_b and not multi_b and h not in EXPLICIT_BULLET:
                         sug('T12', '%s 第 %d 页：序号表的「%s」列有自动加点——序号表其余列不加「•」（SD-102）' % (name, i + 1, h))
                     if any(re.match(r'([\u2460-\u2473]|\d+[.、])', c) for c in cs): continue   # 格内本身是 ①② / 1. 编号条目的列不报
                     sent = ([c for c in cs if vis(c) >= 12 or re.search(r'[，。；、]', c)] if re.search(r'说明$', h)
                             else [c for c in cs if vis(c) >= 36 or re.search(r'[，。；]', c)])   # 与生成器同口径，门槛略放宽避免临界误报
                     # SD-119 修订：单句不加点；只有格内有多句（「；」「。」分开 ≥ 2 句）却整列没加点时才提示
                     multi = [c for c in cs if len([p for p in re.split(r'[；]', c) if len(p.strip()) >= 4]) >= 2]
-                    if (not serial and bul == 0 and multi and len(sent) >= 0.6 * len(cs) and h not in EXPLICIT_NOBULLET
+                    if (not serial and bul == 0 and len(sent) >= 0.6 * len(cs) and h not in EXPLICIT_NOBULLET
                             and (DESC_H.match(h) or re.search(r'(条件|要求|说明|逻辑|措施|处置|要点|内容)$', h))):
                         sug('T11', '%s 第 %d 页：说明类句子列「%s」没有加「•」——整列左对齐加点（SD-102）' % (name, i + 1, h))
             except Exception: serial = False
