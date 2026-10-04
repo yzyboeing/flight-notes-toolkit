@@ -348,6 +348,7 @@ function tableGap(src, i) {
    让表格保持按内容收窄，说明文字按正文宽度排，不再被挤成一长条 */
 let PROBE = false, TBL_IDX = -1, KEEP_LAST = false;
 /* KEEP_FORCE 文件（fit_fix.py 维护）：一行一个表签名＝强制整表同页；「~N:签名」＝整表同页并按第 N 级压缩（SD-80）；「!签名」＝已放弃（fit_fix 自用） */
+const NCOND = new Map();   // SD-130 表外注段落收紧字距（fit_fix 写入 N:）
 const KEEP_FORCE = new Set(), SHRINK = new Map(), WFIX = new Map(), SPLITOK = new Set(), PBREAK = new Set(), CONDENSE = new Map();   // CONDENSE：签名 → [[首行前 10 字, 级]]（末行孤字收紧字距，fit_fix 写入 C:）
 if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
   for (const l0 of fs.readFileSync(process.env.KEEP_FORCE, 'utf8').split('\n')) {
@@ -356,6 +357,7 @@ if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
     if (w) { if (!WFIX.has(w[3])) WFIX.set(w[3], []); WFIX.get(w[3]).push([+w[1], +w[2]]); continue; }
     if (l.startsWith('S:')) { SPLITOK.add(l.slice(2)); continue; }   // SD-87 允许按块分页的块索引表
     if (l.startsWith('P:')) { PBREAK.add(l.slice(2)); continue; }
+    { const nn = l.match(/^N:(\d):(.+)$/); if (nn) { NCOND.set(nn[2], +nn[1]); continue; } }
     { const c = l.match(/^C:(\d):(.+)\|([^|]*)$/); if (c) { if (!CONDENSE.has(c[2])) CONDENSE.set(c[2], []); CONDENSE.get(c[2]).push([c[3], +c[1]]); continue; } }    // SD-97 孤行兜底：该条目标题另起一页
     if (/^WB?:/.test(l)) continue;
     const m = l.match(/^~(\d):(.+)$/);
@@ -1492,7 +1494,10 @@ function htmlTableCore(html) {
       const forceCenter = c.colspan === 1 && forcedCenterCols.has(ci);
       const longLeft = !isHdr && !c.head && !placeholder && ci > 0 && (c.colspan === 1 ? longParaCols.has(ci) : !!c.longPara);
       /* 用户 2026-10-04 样本：加圆点的列靠左，不加圆点的数据格一律居中（长短不论）；显式 col-left、序号表（A7）、父子层级除外 */
-      const plainCenter = !isHdr && !c.head && ci > 0 && !semMarked && !hierarchy && !forceLeft && !(c.colspan === 1 && serialLeft.has(ci)) && !process.env.DOC_F12_LEFT;
+      /* 用户 2026-10-04（1.5 B-2）：一格内 ≥ 2 条编号项（①② / 1. 2.）且有长句的，是步骤说明，不当普通数据格居中 */
+      const numList = !isHdr && !c.head && enumN2 >= 2 && contentParas.some(p => vis(p) > 50);   // 短编号项（速查 3.8 A-1 对比表）照旧居中，保持整列一致
+      if (process.env.NUM_LOG && numList && !semMarked && !hierarchy) console.error('NUMLIST', TBL_IDX, ci + 1, contentParas.length, Math.max(...contentParas.map(vis)), contentParas[0].slice(0, 30));
+      const plainCenter = !isHdr && !c.head && ci > 0 && !semMarked && !hierarchy && !forceLeft && !(numList && !process.env.DOC_NUM_CENTER) && !(c.colspan === 1 && serialLeft.has(ci)) && !process.env.DOC_F12_LEFT;
       const center = plainCenter || !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
         || (!forceLeft && !hierarchy && ((labelShort && (!longCols.has(ci) || firstAllLabel)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
           || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
@@ -1920,7 +1925,7 @@ while (i < src.length) {
       globalThis.__lastTbl = { end: i, hdr: hs }; }
     /* 用户 2026-10-04 样本：表后紧跟的「注：」放进表格最后一行（整行合并）——多条：每条一个「•」（条内 <br> 后的段落作「–」子项 / 编号子项）；
        只有一条且不分段：整行居中；不再写「注：」前缀。「出处 / 公司差异」仍在表外。DOC_NOTES_OUTSIDE=1 可恢复旧排法 */
-    if (!process.env.DOC_NOTES_OUTSIDE) {
+    if (process.env.DOC_NOTES_INROW) {   // SD-130 起默认不进表；DOC_NOTES_INROW=1 恢复「说明进表格末行」
       let j = i; const notes = [];
       while (j < src.length) { const t = src[j].trim();
         if (!t) { j++; continue; }
@@ -2029,6 +2034,20 @@ while (i < src.length) {
     const exp = /^解释：/.test(t);
     { const m = t.match(/^(解释：|公司差异：|注：)([^——]{1,30})——\s*(?:<[^>]+>)*\2[：:]/); if (m) t = t.replace(m[2] + '——', ''); }
     const lab = t.match(/^(注：|公司差异：)/);
+    /* SD-130（用户 2026-10-04 选 B）：表后「注：」不再塞进表格末行（窄表会把说明压成窄条），
+       改为表格后面的整句段落：淡蓝底 + 左侧蓝色竖条，占满版心宽度；连续几条注连成一块。DOC_NOTES_INROW=1 恢复旧排法 */
+    if (!process.env.DOC_NOTES_INROW && /^注：/.test(t)) {
+      const NFILL = process.env.DOC_NOTE_FILL || NOTE_BG, NBAR = process.env.DOC_NOTE_BAR || INK2;
+      body.push(new Paragraph({
+        children: runs('<strong>注：</strong>' + t.slice(2), { size: 18, ...(() => { const nk = unesc(t.slice(2).replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}_]/gu, '').slice(0, 12); const lv = NCOND.get(nk); return lv ? { cs: lv >= 2 ? -10 : -6 } : {}; })() }),
+        shading: { type: ShadingType.CLEAR, color: 'auto', fill: NFILL },
+        border: { top: { style: BorderStyle.SINGLE, size: 1, color: NFILL, space: 3 }, bottom: { style: BorderStyle.SINGLE, size: 1, color: NFILL, space: 3 },
+                  left: NBAR ? { style: BorderStyle.SINGLE, size: 14, color: NBAR, space: 5 } : { style: BorderStyle.SINGLE, size: 1, color: NFILL, space: 5 },
+                  right: { style: BorderStyle.SINGLE, size: 1, color: NFILL, space: 5 } },
+        indent: { left: 120, right: 120 }, spacing: { before: 60, after: 60, line: 300 }
+      }));
+      i++; continue;
+    }
     body.push(new Paragraph({
       children: exp ? runs('<small>' + t + '</small>') : runs('<strong>' + lab[1] + '</strong>' + t.slice(lab[1].length), { size: 18 }),
       spacing: { before: 10, after: 50, line: 280 }, ...TAIL
