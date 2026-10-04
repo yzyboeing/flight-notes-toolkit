@@ -440,7 +440,7 @@ function htmlTable(html) {
   let cur = [];
   /* SD-71：表中注解行把表拆成几段时，前一段末行、注解段与后一段首行互相「与下段同页」，不在注解处断开 */
   const flush = (bindNext) => { if (cur.length) { const kl = KEEP_LAST; if (bindNext) KEEP_LAST = true;
-    partsOut.push(htmlTableCore('<table class="ftn">\n' + hdrHtml + '\n' + cur.join('\n') + '\n</table>')); KEEP_LAST = kl; } cur = []; };
+    partsOut.push(htmlTableCore(((String(html).match(/^\s*<table[^>]*>/) || ['<table class="ftn">'])[0].trim()) + '\n' + hdrHtml + '\n' + cur.join('\n') + '\n</table>')); KEEP_LAST = kl; } cur = []; };   // 保留原表标注（split-ok 等）
   parsed.forEach((r, k) => {
     if (k < firstData || out.includes(r)) return;
     if (mids.includes(k)) { flush(true); partsOut.push(...paras([r], true)); return; }
@@ -1135,7 +1135,8 @@ function htmlTableCore(html) {
      1 级＝9pt 不变、收紧行距与单元格边距；2 级＝8.5pt；3 级＝8pt（底线，不再往下缩）。3 级仍放不下的照常分页。 */
   const tblText = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '');
   const tblSig = tblText.slice(0, 80);
-  const shrinkLv = SPLITOK.has(tblSig) ? 0 : (SHRINK.get(tblSig) || 0);
+  const splitRow = /^\s*<table[^>]*\bsplit-ok\b/.test(String(html));   // split-ok：不压字号、允许行间分页，防孤行照常（与块索引表的 SPLITOK 分开）   // 源文件 <table class="ftn split-ok">：长清单行间正常分页、不压字号（用户 2026-10-03 大表方案，2.3 B-1）
+  const shrinkLv = SPLITOK.has(tblSig) ? 0 : splitRow ? Math.min(2, SHRINK.get(tblSig) || 0) : (SHRINK.get(tblSig) || 0);   // split-ok 最多 2 级（8.5pt），避免孤页；不压到 8pt
   if (shrinkLv) { FS = [18, 18, 17, 16][shrinkLv]; LN = shrinkLv === 3 ? 240 : 250; CM = 30; }
   else if (process.env.ALLOW_SHRINK && estimate(FS) > BUDGET) {   // 旧开关，仅手动调试用
     const fit = [17, 16].find(c => estimate(c) <= BUDGET);
@@ -1267,7 +1268,7 @@ function htmlTableCore(html) {
      第二遍强制整表同页（KEEP_FORCE 文件，一行一个签名）。签名＝表内文字只留字母数字后的前 80 字。 */
   if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3), W: W.slice(),
     br: parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<br\s*\/?>/g, '\u0001').replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}\u0001]/gu, '').replace(/\u0001/g, '|')).join('')).join('') });
-  const keepTogether = (estimate(FS) <= BUDGET * 0.88 || KEEP_FORCE.has(tblSig)) && !SPLITOK.has(tblSig);   // SD-78 实测：Songti SC 下个别表实际比估算高约 12%（4.20 A/P 可用性表 估 8575 / 实 ≈ 9640），留 15% 余量
+  const keepTogether = splitRow ? estimate(FS) <= BUDGET * 0.95 : ((estimate(FS) <= BUDGET * 0.88 || KEEP_FORCE.has(tblSig)) && !SPLITOK.has(tblSig));   // split-ok：正常字号放得下一页就整表同页，放不下才行间分页   // SD-78 实测：Songti SC 下个别表实际比估算高约 12%（4.20 A/P 可用性表 估 8575 / 实 ≈ 9640），留 15% 余量
   if (process.env.FIT_LOG) console.error('TBL rows=%d est=%d fs=%d keep=%s', parsed.length, estimate(FS), FS, keepTogether);
 
   /* 顶部连续的通栏前提行 + 表头行一起作「重复标题行」（Word 要求标题行从第一行起连续） */
