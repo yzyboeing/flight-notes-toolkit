@@ -1506,13 +1506,14 @@ function htmlTableCore(html) {
       if (process.env.NUM_LOG && numList && !semMarked && !hierarchy) console.error('NUMLIST', TBL_IDX, ci + 1, contentParas.length, Math.max(...contentParas.map(vis)), contentParas[0].slice(0, 30));
       const plainCenter = !isHdr && !c.head && ci > 0 && !semMarked && !hierarchy && !forceLeft && !(numList && !process.env.DOC_NUM_CENTER) && !(c.colspan === 1 && serialLeft.has(ci)) && !process.env.DOC_F12_LEFT;
       if (process.env.TXT_LOG && plainCenter && !placeholder && !isNote && !isPre && !isWarn && ci === nCols - 1 && c.colspan === 1) console.error('TXTCOL\t' + TBL_IDX + '\t' + (hdrRow ? unesc(String((hdrRow.cells[hdrRow.cells.length - 1] || {}).text || '').replace(/<[^>]+>/g, '')) : '') + '\t' + (hdrRow ? unesc(hdrRow.cells.map(x => String(x.text).replace(/<[^>]+>/g, '')).join(' / ')) : '') + '\t' + unesc(String(c.text).replace(/<br\s*\/?>/g, ' ¦ ').replace(/<[^>]+>|[\uE001-\uE006]/g, '')));
-      const center = plainCenter || !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
+      const center = !(numList && ci > 0 && !process.env.DOC_NUM_CENTER) && (plainCenter || !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
         || (!forceLeft && !hierarchy && ((labelShort && (!longCols.has(ci) || firstAllLabel)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
           || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
           ? (!isNote && !isPre && !isWarn &&
                (c.colspan === 1 ? !longCols.has(ci) : shortCell(c.text)))
           : ((c.colspan === 1 && (centerCols.has(ci) || narrowSet.has(ci)))
-             || (isFirstCol && c.colspan === 1))))));
+             || (isFirstCol && c.colspan === 1)))))));   // SD-132：带序号的一律靠左（4.9 液压表「① … ② …」连写格曾经从别的分支被居中）
+      if (process.env.AUDIT_LOG && !isHdr && !c.head && !isNote && !isPre && !isWarn) { const t0 = String(c.text); console.error('AUD\t' + TBL_IDX + '\t' + ci + '\t' + c.colspan + '\t' + nCols + '\t' + (placeholder ? 'ph' : /\uE001/.test(t0) ? 'dot' : /\uE005|\uE002/.test(t0) ? 'sub' : center ? 'c' : 'l') + '\t' + (serialLeft.size ? "S" : "-") + '\t' + (hdrRow ? unesc(String(((hdrRow.cells.find((h, hk) => startCol[parsed.indexOf(hdrRow)][hk] === ci)) || {}).text || '').replace(/<[^>]+>/g, '')) : '') + '\t' + unesc(t0.replace(/<br\s*\/?>/g, ' ¦ ').replace(/<[^>]+>|[\uE001-\uE006]/g, '')).slice(0, 60)); }
       /* 首列序号格：原先因圈码字形回退到无粗体字体而改排阿拉伯数字；SD-76 全书统一 Songti SC 后圈码有粗体字形，
          2026-09-30 用户「统一序号」：表格与正文一律保留 ①②③（设 SERIAL_ARABIC=1 可恢复旧做法） */
       const serial = process.env.SERIAL_ARABIC && isFirstCol && /^\s*(<strong>)?\s*[\u2460-\u2473]\s*(<\/strong>)?\s*$/.test(String(c.text));
