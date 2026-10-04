@@ -97,7 +97,7 @@ const unesc = (t) => t.replace(/&lt;/g,'<').replace(/&gt;/g,'>')
 function runs(text, o = {}) {
   text = unesc(text);
   const out = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|<r>[\s\S]*?<\/r>|<k>[\s\S]*?<\/k>|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
   let last = 0, m;
   const push = (t, kind) => {
     if (!t) return;
@@ -129,20 +129,22 @@ function runs(text, o = {}) {
       bold: kind === 'bold' || kind === 'red' || kind === 'key' || kind === 'graybold' || o.bold,
       underline: (BW && kind === 'red' && !o.noRed) ? {} : undefined,
       ...(kind === 'key' && KEY_BG && !BW ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: KEY_BG } } : {}),
-      color: (kind === 'red' && !o.noRed) ? (BW ? '000000' : RED) : (kind === 'key' ? KEY_C : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000')))),
+      color: (kind === 'red' && !o.noRed) || kind === 'redn' ? (BW ? '000000' : RED) : (kind === 'key' || kind === 'keyn' ? KEY_C : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000')))),
       ...(o.cs ? { characterSpacing: o.cs } : {}),
       ...(tag ? { bold: true, color: '505050', size: Math.max(16, (grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20)) - 2) } : {})
     }));
   };
   /* 嵌套标记：<em> 与 <strong> 可互相嵌套，红色优先（红色本身已是粗体） */
   const walk = (s, kind) => {
-    const r = /(\*\*[^*]+\*\*|`[^`]+`|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
+    const r = /(\*\*[^*]+\*\*|`[^`]+`|<r>[\s\S]*?<\/r>|<k>[\s\S]*?<\/k>|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
     let l = 0, mm;
     while ((mm = r.exec(s)) !== null) {
       push(s.slice(l, mm.index), kind);
       const tk = mm[0];
       if (tk.startsWith('**')) walk(tk.slice(2, -2), kind === 'red' ? 'red' : (/^gray/.test(kind || '') ? 'graybold' : 'bold'));
       else if (tk.startsWith('`')) push(tk.slice(1, -1), 'code');
+      else if (tk.startsWith('<r>')) walk(tk.slice(3, -4), 'redn');   // 用户 2026-10-04 速查 48：常规字重红字（口诀首字）
+      else if (tk.startsWith('<k>')) walk(tk.slice(3, -4), 'keyn');   // 常规字重蓝字（A / B 成对项）
       else if (tk.startsWith('<em>')) {
         /* SD-75：颜色由源标记的语义决定，不再仅因含数字就自动改蓝。
            <em>＝选定的边界 / 警戒 / 关键动作（红）；<b>＝选定的记忆值（蓝）；
@@ -458,6 +460,7 @@ function htmlTable(html) {
 }
 
 function htmlTableCore(html) {
+  const parTbl = /^\s*<table[^>]*\bparallel\b/.test(String(html));   // SD-133：<table class="ftn parallel">＝并列对照 / 清单表：首列不加粗，表头标 col-bullet 时首列也加点
   const parsed = parseHtmlTable(html);
   if (!parsed.length) return null;
   const nCols = parsed[0].cells.reduce((a, c) => a + c.colspan, 0) || 2;
@@ -591,15 +594,18 @@ function htmlTableCore(html) {
         const c0 = r.cells.find((c, k) => startCol[ri][k] === 0); if (!c0) continue;
         if (!/^\s*([\u2460-\u2473]|\d{1,2})\s*$/.test(plainOf(c0.text))) return false; n++; }
       return n >= 2; })();
+    /* M15-L005（2026-10-04）：序号表里标 col-plain 的列，整列都是单句时不加点（F13 / B4）；有一格 ≥ 2 条要点的，整列照常加点（SD-127） */
+    if (serialTbl) brOnlyCols.forEach(col => { if (bulletCols.has(col) && !parsed.some((r, ri) => !/hdr|note|premise|warn/.test(r.cls) && r.cells.some((c, k) => startCol[ri][k] === col && c.colspan === 1 && String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x)).length >= 2))) {
+      bulletCols.delete(col); if (process.env.NUM_LOG) console.error('PLAIN-SINGLE', TBL_IDX, col); } });
     parsed.forEach((r, ri) => {
       if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => {
-        if (c.head || (startCol[ri][k] === 0 && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) || (noSemCols.has(startCol[ri][k]) && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) || c.cmpShared) return;   // cell-bullet 跨列格从首列开始也分条（速查 43 高度表说明行）
+        if (c.head || (startCol[ri][k] === 0 && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '') && !(parTbl && bulletCols.has(0))) || (noSemCols.has(startCol[ri][k]) && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) || c.cmpShared) return;   // cell-bullet 跨列格从首列开始也分条（速查 43 高度表说明行）
         if (serialTbl && !bulletCols.has(startCol[ri][k]) && String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x)).length < 2) return;   // 序号只编行：一格 ≥ 2 条并列要点仍分条加点（用户 2026-10-03 评估第 2 条）
         if ((bulletCols.has(startCol[ri][k]) && c.colspan === 1) || /(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) {   // 显式整列加点：每段按「；」拆项（各 ≥ 约 6 字），延续句悬挂对齐
           const s1 = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
           const p1 = plainOf(c.text).replace(/\s+/g, '');
-          if (!s1.length || /^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(p1) || s1.some(x => STRUCT.test(plainOf(x)) && !/^\s*[-–—]\s+/.test(plainOf(x)) && !/^注[：:]/.test(plainOf(x)))) return;
+          if (!s1.length || /^[—－\-–\/／空×✕✓√?？…（）()]*$/.test(p1) || s1.some(x => STRUCT.test(plainOf(x)) && !/^\s*[-–—]\s+/.test(plainOf(x)) && !/^注[：:]/.test(plainOf(x)))) return;
           const out1 = [];
           const allDash = s1.length >= 2 && s1.every(x => /^\s*[-–—]\s+/.test(plainOf(x)));   // 整格都是「- 」：并列列表，排「•」（不是子项）
           if (allDash) { c.text = s1.map(x => MK_B + x.replace(/^\s*[-–—]\s+/, '')).join('<br>'); return; }
@@ -729,7 +735,7 @@ function htmlTableCore(html) {
         const segs = t.split(/<br\s*\/?>/).filter(x => plainOf(x));
         const p0 = plainOf(t).replace(/\s+/g, '');
         if (shortKeep.has(col) && pv(t) < 12 && !/[。．]$/.test(p0)) return;
-        if (!segs.length || /^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(p0)) return;
+        if (!segs.length || /^[—－\-–\/／空×✕✓√?？…（）()]*$/.test(p0)) return;
         /* 圈码步骤与普通句混在一格（「……满足以下之一：① … ② …」）：普通句各作「•」项，圈码步骤缩进在其下；整格全是圈码的列表不动 */
         const isNum = segs.map(s0 => /^[①-⑳]/.test(plainOf(s0)));
         if (segs.some(s0 => STRUCT.test(plainOf(s0)))) {
@@ -816,7 +822,8 @@ function htmlTableCore(html) {
     parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => { const t = String(c.text); if (//.test(t)) colsB.add(startCol[ri][k]); if (//.test(t)) colsL.add(startCol[ri][k]); }); });
     parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
-      r.cells.forEach((c, k) => { if (colsB.has(startCol[ri][k]) && //.test(String(c.text))) c.text = String(c.text).replace(//g, ''); }); }); }
+      r.cells.forEach((c, k) => { const span = [...Array(c.colspan || 1).keys()].some(d => colsB.has(startCol[ri][k] + d));   // 跨列格：跨到的任一列有「•」也算（速查 125 Ⅱ 类说明格）
+        if ((span || /(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) && //.test(String(c.text))) c.text = String(c.text).replace(//g, ''); }); }); }
   /* SD-120 单句不加点·总收口（2026-10-03 全书审查：「同列统一」等前面的步骤会给单句格补「•」）：
      一格里只有一个「•」项（可带悬挂续句、没有子项）→ 算单句。整列都是单句：去掉标记、整列居中；混合列：单句格改为不加点、文字对齐（）；跨列格单句直接去点 */
   if (process.env.DOC_SINGLE_NODOT) { const single = (c) => { const ls = String(c.text).split(/<br\s*\/?>/).filter(x => x.replace(/<[^>]+>|[-\s]/g, ''));
@@ -1414,7 +1421,7 @@ function htmlTableCore(html) {
     for (let k = 1; k < nCols; k++) if (okc[k] && seen[k] >= 2) oneLineCols.add(k);
   }
   const normH = s => unesc(String(s).replace(/<[^>]+>/g, '')).replace(/[A-Za-z0-9\-（）()\s项个]/g, '');
-  const parallel = !!(hdrRow && hdrRow.cells.length >= 2 && normH(hdrRow.cells[0].text) &&
+  const parallel = parTbl || !!(hdrRow && hdrRow.cells.length >= 2 && normH(hdrRow.cells[0].text) &&
     normH(hdrRow.cells[0].text) === normH(hdrRow.cells[1].text));
   /* 末尾的通栏注释 / 警示行不单独落到下一页：最后一行数据行与它们连在一起 */
   let lastData = parsed.length - 1;
@@ -1495,9 +1502,10 @@ function htmlTableCore(html) {
       const longLeft = !isHdr && !c.head && !placeholder && ci > 0 && (c.colspan === 1 ? longParaCols.has(ci) : !!c.longPara);
       /* 用户 2026-10-04 样本：加圆点的列靠左，不加圆点的数据格一律居中（长短不论）；显式 col-left、序号表（A7）、父子层级除外 */
       /* 用户 2026-10-04（1.5 B-2）：一格内 ≥ 2 条编号项（①② / 1. 2.）且有长句的，是步骤说明，不当普通数据格居中 */
-      const numList = !isHdr && !c.head && enumN2 >= 2 && contentParas.some(p => vis(p) > 50);   // 短编号项（速查 3.8 A-1 对比表）照旧居中，保持整列一致
+      const numList = !isHdr && !c.head && contentParas.some(p => /^([①-⑳]|\d{1,2}[.、)）](?!\d))\s*\S/.test(p));   // 用户 2026-10-04：「前面有序号的都统一靠左，不居中」（取代「≥ 2 条且有长句」）
       if (process.env.NUM_LOG && numList && !semMarked && !hierarchy) console.error('NUMLIST', TBL_IDX, ci + 1, contentParas.length, Math.max(...contentParas.map(vis)), contentParas[0].slice(0, 30));
       const plainCenter = !isHdr && !c.head && ci > 0 && !semMarked && !hierarchy && !forceLeft && !(numList && !process.env.DOC_NUM_CENTER) && !(c.colspan === 1 && serialLeft.has(ci)) && !process.env.DOC_F12_LEFT;
+      if (process.env.TXT_LOG && plainCenter && !placeholder && !isNote && !isPre && !isWarn && ci === nCols - 1 && c.colspan === 1) console.error('TXTCOL\t' + TBL_IDX + '\t' + (hdrRow ? unesc(String((hdrRow.cells[hdrRow.cells.length - 1] || {}).text || '').replace(/<[^>]+>/g, '')) : '') + '\t' + (hdrRow ? unesc(hdrRow.cells.map(x => String(x.text).replace(/<[^>]+>/g, '')).join(' / ')) : '') + '\t' + unesc(String(c.text).replace(/<br\s*\/?>/g, ' ¦ ').replace(/<[^>]+>|[\uE001-\uE006]/g, '')));
       const center = plainCenter || !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
         || (!forceLeft && !hierarchy && ((labelShort && (!longCols.has(ci) || firstAllLabel)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
           || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
@@ -1573,7 +1581,7 @@ function htmlTableCore(html) {
         columnSpan: c.colspan > 1 ? c.colspan : undefined,
         rowSpan: c.rowspan > 1 ? c.rowspan : undefined,
         /* SD-99 单格标黄（<td class="hl">）：只标需要特别注意的那一两格，不整行铺黄 */
-        shading: { type: ShadingType.CLEAR, color: 'auto', fill: /(^|\s)hl(\s|$)/.test(c.cls || '') ? PRIORITY_F : fill },
+        shading: { type: ShadingType.CLEAR, color: 'auto', fill: /(^|\s)hl(\s|$)/.test(c.cls || '') ? PRIORITY_F : /(^|\s)hlb(\s|$)/.test(c.cls || '') ? 'DCE9F7' : fill },   // hlb：整格淡蓝底（速查 48 主 / 备用行）
         borders,
         margins: { top: CM, bottom: CM, left: 170, right: 90 },   // 用户 2026-10-03 悬挂圆点：左留白 150，圆点挂在留白里，全表文字起始位置一致
         verticalAlign: VerticalAlign.CENTER,   // 用户 2026-09-29：内容尽量靠表格中心（纵向居中），排版更舒服
