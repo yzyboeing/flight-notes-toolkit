@@ -780,6 +780,18 @@ function htmlTableCore(html) {
     }
     segs = out;
     const plainS = (x) => unesc(String(x).replace(/^[-]+/, '').replace(/<[^>]+>/g, '')).trim();
+    /* 编号续项不加圆点（噜噜 M12-001～007，2026-10-03）：「• ② …」→ 编号子项；前一项里「……：① ……」拆成父项（加粗）+「① ……」 */
+    { const out2 = [];
+      for (let i = 0; i < segs.length; i++) {
+        const x = segs[i];
+        if (mkOf(x) === '' && /^[②-⑳]/.test(plainS(x))) {
+          const pi = out2.length - 1, prev = pi >= 0 ? out2[pi] : '';
+          if (prev && mkOf(prev) === '') { const k = prev.indexOf('①'), head = k > 0 ? prev.slice(0, k) : '';
+            if (k > 0 && /[：:]\s*(<[^>]+>\s*)*$/.test(head) && head.split('<').length === head.split('>').length) {
+              out2[pi] = head.trimEnd(); out2.push('' + prev.slice(k)); } }
+          out2.push('' + x.slice(1)); continue; }
+        out2.push(x); }
+      segs = out2; }
     const tops = segs.filter(x => mkOf(x) === '');
     if (tops.length >= 2 && tops.every(x => /^\s*<(strong|b)>/.test(x) && /^[^：:，。；]{2,16}[：:]\s*\S/.test(plainS(x))))
       segs = segs.map(x => mkOf(x) === '' ? '' + x.slice(1) : x);
@@ -803,7 +815,11 @@ function htmlTableCore(html) {
       if (allSingle) {
         content.forEach(c => { c.text = String(c.text).replace(/|/g, ''); });
         if (hrS) hrS.cells.forEach((hc, hk) => { if (startCol[hriS][hk] === col) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(bullet|plain|left)(?=\s|$)/g, ' ') + ' col-center').trim(); });
-      } else sg.forEach(c => { c.text = String(c.text).replace(//, ''); });
+      } else { sg.forEach(c => { c.text = String(c.text).replace(//, ''); });
+        /* 混合列里没有标记的句子格（≥ 8 字）也靠左、文字与圆点项对齐（噜噜 M12 Z7，第 573 页「改出（续）」） */
+        content.forEach(c => { const t = String(c.text); if (/[-]/.test(t)) return;
+          const segs1 = t.split(/<br\s*\/?>/).filter(x => x.replace(/<[^>]+>|\s/g, ''));
+          if (segs1.length === 1 && unesc(t.replace(/<[^>]+>/g, '')).trim().length >= 8 && !/^\s*([①-⑳]|\d+[.、])/.test(unesc(t.replace(/<[^>]+>/g, '')))) c.text = '' + t.trim(); }); }
     }); }
   if (process.env.CELL_DUMP && !PROBE) {   // 复审用：把分条后的每格文字（含标记）写出，供 audit_cells.py 查同列 / 同格不统一
     const pl = (t) => unesc(String(t).replace(/\s+/g, ' ').replace(/ ?<br\s*\/?> ?/g, '\n').replace(/<[^>]+>/g, '')).replace(/\n([\uE001-\uE006]+) /g, '\n$1');
