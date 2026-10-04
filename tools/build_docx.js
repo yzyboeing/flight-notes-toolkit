@@ -88,7 +88,7 @@ const PORTRAIT = process.env.DOC_PORTRAIT === '1';
 /* DOC_SINGLE=1：单册（单章成书，如「理论基础知识速查」）——封面重排、章首页改为纯目录页 */
 const SINGLE = process.env.DOC_SINGLE === '1';
 const PAGE_W = PORTRAIT ? 11906 : 16838, PAGE_HT = PORTRAIT ? 16838 : 11906;
-const TOTAL = PAGE_W - M_IN - M_OUT;   // 表格最大宽度＝版心宽度，随页边距自适应（2026-09-30 用户）
+let TOTAL = PAGE_W - M_IN - M_OUT;   // 表格最大宽度＝版心宽度，随页边距自适应（2026-09-30 用户）
 const SC = (w) => Math.round(w * TOTAL / 14400);
 
 /* ---------- 行内解析：**bold** `code` <em>红</em> <strong>粗</strong> ---------- */
@@ -1996,7 +1996,8 @@ while (i < src.length) {
     const f0 = figParts(ln.replace(/^%%FIGSIDE%%\s*/, '')); i++;
     while (i < src.length && !src[i].trim()) i++;
     const buf = []; while (i < src.length && !/<\/table>/.test(src[i])) buf.push(src[i++]); buf.push(src[i++]);
-    const tbs = htmlTable(buf.join('\n')).filter(Boolean);
+    const lw0 = f0.wtw + 240, TOT0 = TOTAL; TOTAL = TOT0 - lw0 - 300;   // 右栏里的表按右栏宽度排
+    let tbs; try { tbs = htmlTable(buf.join('\n')).filter(Boolean); } finally { TOTAL = TOT0; }
     const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
     const nb = { top: none, bottom: none, left: none, right: none };
     const lw = f0.wtw + 240, rw = TOTAL - lw;
