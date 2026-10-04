@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 # -*- coding: utf-8 -*-
 """fit_fix.py —— 多遍排版：一页放得下的表绝不拆开；略超一页的表逐级压缩后整表同页（SD-79 / SD-80，2026-09-30 用户）
 用法：python3 fit_fix.py <输入.md> <输出.docx>      （环境变量照常传给 build_docx.js）
@@ -47,6 +48,7 @@ def to_pdf():
 
 # 状态：lv[sig] = 0（强制整表）/ 1～3（压缩级）；block＝放弃
 lv, block, wfix, wblock, splitok, pbreak = {}, set(), {}, set(), set(), set()
+ncond = {}   # SD-130 表外「注：」段落末行孤字：ncond[注文前 12 字] = 1（-0.3pt）/ 2（-0.5pt）
 condense = {}   # 2026-10-03 末行孤字兜底：加宽无效的格收紧字距，condense[(sig, 首行前 10 字)] = 1（-0.3pt）/ 2（-0.5pt）   # pbreak＝另起一页的条目标题（P:，SD-97 孤行兜底）   # splitok＝标题被留下的块索引表：允许按块分页（S:）     # wfix[(sig, 列)] = 加宽 DXA；wblock＝加宽也没用的格，不再试
 for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
     l = l.strip()
@@ -61,6 +63,8 @@ for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
         _, k, sg = l.split(':', 2); wblock.add((sg, int(k)))
     elif l.startswith('C:'):
         _, cl, rest = l.split(':', 2); sg, fk = rest.rsplit('|', 1); condense[(sg, fk)] = int(cl)
+    elif l.startswith('N:'):
+        _, cl, fk = l.split(':', 2); ncond[fk] = int(cl)
     elif l.startswith('!'): block.add(l[1:])
     elif l.startswith('~'): lv[l[3:]] = int(l[1])
     else: lv[l] = 0
@@ -73,6 +77,7 @@ def save():
         for sg in sorted(splitok): f.write('S:' + sg + '\n')
         for h in sorted(pbreak): f.write('P:' + h + '\n')
         for (sg, fk), cl in sorted(condense.items()): f.write('C:%d:%s|%s\n' % (cl, sg, fk))
+        for fk, cl in sorted(ncond.items()): f.write('N:%d:%s\n' % (cl, fk))
 
 bg = lambda x: {x[k:k + 2] for k in range(len(x) - 1)}
 def match(text, tbls):
@@ -122,6 +127,26 @@ for n in range(1, 8):
             new = wfix.get(key, 0) + int(x['extra_pt'] * 20) + 20
             if new > 1500 or tried.get(key, 0) >= 3: wblock.add(key); wfix.pop(key, None); wgive += 1; continue   # 加宽 3 次或超过 75pt 仍不行：放弃
             wfix[key] = new; tried[key] = tried.get(key, 0) + 1; wadd += 1
+    # SD-130 表外「注：」段落末行只剩一两个字：这一段收紧字距，最多两级
+    import fitz
+    nseen = set()
+    for pg in fitz.open(pdf):   # PDF 里注段落每行各成一块：按淡蓝底色块取行，再按「注：」分条
+        for dr in pg.get_drawings():
+            fl = dr.get('fill')
+            if not fl or '%02X%02X%02X' % tuple(round(v * 255) for v in fl) != 'EEF4FB': continue
+            lines = []
+            for b in pg.get_text('dict', clip=dr['rect'])['blocks']:
+                for ln in b.get('lines', []): lines.append((ln['bbox'][1], ''.join(sp['text'] for sp in ln['spans'])))
+            notes = []
+            for _, t in sorted(lines):
+                if t.lstrip().startswith('注：'): notes.append([t])
+                elif notes: notes[-1].append(t)
+            for ls in notes:
+                if len(ls) < 2: continue
+                last = re.sub(r'[^\w]', '', ls[-1])
+                if 0 < len(last) <= 2:
+                    fk = re.sub(r'[^\w]', '', ''.join(ls).lstrip()[2:])[:12]
+                    if fk and fk not in nseen and ncond.get(fk, 0) < 2: nseen.add(fk); ncond[fk] = ncond.get(fk, 0) + 1; cadd += 1
     # SD-87 标题被留下的近空白页：块索引表允许按块分页；其他表按超出比例压缩，让标题 / 导语与表同页
     from layout_measure import lonely
     ladd = 0
