@@ -785,6 +785,26 @@ function htmlTableCore(html) {
       segs = segs.map(x => mkOf(x) === '' ? '' + x.slice(1) : x);
     c.text = segs.join('<br>');
   }));
+  /* SD-120 单句不加点·总收口（2026-10-03 全书审查：「同列统一」等前面的步骤会给单句格补「•」）：
+     一格里只有一个「•」项（可带悬挂续句、没有子项）→ 算单句。整列都是单句：去掉标记、整列居中；混合列：单句格改为不加点、文字对齐（）；跨列格单句直接去点 */
+  { const single = (c) => { const ls = String(c.text).split(/<br\s*\/?>/).filter(x => x.replace(/<[^>]+>|[-\s]/g, ''));
+      return ls.length >= 1 && ls[0].startsWith('') && (ls[0].match(/^[-]+/) || [''])[0] === ''
+        && ls.slice(1).every(x => /^/.test(x)) && (String(c.text).match(//g) || []).length === 1; };
+    const hrS = parsed.find(r => r.cls.includes('hdr')), hriS = hrS ? parsed.indexOf(hrS) : -1;
+    const byCol = new Map();
+    parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+      r.cells.forEach((c, k) => { if (c.head || startCol[ri][k] === 0) return;
+        if (c.colspan !== 1) { if (single(c)) c.text = String(c.text).replace(/|/g, ''); return; }
+        const col = startCol[ri][k]; if (!byCol.has(col)) byCol.set(col, []); byCol.get(col).push(c); }); });
+    byCol.forEach((cs, col) => {
+      const content = cs.filter(c => String(c.text).replace(/<[^>]+>|[-\s—－\-–\/／无空]/g, ''));
+      const sg = content.filter(single); if (!sg.length) return;
+      const allSingle = content.every(c => single(c) || !/[-]/.test(String(c.text)) && String(c.text).split(/<br\s*\/?>/).filter(x => x.replace(/<[^>]+>|\s/g, '')).length <= 1);
+      if (allSingle) {
+        content.forEach(c => { c.text = String(c.text).replace(/|/g, ''); });
+        if (hrS) hrS.cells.forEach((hc, hk) => { if (startCol[hriS][hk] === col) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(bullet|plain|left)(?=\s|$)/g, ' ') + ' col-center').trim(); });
+      } else sg.forEach(c => { c.text = String(c.text).replace(//, ''); });
+    }); }
   if (process.env.CELL_DUMP && !PROBE) {   // 复审用：把分条后的每格文字（含标记）写出，供 audit_cells.py 查同列 / 同格不统一
     const pl = (t) => unesc(String(t).replace(/\s+/g, ' ').replace(/ ?<br\s*\/?> ?/g, '\n').replace(/<[^>]+>/g, '')).replace(/\n([\uE001-\uE006]+) /g, '\n$1');
     const hr = parsed.find(r => r.cls.includes('hdr'));
@@ -1359,6 +1379,7 @@ function htmlTableCore(html) {
       const placeholder = /^\s*(—|－|-|\/|)\s*$/.test(unesc(String(c.text).replace(/<[^>]+>/g, '')));
       /* 首列标签格：加粗、不标红（红色只留给数值与禁令） */
       const labelCol = isFirstCol && !parallel && c.colspan === 1 && nCols > 1 && firstIsLabel;
+      const boldFirst = isFirstCol && !parallel && c.colspan === 1 && nCols > 1;   // 用户 2026-10-03：每张表第一列一律加粗（并列对比表除外）；不标红仍只对标签列
       /* R2：首列短标签（括号前名称短）一律居中，括注折成多行也不改左对齐（用户 2026-09-29：速查区第 93 条 MOC / OCA） */
       const labelShort = labelCol && (() => {
         let t = unesc(String(c.text).replace(/<br\s*\/?>/g, '').replace(/<[^>]+>/g, '')).replace(/〔待补来源〕/g, '');
@@ -1430,10 +1451,14 @@ function htmlTableCore(html) {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
         const mk = (seg.match(/^[\uE001-\uE006]+/) || [''])[0]; seg = seg.slice(mk.length);
         const prefix = hierarchy ? (parentFlags[pi] ? '• ' : (hasParent ? '– ' : '')) :   /* 父项统一「•」（Muse M5-149 / 258，2026-10-01） */ mk === '\uE001' ? '• ' : mk.startsWith('\uE002') ? '– ' : '';
+        /* 父项加粗（用户 2026-10-03「父子关系，父都加粗加黑」）：以「：」结尾、下一段是子项（– / 编号子项 / 层级子段）的那一段 */
+        const nmk = ((rawParas[pi + 1] || '').match(/^[\uE001-\uE006]+/) || [''])[0];
+        const parentSeg = hierarchy ? !!parentFlags[pi]
+          : (/[：:]\s*(<\/[^>]+>\s*)*$/.test(seg) && pi + 1 < rawParas.length && (nmk.startsWith('\uE002') || nmk === '\uE005'));
         const prefix2 = (prefix === '– ' && /^\s*(<[^>]+>\s*)*([\u2460-\u2473]|\d+[.、)）])/.test(seg)) ? '' : prefix;   // ① 子项已编号不加短线
         return new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
-          children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol, size: FS }),
+          children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS }),
           spacing: { before: 20, after: 20, line: LN },
           indent: hierarchy ? { left: parentFlags[pi] ? 180 : 360, hanging: 140 } : (mk === '\uE001' || mk === '\uE006') ? { left: 200, hanging: 200 } : mk === '\uE004' ? { left: 200 } : mk === '\uE005' ? { left: 380, hanging: 180 } : mk === '\uE002\uE002' ? { left: 560, hanging: 180 } : mk === '\uE002' ? { left: 360, hanging: 180 } : undefined,
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
