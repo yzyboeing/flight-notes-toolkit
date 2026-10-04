@@ -325,7 +325,8 @@ def scan(pdf, name, header):
                     cs = [c for c in cs if c and not re.fullmatch(r'[—\-–/无\s]+', c)]
                     if len(cs) < 2: continue
                     bul = sum(1 for c in cs if c.startswith('•') and '–' not in c)   # 「• 引语：」+「– 子项」是 F2 层级写法，不算自动加点
-                    if serial and bul and h not in EXPLICIT_BULLET:
+                    single_b = sum(1 for c in cs if c.count('•') == 1 and '–' not in c and len(c) < 80)   # 2026-10-03：序号表多条要点可加点，只报单句带点
+                    if serial and single_b and h not in EXPLICIT_BULLET:
                         sug('T12', '%s 第 %d 页：序号表的「%s」列有自动加点——序号表其余列不加「•」（SD-102）' % (name, i + 1, h))
                     if any(re.match(r'([\u2460-\u2473]|\d+[.、])', c) for c in cs): continue   # 格内本身是 ①② / 1. 编号条目的列不报
                     sent = ([c for c in cs if vis(c) >= 12 or re.search(r'[，。；、]', c)] if re.search(r'说明$', h)

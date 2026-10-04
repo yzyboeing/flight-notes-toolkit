@@ -555,13 +555,13 @@ function htmlTableCore(html) {
           if (cs.length >= 2 && sent.length >= 0.6 * cs.length) hc.cls = ((hc.cls || '') + ' col-bullet').trim(); }); } }
     /* 不分条的列（2026-09-30 用户，速查区第 23 条：「定义……根本不需要加圆点，只需要把这个定义居中」）：
        表头显式 col-center 的列、表头为「定义 / 含义 / 释义 / 概念」的列——一格就是一个完整概念，不拆 */
-    const noSemCols = new Set(), bulletCols = new Set();   // 表头 class="col-bullet"：整列每格按项加「•」（SD-84 显式标注）
+    const noSemCols = new Set(), bulletCols = new Set(), brOnlyCols = new Set();   // 表头 class="col-bullet"：整列每格按项加「•」（SD-84 显式标注）
     { const hr = parsed.find(r => r.cls.includes('hdr'));
       if (hr) { const hri = parsed.indexOf(hr);
         hr.cells.forEach((hc, hk) => { if (hc.colspan !== 1) return;
           if (/(^|\s)col-center(\s|$)/.test(hc.cls || '') || (/^(定义|含义|释义|概念)$/.test(plainOf(hc.text).replace(/\s+/g, '')) && !/(^|\s)col-bullet(\s|$)/.test(hc.cls || '')))
             noSemCols.add(startCol[hri][hk]);
-          if (/(^|\s)col-plain(\s|$)/.test(hc.cls || '')) noSemCols.add(startCol[hri][hk]);   // 整列不分条、不统一加点，对齐照常（两型对照表，SD-84）
+          if (/(^|\s)col-plain(\s|$)/.test(hc.cls || '')) { bulletCols.add(startCol[hri][hk]); brOnlyCols.add(startCol[hri][hk]); }   // col-plain（2026-10-03 改）：不按「；」拆句；一格里按换行分开的 ≥ 2 条要点照常加点，单句不加（SD-120）
           if (/(^|\s)col-bullet(\s|$)/.test(hc.cls || '')) bulletCols.add(startCol[hri][hk]); }); } }
     /* 单句不加点（用户 2026-10-03）：除父子关系外，单独一句话前不加小圆点。按整列判断——加点列里每格都只有一句：整列改居中、不加点；
        有多条的列仍靠左，其中的单句格不加点、文字与圆点项文字对齐（见下方 MK_Q） */
@@ -587,7 +587,7 @@ function htmlTableCore(html) {
       if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => {
         if (c.head || startCol[ri][k] === 0 || (noSemCols.has(startCol[ri][k]) && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) || c.cmpShared) return;
-        if (serialTbl && !bulletCols.has(startCol[ri][k])) return;
+        if (serialTbl && !bulletCols.has(startCol[ri][k]) && String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x)).length < 2) return;   // 序号只编行：一格 ≥ 2 条并列要点仍分条加点（用户 2026-10-03 评估第 2 条）
         if ((bulletCols.has(startCol[ri][k]) && c.colspan === 1) || /(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) {   // 显式整列加点：每段按「；」拆项（各 ≥ 约 6 字），延续句悬挂对齐
           const s1 = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
           const p1 = plainOf(c.text).replace(/\s+/g, '');
@@ -596,7 +596,7 @@ function htmlTableCore(html) {
           const allDash = s1.length >= 2 && s1.every(x => /^\s*[-–—]\s+/.test(plainOf(x)));   // 整格都是「- 」：并列列表，排「•」（不是子项）
           if (allDash) { c.text = s1.map(x => MK_B + x.replace(/^\s*[-–—]\s+/, '')).join('<br>'); return; }
           s1.forEach((x, xi) => { const pp = splitOut(x, /[；;]/);
-            const pieces = pp && pp.length >= 2 && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '') && pp.every(y => pv(String(y).replace(/[；;，,。]/g, '')) >= 12) ? pp : [x];   // 单格加点（cell-bullet）只按 <br> 分项：「最低标准：……；……」带标签的段落是一项（速查 125）
+            const pieces = pp && pp.length >= 2 && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '') && !brOnlyCols.has(startCol[ri][k]) && pp.every(y => pv(String(y).replace(/[；;，,。]/g, '')) >= 12) ? pp : [x];   // 单格加点（cell-bullet）只按 <br> 分项：「最低标准：……；……」带标签的段落是一项（速查 125）
             if (/^\s*[-–—]\s+/.test(plainOf(x))) { out1.push(MK_C + MK_C + x.replace(/^\s*[-–—]\s+/, '')); return; }
             if (/^注[：:]/.test(plainOf(x))) { out1.push(MK_Q + x); return; }   // 加点列里的「注：」行：不加点，缩进与圆点项文字对齐（速查 125，2026-10-03）   // 源文件「- 」子项 → 「–」子项
             pieces.forEach(y => out1.push(((xi > 0 || out1.length) && CONT.test(plainOf(y)) ? MK_Q : MK_B) + y)); });
@@ -758,7 +758,7 @@ function htmlTableCore(html) {
         if (!/^\s*([\u2460-\u2473]|\d{1,2})\s*$/.test(plainOf(c0.text))) return false; n++; } return n >= 2; })();
       if (serB4) parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
         r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (col === 0 || bulletCols.has(col)) return;
-          const t = String(c.text); if (!/[\uE001\uE004]/.test(t) || /[\uE002\uE003]/.test(t)) return;
+          const t = String(c.text); if (!/[\uE001\uE004]/.test(t) || /[\uE002\uE003]/.test(t) || (t.match(/\uE001/g) || []).length >= 2) return;   // 多条要点保留分条（2026-10-03）
           c.text = t.replace(/[\uE001\uE004]/g, ''); }); }); }
   }
 
@@ -1268,6 +1268,16 @@ function htmlTableCore(html) {
   /* 表头可用 class="col-left" / class="col-center" 显式声明整列语义。
      这是列级规则，不是逐格特例：适用于「定义」等应整列居中的内容，
      以及「说明 / 条件 / 结果」等应整列左齐的内容。表头本身仍一律居中。 */
+  /* 长段落不居中（用户 2026-10-03 全书评估第 1 条）：居中只给一行放得下的短内容；某列有段落超过约 1.3 行宽（语义换行也排不成整齐两行）时，
+     整列数据格靠左（同列不锯齿），单句不加点照旧。表头、首列、占位格不受影响 */
+  const longParaCols = new Set();
+  { const fwp = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/^[\uE001-\uE006]+/, '').replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 180; };
+    parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+      r.cells.forEach((c, k) => { const ci = startCol[ri][k]; if (c.head || ci === 0) return;
+        let w = 0; for (let j = 0; j < c.colspan; j++) w += W[Math.min(ci + j, nCols - 1)];
+        const long = String(c.text).split(/<br\s*\/?>/).some(p => fwp(p) > 1.3 * w);
+        if (!long) return;
+        if (c.colspan === 1) longParaCols.add(ci); else c.longPara = true; }); }); }
   const forcedLeftCols = new Set(), forcedCenterCols = new Set();
   if (hdrRow) {
     const hri = parsed.indexOf(hdrRow);
@@ -1409,13 +1419,14 @@ function htmlTableCore(html) {
          父子层级本身依靠悬挂缩进表达，始终左齐；独立占位符仍居中。 */
       const forceLeft = c.colspan === 1 && forcedLeftCols.has(ci);
       const forceCenter = c.colspan === 1 && forcedCenterCols.has(ci);
-      const center = isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
+      const longLeft = !isHdr && !c.head && !placeholder && ci > 0 && (c.colspan === 1 ? longParaCols.has(ci) : !!c.longPara);
+      const center = !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
         || (!forceLeft && !hierarchy && ((labelShort && (!longCols.has(ci) || firstAllLabel)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
           || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
           ? (!isNote && !isPre && !isWarn &&
                (c.colspan === 1 ? !longCols.has(ci) : shortCell(c.text)))
           : ((c.colspan === 1 && (centerCols.has(ci) || narrowSet.has(ci)))
-             || (isFirstCol && c.colspan === 1)))));
+             || (isFirstCol && c.colspan === 1))))));
       /* 首列序号格：原先因圈码字形回退到无粗体字体而改排阿拉伯数字；SD-76 全书统一 Songti SC 后圈码有粗体字形，
          2026-09-30 用户「统一序号」：表格与正文一律保留 ①②③（设 SERIAL_ARABIC=1 可恢复旧做法） */
       const serial = process.env.SERIAL_ARABIC && isFirstCol && /^\s*(<strong>)?\s*[\u2460-\u2473]\s*(<\/strong>)?\s*$/.test(String(c.text));
@@ -1463,7 +1474,7 @@ function htmlTableCore(html) {
           indent: hierarchy ? { left: parentFlags[pi] ? 180 : 360, hanging: 140 } : (mk === '\uE001' || mk === '\uE006') ? { left: 200, hanging: 200 } : mk === '\uE004' ? { left: 200 } : mk === '\uE005' ? { left: 380, hanging: 180 } : mk === '\uE002\uE002' ? { left: 560, hanging: 180 } : mk === '\uE002' ? { left: 360, hanging: 180 } : undefined,
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
           /* 单格居中（<td class="center">，2026-10-01 用户，速查 120「条件」跨列格）优先于列规则 */
-          alignment: /(^|\s)center(\s|$)/.test(c.cls || '') ? AlignmentType.CENTER : (hierarchy || semMarked) ? undefined : (center ? AlignmentType.CENTER : undefined)
+          alignment: (/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? AlignmentType.CENTER : (hierarchy || semMarked) ? undefined : (center ? AlignmentType.CENTER : undefined)
         });
       });
       const borders = {
