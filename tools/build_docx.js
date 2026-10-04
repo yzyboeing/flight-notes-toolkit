@@ -1991,6 +1991,7 @@ while (i < src.length) {
       .map(r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
     body.push(mdTable(rows)); { const g = tableGap(src, i); if (g) body.push(g); } continue;
   }
+  if (/^%%FIG(SIDE)?%%/.test(ln) && !process.env.DOC_FIGS) { i++; continue; }   // SD-136 暂缓（用户 2026-10-04）：默认不排图，DOC_FIGS=1 才启用；源文件插图行保留
   if (/^%%FIG%%/.test(ln)) { const f0 = figParts(ln.replace(/^%%FIG%%\s*/, '')); body.push(f0.img); if (f0.capP) body.push(f0.capP); i++; continue; }
   if (/^%%FIGSIDE%%/.test(ln)) {               // 左图右表
     const f0 = figParts(ln.replace(/^%%FIGSIDE%%\s*/, '')); i++;
