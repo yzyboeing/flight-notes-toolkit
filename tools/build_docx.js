@@ -563,6 +563,19 @@ function htmlTableCore(html) {
             noSemCols.add(startCol[hri][hk]);
           if (/(^|\s)col-plain(\s|$)/.test(hc.cls || '')) noSemCols.add(startCol[hri][hk]);   // 整列不分条、不统一加点，对齐照常（两型对照表，SD-84）
           if (/(^|\s)col-bullet(\s|$)/.test(hc.cls || '')) bulletCols.add(startCol[hri][hk]); }); } }
+    /* 单句不加点（用户 2026-10-03）：除父子关系外，单独一句话前不加小圆点。按整列判断——加点列里每格都只有一句：整列改居中、不加点；
+       有多条的列仍靠左，其中的单句格不加点、文字与圆点项文字对齐（见下方 MK_Q） */
+    const itemsOf = (t) => { const s1 = String(t).split(/<br\s*\/?>/).filter(x => plainOf(x));
+      if (s1.length !== 1) return s1.length;
+      const pp = splitOut(s1[0], /[；;]/); return pp && pp.length >= 2 && pp.every(y => pv(String(y).replace(/[；;，,。]/g, '')) >= 12) ? pp.length : 1; };
+    { const hr = parsed.find(r => r.cls.includes('hdr')), hri = hr ? parsed.indexOf(hr) : -1;
+      for (const col of [...bulletCols]) {
+        const cs = []; parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+          r.cells.forEach((c, k) => { if (startCol[ri][k] === col && c.colspan === 1 && !c.head && plainOf(c.text) && !/^[—－\-–\/／无空]$/.test(plainOf(c.text))) cs.push(c); }); });
+        if (cs.length && cs.every(c => itemsOf(c.text) <= 1)) {
+          bulletCols.delete(col); noSemCols.add(col);
+          if (hr) hr.cells.forEach((hc, hk) => { if (startCol[hri][hk] === col) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(bullet|plain|left)(?=\s|$)/g, ' ') + ' col-center').trim(); });
+        } } }
     /* 序号表不自动加点（2026-10-01 用户，1.2 A-1：「前面有序号标注的这一列时，后面的内容前面是不需要加小圆点的」）：
        首列每个数据格都是序号（①～⑳ / 1～99）的表，序号已经编了项，其余列不再自动分条加「•」；表头显式 col-bullet 的列除外（用户点名要加点的）。 */
     const serialTbl = (() => { let n = 0;
@@ -587,6 +600,7 @@ function htmlTableCore(html) {
             if (/^\s*[-–—]\s+/.test(plainOf(x))) { out1.push(MK_C + MK_C + x.replace(/^\s*[-–—]\s+/, '')); return; }
             if (/^注[：:]/.test(plainOf(x))) { out1.push(MK_Q + x); return; }   // 加点列里的「注：」行：不加点，缩进与圆点项文字对齐（速查 125，2026-10-03）   // 源文件「- 」子项 → 「–」子项
             pieces.forEach(y => out1.push(((xi > 0 || out1.length) && CONT.test(plainOf(y)) ? MK_Q : MK_B) + y)); });
+          if (out1.length === 1 && out1[0].startsWith(MK_B)) out1[0] = MK_Q + out1[0].slice(MK_B.length);   // 单句不加点，缩进与圆点项文字对齐
           c.text = out1.join('<br>'); return;
         }
         const segs = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
@@ -703,7 +717,7 @@ function htmlTableCore(html) {
             : (plainOf(x) ? ((xi === 0 || !CONT.test(plainOf(x))) ? MK_B : MK_Q) + x : x)).join('<br>');   // 格内第一句、子项列表之后另起的一句，都作新的一项加点
           return;
         }
-        if (/[\uE001-\uE005]/.test(t)) return;
+        if (/[\uE001-\uE006]/.test(t)) return;
         const segs = t.split(/<br\s*\/?>/).filter(x => plainOf(x));
         const p0 = plainOf(t).replace(/\s+/g, '');
         if (shortKeep.has(col) && pv(t) < 12 && !/[。．]$/.test(p0)) return;
@@ -748,8 +762,31 @@ function htmlTableCore(html) {
           c.text = t.replace(/[\uE001\uE004]/g, ''); }); }); }
   }
 
+  /* SD-119 细化（用户 2026-10-03 采纳三条）：
+     ③ 父项（以「：」结尾）下只有一个子项 → 合并成一行写完；
+     ② 一格里的圆点项都以粗体「小标题：」开头 → 不加圆点，小标题即标记，第二行起悬挂对齐（MK ）；
+     ① 子项本身已有 ①② / 1. 编号 → 不再加「–」（渲染处判断） */
+  parsed.forEach(r => r.cells.forEach(c => {
+    if (!/[-]/.test(String(c.text))) return;
+    const mkOf = (x) => (String(x).match(/^[-]+/) || [''])[0];
+    const isChild = (x) => mkOf(x).startsWith('') || mkOf(x) === '';
+    let segs = String(c.text).split(/<br\s*\/?>/);
+    const out = [];
+    for (let i = 0; i < segs.length; i++) {
+      const x = segs[i];
+      if (!isChild(x) && /[：:]\s*(<\/[^>]+>\s*)*$/.test(x) && i + 1 < segs.length && isChild(segs[i + 1]) && !(i + 2 < segs.length && isChild(segs[i + 2]))) {
+        out.push(x.replace(/\s+$/, '') + segs[i + 1].slice(mkOf(segs[i + 1]).length).trim()); i++; continue; }
+      out.push(x);
+    }
+    segs = out;
+    const plainS = (x) => unesc(String(x).replace(/^[-]+/, '').replace(/<[^>]+>/g, '')).trim();
+    const tops = segs.filter(x => mkOf(x) === '');
+    if (tops.length >= 2 && tops.every(x => /^\s*<(strong|b)>/.test(x) && /^[^：:，。；]{2,16}[：:]\s*\S/.test(plainS(x))))
+      segs = segs.map(x => mkOf(x) === '' ? '' + x.slice(1) : x);
+    c.text = segs.join('<br>');
+  }));
   if (process.env.CELL_DUMP && !PROBE) {   // 复审用：把分条后的每格文字（含标记）写出，供 audit_cells.py 查同列 / 同格不统一
-    const pl = (t) => unesc(String(t).replace(/\s+/g, ' ').replace(/ ?<br\s*\/?> ?/g, '\n').replace(/<[^>]+>/g, '')).replace(/\n([\uE001-\uE005]+) /g, '\n$1');
+    const pl = (t) => unesc(String(t).replace(/\s+/g, ' ').replace(/ ?<br\s*\/?> ?/g, '\n').replace(/<[^>]+>/g, '')).replace(/\n([\uE001-\uE006]+) /g, '\n$1');
     const hr = parsed.find(r => r.cls.includes('hdr'));
     fs.appendFileSync(process.env.CELL_DUMP, JSON.stringify({ hdr: hr ? hr.cells.map(c => pl(c.text)) : [],
       rows: parsed.map((r, ri) => ({ cls: r.cls, cells: r.cells.map((c, k) => ({ col: startCol[ri][k], span: c.colspan, head: !!c.head, t: pl(c.text) })) })) }) + '\n');
@@ -763,7 +800,7 @@ function htmlTableCore(html) {
       const ci = startCol[ri][k];
       if (c.colspan === 1 && ci < nCols) {
         /* 分条 / 子项的缩进也占宽度（4.21 第 8 条：窄表里「– 子项」因缩进多折出一行只剩「80%；」） */
-        const indVis = (sg) => { const mk = (sg.match(/^[\uE001-\uE005]+/) || [''])[0];
+        const indVis = (sg) => { const mk = (sg.match(/^[\uE001-\uE006]+/) || [''])[0];
           return mk === '\uE002\uE002' ? 6.5 : mk === '\uE002' || mk === '\uE005' ? 4.4 : mk ? 2.4 : 0; };   // 缩进 560 / 360～380 / 200 DXA，按 9pt 汉字 180 DXA = 2 个宽度单位折算
         const longest = Math.max(...String(c.text).split(/<br\s*\/?>/).map(sg => vis(sg) + indVis(sg)));
         const t = isH || c.head ? hdrNeed : dataNeed;
@@ -1004,13 +1041,13 @@ function htmlTableCore(html) {
       r.cells.forEach((c, ck) => { if (c.colspan !== 1) return; const k = startCol[ri][ck];
         const bold = r.cls.includes('hdr') || c.head || k === 0, avail = W[k] - 260;
         String(c.text).split(/<br\s*\/?>/).forEach(sg => {
-          const mk0 = (sg.match(/^[\uE001-\uE005]+/) || [''])[0];
+          const mk0 = (sg.match(/^[\uE001-\uE006]+/) || [''])[0];
           const ind0 = mk0 === '\uE002\uE002' ? 560 : mk0 === '\uE005' ? 380 : mk0 === '\uE002' ? 360 : mk0 ? 200 : 0;   // 分条 / 子项的左缩进也占掉可用宽度
-          const L = fineVis(sg.replace(/^[\uE001-\uE005]+/, '')) * 90 + ind0; if (avail <= 0 || !L) return;   // 按宋体 9pt 实际字宽（汉字 180 DXA，粗体同宽）
+          const L = fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * 90 + ind0; if (avail <= 0 || !L) return;   // 按宋体 9pt 实际字宽（汉字 180 DXA，粗体同宽）
           const lines = Math.ceil(L / avail), rem = L - (lines - 1) * avail;
           if (lines >= 2 && lines <= 4 && rem <= 4.4 * 90) tail[k] = Math.max(tail[k], Math.ceil(L / (lines - 1)) + 260 + 60 - W[k]);
           /* 短标签 / 表头（约 20 字以内）折行：能一行放下就给够一行（SD-72 延伸：表内其他列有富余时也匀过来） */
-          if (lines >= 2 && L <= 20 * 180 && !/[\uE001-\uE005]/.test(sg)) tail[k] = Math.max(tail[k], Math.ceil(L) + 260 + 60 - W[k]); }); }); });
+          if (lines >= 2 && L <= 20 * 180 && !/[\uE001-\uE006]/.test(sg)) tail[k] = Math.max(tail[k], Math.ceil(L) + 260 + 60 - W[k]); }); }); });
     /* 表格没占满页宽时，用剩余页宽补末行孤字；只补窄表（不到页宽八成），避免整书重新分页 */
     { const used = W.reduce((a2, b2) => a2 + b2, 0); let free = used < TOTAL * 0.8 ? TOTAL - used : 0;
       for (let k = 0; k < nCols && free > 0; k++) if (tail[k] > 0) {
@@ -1045,8 +1082,8 @@ function htmlTableCore(html) {
         let lines = 0, np = 0;
         for (const seg0 of String(c.text).split(/<br\s*\/?>/)) {
           /* SD-78：加点 / 子项有悬挂缩进，可用行宽变窄；每多一段多一份段前后间距 */
-          const mk = (seg0.match(/^[\uE001-\uE005]+/) || [''])[0];
-          const ind = (mk === '\uE001' || mk === '\uE004') ? 200 : mk === '\uE005' ? 380 : mk === '\uE002\uE002' ? 560 : mk === '\uE002' ? 360 : 0;
+          const mk = (seg0.match(/^[\uE001-\uE006]+/) || [''])[0];
+          const ind = (mk === '\uE001' || mk === '\uE004' || mk === '\uE006') ? 200 : mk === '\uE005' ? 380 : mk === '\uE002\uE002' ? 560 : mk === '\uE002' ? 360 : 0;
           const perLine = Math.max(4, (w - 180 - ind) / unit);
           lines += Math.max(1, Math.ceil(vis(seg0.slice(mk.length).trim()) / perLine)); np++;
         }
@@ -1255,7 +1292,7 @@ function htmlTableCore(html) {
         /* 短词列举（2026-09-30 用户，速查区第 50 条「触发音响」：都是短词、不是句子 → 居中）：顿号 / 逗号 / 「或」分隔、每项 ≤ 约 15 字宽，不论总长 */
         const terms = body.split(/[、，,]|\s或\s/).map(x => x.trim()).filter(Boolean);
         const termList = terms.length >= 2 && terms.every(x => pvS(x) <= 30);
-        const bad = /<br\s*\/?>/.test(t) || /[\uE001-\uE005]/.test(t) || /[。]/.test(body) || (pvS(t) > 80 && !termList) || /^([①-⑳]|\d+[.、)）]\s)/.test(pl);
+        const bad = /<br\s*\/?>/.test(t) || /[\uE001-\uE006]/.test(t) || /[。]/.test(body) || (pvS(t) > 80 && !termList) || /^([①-⑳]|\d+[.、)）]\s)/.test(pl);
         if (c.colspan !== 1) { if (bad) for (let j = k; j < k + c.colspan; j++) ok[j] = false; return; }   // 跨列格只在「不是单句」时否决所跨各列
         seen[k]++;
         if (bad) ok[k] = false; }); });
@@ -1335,7 +1372,7 @@ function htmlTableCore(html) {
         const body = p.replace(/[：:]$/, '');
         return pi < plainParas.length - 1 && /[：:]$/.test(p) && vis(p) <= 70 && !/[，。；]/.test(body);
       });
-      const semMarked = /[\uE001-\uE005]/.test(String(c.text));
+      const semMarked = /[\uE001-\uE006]/.test(String(c.text));
       const hierarchy = !c.cmpShared && !semMarked && !isHdr && !c.head && rawParas.length >= 3 && parentFlags.some(Boolean)
         && !plainParas.slice(1).some(p => /^[①-⑳]\s*/.test(p));
       /* SD-78（2026-09-30 用户，速查区第 8 / 12 / 15 条）：同一格内 ≥ 2 条彼此独立的并列句（原文以 <br> 分开）→ 每条前加「•」、悬挂缩进、左齐。
@@ -1368,24 +1405,37 @@ function htmlTableCore(html) {
         const fvw = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 180; };
         const split = [];
         rawParas.forEach(seg => {
-          const k = seg.lastIndexOf('（'), tail = k > 0 ? seg.slice(k) : '';
-          const tailP = unesc(tail.replace(/<[^>]+>/g, '')).trim(), headP = unesc(seg.slice(0, k).replace(/<[^>]+>/g, '')).trim();
-          if (k > 0 && /^（[^（）]+）$/.test(tailP) && !/[（）]/.test(headP) && headP.length >= 2 && !/[，。；：:]$/.test(headP)
-              && fvw(seg) > w && fvw(seg.slice(0, k)) <= w && (seg.slice(0, k).match(/<[^/][^>]*>/g) || []).length === (seg.slice(0, k).match(/<\/[^>]+>/g) || []).length) {
-            split.push(seg.slice(0, k).trimEnd(), tail);
-            if (process.env.PAREN_LOG) console.error('PAREN', TBL_IDX, headP, tailP);
-          } else split.push(seg); });
+          /* 语义断点（用户 2026-10-03，速查 155）：一行排不下时，依次在「（括注」「 + 」「 → 」「，」处断开，前后两段各自排得下；
+             「（含）」这类 ≤ 3 字的短括注不拆，紧跟前文 */
+          const tagsOk = (t) => (t.match(/<[^/][^>]*>/g) || []).length === (t.match(/<\/[^>]+>/g) || []).length;
+          let done = false;
+          if (fvw(seg) > w) {
+            const k = seg.lastIndexOf('（'), tailP = k > 0 ? unesc(seg.slice(k).replace(/<[^>]+>/g, '')).trim() : '';
+            const cands = [];
+            if (k > 0 && /^（[^（）]{4,}）$/.test(tailP)) cands.push([k, k]);
+            for (const re of [/\s\+\s/g, /\s→\s/g]) { let m; while ((m = re.exec(seg))) cands.push([m.index, m.index + 1]); }
+            { const re = /，/g, cm = []; let m; while ((m = re.exec(seg))) cm.push([m.index + 1, m.index + 1]);
+              const mid = seg.length / 2; cm.sort((x, y) => Math.abs(x[0] - mid) - Math.abs(y[0] - mid)); cands.push(...cm); }   // 逗号取最靠近中间的，两行均衡
+            for (const [a, b] of cands) {
+              const h = seg.slice(0, a).trimEnd(), t = seg.slice(b).trimStart();
+              const hp = unesc(h.replace(/<[^>]+>/g, '')).trim();
+              if (hp.length >= 2 && fvw(h) <= w && fvw(t) <= w && tagsOk(h) && tagsOk(t) && !/[（]/.test(hp.replace(/（[^）]*）/g, ''))) {
+                split.push(h, t); done = true; if (process.env.PAREN_LOG) console.error('PAREN', TBL_IDX, hp, '|', unesc(t.replace(/<[^>]+>/g, ''))); break; }
+            }
+          }
+          if (!done) split.push(seg); });
         rawParas = split;
       }
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
-        const mk = (seg.match(/^[\uE001-\uE005]+/) || [''])[0]; seg = seg.slice(mk.length);
+        const mk = (seg.match(/^[\uE001-\uE006]+/) || [''])[0]; seg = seg.slice(mk.length);
         const prefix = hierarchy ? (parentFlags[pi] ? '• ' : (hasParent ? '– ' : '')) :   /* 父项统一「•」（Muse M5-149 / 258，2026-10-01） */ mk === '\uE001' ? '• ' : mk.startsWith('\uE002') ? '– ' : '';
+        const prefix2 = (prefix === '– ' && /^\s*(<[^>]+>\s*)*([\u2460-\u2473]|\d+[.、)）])/.test(seg)) ? '' : prefix;   // ① 子项已编号不加短线
         return new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
-          children: runs(prefix + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol, size: FS }),
+          children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol, size: FS }),
           spacing: { before: 20, after: 20, line: LN },
-          indent: hierarchy ? { left: parentFlags[pi] ? 180 : 360, hanging: 140 } : mk === '\uE001' ? { left: 200, hanging: 200 } : mk === '\uE004' ? { left: 200 } : mk === '\uE005' ? { left: 380, hanging: 180 } : mk === '\uE002\uE002' ? { left: 560, hanging: 180 } : mk === '\uE002' ? { left: 360, hanging: 180 } : undefined,
+          indent: hierarchy ? { left: parentFlags[pi] ? 180 : 360, hanging: 140 } : (mk === '\uE001' || mk === '\uE006') ? { left: 200, hanging: 200 } : mk === '\uE004' ? { left: 200 } : mk === '\uE005' ? { left: 380, hanging: 180 } : mk === '\uE002\uE002' ? { left: 560, hanging: 180 } : mk === '\uE002' ? { left: 360, hanging: 180 } : undefined,
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
           /* 单格居中（<td class="center">，2026-10-01 用户，速查 120「条件」跨列格）优先于列规则 */
           alignment: /(^|\s)center(\s|$)/.test(c.cls || '') ? AlignmentType.CENTER : (hierarchy || semMarked) ? undefined : (center ? AlignmentType.CENTER : undefined)
@@ -1612,7 +1662,7 @@ function singleToc(ch, brk) {
   out.push(new Paragraph({
     heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, keepNext: true,
     spacing: { before: 0, after: 120 },
-    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: '目录', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()]
+    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: '按章节查', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()]
   }));
   const hr = (sz, col, after) => new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after, line: 20 },
     children: [new TextRun({ text: '', size: 2 })],
@@ -1710,9 +1760,10 @@ function chapterOpener(ch, brk) {
     children: [new TextRun({ text: ch.desc, font: FF, size: 22, color: '404040' })] }));
   if (n) {
     const quick = ch.secs.every(s => /^QRB_/.test(s.id));
-    out.push(new Paragraph({ keepNext: true, spacing: { before: PORTRAIT ? 900 : dense ? 200 : 480, after: 120 },
-      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: C(INK2, '000000'), space: 4 } },
-      children: [new TextRun({ text: quick ? '本章速查主题' : '本章内容', color: H1_C, font: FF, size: 20, bold: true, characterSpacing: 40 })] }));
+    /* 用户 2026-10-03：第零章「本章速查主题」改名「按章节查」、居中，与下一页「按主题查」同一样式、相互对应 */
+    out.push(new Paragraph({ keepNext: true, alignment: quick ? AlignmentType.CENTER : undefined, spacing: { before: PORTRAIT ? 900 : quick ? 60 : dense ? 200 : 480, after: quick ? 80 : 120 },   // 按章节查标题放大后收紧上下间距，整页不溢出
+      border: { bottom: { style: BorderStyle.SINGLE, size: quick ? 12 : 4, color: quick ? H1_LINE : C(INK2, '000000'), space: 4 } },
+      children: [new TextRun({ text: quick ? '按章节查' : '本章内容', color: H1_C, font: FF, size: quick ? 32 : 20, bold: true, characterSpacing: quick ? 60 : 40 })] }));
     const nc = n <= 10 ? 1 : (PORTRAIT ? 2 : (n > 20 ? 3 : 2)), GAP = 600;
     const colW = nc === 1 ? Math.min(TOTAL, 9000) : Math.floor((TOTAL - GAP * (nc - 1)) / nc);
     const per = Math.ceil(n / nc), cols = [];
