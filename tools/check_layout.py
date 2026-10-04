@@ -248,7 +248,10 @@ def scan(pdf, name, header):
                 def sentence(x):
                     t0 = ''.join(l[2] for l in x[1]).strip()
                     return not re.match(r'[①-⑳]', t0) and '①' not in t0 and (len(re.sub(r'\s', '', t0)) >= 12 or t0.endswith('。'))
-                nbs = [x for x in cells if x not in bul and sentence(x)]
+                # SD-119 修订（用户 2026-10-03「除了父子关系之外，去掉所有单独的句子之前的小圆点」）：单句格不加点是对的，
+                # 只有没加点、格内却有多句（中间有「；」或「。」）的才算不统一
+                multi = lambda x: len([p for p in re.split(r'[；]', ''.join(l[2] for l in x[1]).strip()) if len(p.strip()) >= 4]) >= 2
+                nbs = [x for x in cells if x not in bul and sentence(x) and multi(x)]
                 # 取值列（有「持续」「≥ 800m」这类不带句号的短值格）：长的并列格加点、短值居中不加点，是允许的差异（用户第 52 条）
                 valcol = any(len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) < 12 and not ''.join(l[2] for l in x[1]).strip().endswith('。')
                              for x in cells if x not in bul)
@@ -327,7 +330,9 @@ def scan(pdf, name, header):
                     if any(re.match(r'([\u2460-\u2473]|\d+[.、])', c) for c in cs): continue   # 格内本身是 ①② / 1. 编号条目的列不报
                     sent = ([c for c in cs if vis(c) >= 12 or re.search(r'[，。；、]', c)] if re.search(r'说明$', h)
                             else [c for c in cs if vis(c) >= 36 or re.search(r'[，。；]', c)])   # 与生成器同口径，门槛略放宽避免临界误报
-                    if (not serial and bul == 0 and len(sent) >= 0.6 * len(cs) and h not in EXPLICIT_NOBULLET
+                    # SD-119 修订：单句不加点；只有格内有多句（「；」「。」分开 ≥ 2 句）却整列没加点时才提示
+                    multi = [c for c in cs if len([p for p in re.split(r'[；]', c) if len(p.strip()) >= 4]) >= 2]
+                    if (not serial and bul == 0 and multi and len(sent) >= 0.6 * len(cs) and h not in EXPLICIT_NOBULLET
                             and (DESC_H.match(h) or re.search(r'(条件|要求|说明|逻辑|措施|处置|要点|内容)$', h))):
                         sug('T11', '%s 第 %d 页：说明类句子列「%s」没有加「•」——整列左对齐加点（SD-102）' % (name, i + 1, h))
             except Exception: serial = False
