@@ -118,7 +118,7 @@ def cell_lines(lines, bb):
         r[0] = min(r[0], l[0]); r[1] = max(r[1], l[2]); r[2] += l[4]
     return [tuple(v) for v in rows.values()]
 
-PAD = 12   # 单元格左右内边距合计（pt）
+PAD = 13   # 单元格左右内边距合计（pt）：左 170 + 右 90 DXA ≈ 13pt（2026-10-03 悬挂圆点后）
 # 源文件里 <br> 主动换行的位置（T2 / T8 不把作者有意的换行当成问题）：build/book.md 去标签后只留字母数字，<br> 记为「|」
 _bk = os.path.join(REPO, 'build', 'book.md')
 BRTEXT = ''

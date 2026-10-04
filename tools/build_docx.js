@@ -25,7 +25,7 @@ const FF_CN = { ascii: CN, hAnsi: CN, eastAsia: CN, cs: CN };
 const CIRC2 = process.env.DOC_FONT_CIRC || MAIN;   // 思源宋体自带 ⑪～⑳；黑体时期曾借宋体字形
 const BOLDF = process.env.DOC_FONT_BOLD !== undefined ? process.env.DOC_FONT_BOLD : (MAIN === 'Source Han Serif CN Medium' ? 'Source Han Serif CN' : '');
 const FF_CIRC = { ascii: CIRC2, hAnsi: CIRC2, eastAsia: CIRC2, cs: CIRC2 };
-const DOT_CHAR = process.env.DOC_DOT_CHAR || '●', DOT_SCALE = +(process.env.DOC_DOT_SCALE || 0.38), DOT_RAISE = +(process.env.DOC_DOT_RAISE || 0.2), DOT_GAP = +(process.env.DOC_DOT_GAP || 40);   // 2026-10-01 用户选 6 号：0.38 号、上提、2pt 间距   // 分条圆点：字符 / 相对字号 / 上提（比选用）
+const DOT_CHAR = process.env.DOC_DOT_CHAR || '●', DOT_SCALE = +(process.env.DOC_DOT_SCALE || 0.32), DOT_RAISE = +(process.env.DOC_DOT_RAISE || 0.13), DOT_GAP = +(process.env.DOC_DOT_GAP || 40), DOT_COLOR = process.env.DOC_DOT_COLOR || '7F7F7F';   // 用户 2026-10-03 选 B：0.32 倍、50% 灰、上提 0.13   // DOT_COLOR：圆点颜色（空＝随文字色）   // 2026-10-01 用户选 6 号：0.38 号、上提、2pt 间距   // 分条圆点：字符 / 相对字号 / 上提（比选用）
 const DOT_BIG = (process.env.DOC_DOT || (MAIN.startsWith('Source Han') ? 'big' : 'plain')) === 'big';
 const FF_MONO = { ascii: MONO, hAnsi: MONO, eastAsia: CN, cs: MONO };
 /* SD-96 页眉「左章名、右节名」：页眉用 STYLEREF 引用字符样式 HdrChap（章名、前言、总目录）与 HdrSec（节名 / 速查块名）。
@@ -120,7 +120,7 @@ function runs(text, o = {}) {
     }
     /* SD-107：思源宋体的「•」字形偏小，分条圆点改排实心圆「●」、约半号、略上提，观感与原宋体的「•」一致 */
     if (kind !== 'code' && kind !== 'dot' && DOT_BIG && /^• /.test(t)) { push('●', 'dot'); push(t.slice(1), kind); return; }
-    if (kind === 'dot') { const sz = o.size || 20; out.push(new TextRun({ text: DOT_CHAR, font: FF, size: Math.max(6, Math.round(sz * DOT_SCALE)), position: String(Math.round(sz * DOT_RAISE)), ...(DOT_GAP ? { characterSpacing: DOT_GAP } : {}), color: o.color || '000000' })); return; }
+    if (kind === 'dot') { const sz = o.size || 20; out.push(new TextRun({ text: DOT_CHAR, font: FF, size: Math.max(6, Math.round(sz * DOT_SCALE)), position: String(Math.round(sz * DOT_RAISE)), ...(DOT_GAP ? { characterSpacing: DOT_GAP } : {}), color: DOT_COLOR || o.color || '000000' })); return; }
     const tag = kind !== 'code' && /^【[^】]*737[^】]*】$/.test(t);
     out.push(new TextRun({
       text: t,
@@ -857,7 +857,7 @@ function htmlTableCore(html) {
   const raw = dataNeed.map((d, i) => Math.max(d, hdrNeed[i] * 0.6, 3));
 
   /* 总宽：内容多的撑满页宽，内容少的按需收缩 */
-  const CHAR = 132, PAD = 170, FLOOR = 520;
+  const CHAR = 132, PAD = 250, FLOOR = 520;   // PAD 随左留白 90→170 加 80
   const wantedAll = raw.reduce((a, n) => a + Math.round(n * CHAR) + PAD, 0);
   /* 短标签列按下面的 FLOOR 取宽，比它「想要」的宽；差额要补进总宽，否则长句列被挤窄、平白多折一行（4.21 第 8 条） */
   const floorExtra = raw.reduce((a, n) => a + (n <= 20 ? Math.max(0, 520 - (Math.round(n * CHAR) + PAD + 160)) : 0), 0);
@@ -1077,15 +1077,15 @@ function htmlTableCore(html) {
     const tail = new Array(nCols).fill(0);
     parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, ck) => { if (c.colspan !== 1) return; const k = startCol[ri][ck];
-        const bold = r.cls.includes('hdr') || c.head || k === 0, avail = W[k] - 260;
+        const bold = r.cls.includes('hdr') || c.head || k === 0, avail = W[k] - 340;   // 左留白 170 + 右 90 + 余量
         String(c.text).split(/<br\s*\/?>/).forEach(sg => {
           const mk0 = (sg.match(/^[\uE001-\uE006]+/) || [''])[0];
-          const ind0 = mk0 === '\uE002\uE002' ? 560 : mk0 === '\uE005' ? 380 : mk0 === '\uE002' ? 360 : mk0 ? 200 : 0;   // 分条 / 子项的左缩进也占掉可用宽度
+          const ind0 = mk0 === '\uE006' ? 200 : (mk0 === '\uE005' || mk0.startsWith('\uE002')) ? 320 : 0;   // 悬挂圆点后   // 分条 / 子项的左缩进也占掉可用宽度
           const L = fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * 90 + ind0; if (avail <= 0 || !L) return;   // 按宋体 9pt 实际字宽（汉字 180 DXA，粗体同宽）
           const lines = Math.ceil(L / avail), rem = L - (lines - 1) * avail;
-          if (lines >= 2 && lines <= 4 && rem <= 4.4 * 90) tail[k] = Math.max(tail[k], Math.ceil(L / (lines - 1)) + 260 + 60 - W[k]);
+          if (lines >= 2 && lines <= 4 && rem <= 4.4 * 90) tail[k] = Math.max(tail[k], Math.ceil(L / (lines - 1)) + 340 + 60 - W[k]);
           /* 短标签 / 表头（约 20 字以内）折行：能一行放下就给够一行（SD-72 延伸：表内其他列有富余时也匀过来） */
-          if (lines >= 2 && L <= 20 * 180 && !/[\uE001-\uE006]/.test(sg)) tail[k] = Math.max(tail[k], Math.ceil(L) + 260 + 60 - W[k]); }); }); });
+          if (lines >= 2 && L <= 20 * 180 && !/[\uE001-\uE006]/.test(sg)) tail[k] = Math.max(tail[k], Math.ceil(L) + 340 + 60 - W[k]); }); }); });
     /* 表格没占满页宽时，用剩余页宽补末行孤字；只补窄表（不到页宽八成），避免整书重新分页 */
     { const used = W.reduce((a2, b2) => a2 + b2, 0); let free = used < TOTAL * 0.8 ? TOTAL - used : 0;
       for (let k = 0; k < nCols && free > 0; k++) if (tail[k] > 0) {
@@ -1124,7 +1124,7 @@ function htmlTableCore(html) {
         for (const seg0 of String(c.text).split(/<br\s*\/?>/)) {
           /* SD-78：加点 / 子项有悬挂缩进，可用行宽变窄；每多一段多一份段前后间距 */
           const mk = (seg0.match(/^[\uE001-\uE006]+/) || [''])[0];
-          const ind = (mk === '\uE001' || mk === '\uE004' || mk === '\uE006') ? 200 : mk === '\uE005' ? 380 : mk === '\uE002\uE002' ? 560 : mk === '\uE002' ? 360 : 0;
+          const ind = mk === '\uE006' ? 200 : (mk === '\uE005' || mk.startsWith('\uE002')) ? 320 : 0;   // 悬挂圆点后：「•」与单句不占缩进
           const perLine = Math.max(4, (w - 180 - ind) / unit);
           lines += Math.max(1, Math.ceil(vis(seg0.slice(mk.length).trim()) / perLine)); np++;
         }
@@ -1258,7 +1258,7 @@ function htmlTableCore(html) {
           const segs = String(c.text).split(/<br\s*\/?>/);
           if (segs.length > 1) multi++;
           segs.forEach(sg => { let v = 0; for (const ch of unesc(sg.replace(/<[^>]+>/g, ''))) v += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; mx = Math.max(mx, v); }); }); });
-      cols.push({ w: W[k], need: Math.round(mx * 96 * FS / 18 + 180), n, multi, left: longCols.has(k) });
+      cols.push({ w: W[k], need: Math.round(mx * 96 * FS / 18 + 260), n, multi, left: longCols.has(k) });
     }
     console.error('ALOG ' + JSON.stringify({ t: TBL_IDX, h: (hdrRowA => hdrRowA ? hdrRowA.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('|') : '')(parsed.find(r => r.cls.includes('hdr'))), cols }));
   }
@@ -1293,7 +1293,7 @@ function htmlTableCore(html) {
   /* 长段落不居中（用户 2026-10-03 全书评估第 1 条）：居中只给一行放得下的短内容；某列有段落超过约 1.3 行宽（语义换行也排不成整齐两行）时，
      整列数据格靠左（同列不锯齿），单句不加点照旧。表头、首列、占位格不受影响 */
   const longParaCols = new Set();
-  { const fwp = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/^[\uE001-\uE006]+/, '').replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 180; };
+  { const fwp = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/^[\uE001-\uE006]+/, '').replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 260; };
     parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => { const ci = startCol[ri][k]; if (c.head || ci === 0) return;
         let w = 0; for (let j = 0; j < c.colspan; j++) w += W[Math.min(ci + j, nCols - 1)];
@@ -1359,7 +1359,7 @@ function htmlTableCore(html) {
     parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, ck) => { if (c.colspan !== 1 || c.head) return; const k = startCol[ri][ck]; seen[k]++;
         const segs = String(c.text).split(/<br\s*\/?>/).filter(x => x.replace(/<[^>]+>/g, '').trim());
-        if (segs.length !== 1 || fv(segs[0]) * 96 * FS / 18 + 180 > W[k]) okc[k] = false; }); });
+        if (segs.length !== 1 || fv(segs[0]) * 96 * FS / 18 + 260 > W[k]) okc[k] = false; }); });
     for (let k = 1; k < nCols; k++) if (okc[k] && seen[k] >= 2) oneLineCols.add(k);
   }
   const normH = s => unesc(String(s).replace(/<[^>]+>/g, '')).replace(/[A-Za-z0-9\-（）()\s项个]/g, '');
@@ -1456,7 +1456,7 @@ function htmlTableCore(html) {
       /* 括注整句另起一行（用户 2026-10-03，1.6 慢车表「空中结冰环境（发动机防冰开且无进近形态时）」）：
          居中格里「名称（括注）」一行排不下时，括注不在中间断开，整句另起一行、同样居中；名称本身排得下才拆 */
       if (center && !hierarchy && !semMarked && !isNote && !isPre && !isWarn) {
-        const fvw = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 180; };
+        const fvw = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 260; };
         const split = [];
         rawParas.forEach(seg => {
           /* 语义断点（用户 2026-10-03，速查 155）：一行排不下时，依次在「（括注」「 + 」「 → 」「，」处断开，前后两段各自排得下；
@@ -1497,7 +1497,7 @@ function htmlTableCore(html) {
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
           children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS }),
           spacing: { before: 20, after: 20, line: LN },
-          indent: hierarchy ? { left: parentFlags[pi] ? 180 : 360, hanging: 140 } : (mk === '\uE001' || mk === '\uE006') ? { left: 200, hanging: 200 } : mk === '\uE004' ? { left: 200 } : mk === '\uE005' ? { left: 380, hanging: 180 } : mk === '\uE002\uE002' ? { left: 560, hanging: 180 } : mk === '\uE002' ? { left: 360, hanging: 180 } : undefined,
+          indent: hierarchy ? (parentFlags[pi] ? { left: 0, hanging: 120 } : { left: 320, hanging: 160 }) : mk === '\uE001' ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : mk === '\uE004' ? undefined : mk === '\uE005' ? { left: 320, hanging: 160 } : mk === '\uE002\uE002' ? { left: 320, hanging: 160 } : mk === '\uE002' ? { left: 320, hanging: 160 } : undefined,   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
           /* 单格居中（<td class="center">，2026-10-01 用户，速查 120「条件」跨列格）优先于列规则 */
           alignment: (/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? AlignmentType.CENTER : (hierarchy || semMarked) ? undefined : (center ? AlignmentType.CENTER : undefined)
@@ -1519,7 +1519,7 @@ function htmlTableCore(html) {
         /* SD-99 单格标黄（<td class="hl">）：只标需要特别注意的那一两格，不整行铺黄 */
         shading: { type: ShadingType.CLEAR, color: 'auto', fill: /(^|\s)hl(\s|$)/.test(c.cls || '') ? PRIORITY_F : fill },
         borders,
-        margins: { top: CM, bottom: CM, left: 90, right: 90 },
+        margins: { top: CM, bottom: CM, left: 170, right: 90 },   // 用户 2026-10-03 悬挂圆点：左留白 150，圆点挂在留白里，全表文字起始位置一致
         verticalAlign: VerticalAlign.CENTER,   // 用户 2026-09-29：内容尽量靠表格中心（纵向居中），排版更舒服
         children: paras.length ? paras : [new Paragraph('')]
       });

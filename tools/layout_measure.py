@@ -12,7 +12,7 @@ try:
 except ImportError:
     import fitz as pymupdf
 
-PAD = 12   # 单元格左右内边距合计（pt）
+PAD = 13   # 单元格左右内边距合计（pt）：左 170 + 右 90 DXA ≈ 13pt（2026-10-03 悬挂圆点后）
 norm = lambda x: ''.join(ch for ch in str(x or '') if ch.isalnum())
 
 def lines_of(pg):
