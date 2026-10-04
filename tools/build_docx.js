@@ -130,6 +130,7 @@ function runs(text, o = {}) {
       underline: (BW && kind === 'red' && !o.noRed) ? {} : undefined,
       ...(kind === 'key' && KEY_BG && !BW ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: KEY_BG } } : {}),
       color: (kind === 'red' && !o.noRed) ? (BW ? '000000' : RED) : (kind === 'key' ? KEY_C : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000')))),
+      ...(o.cs ? { characterSpacing: o.cs } : {}),
       ...(tag ? { bold: true, color: '505050', size: Math.max(16, (grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20)) - 2) } : {})
     }));
   };
@@ -347,14 +348,15 @@ function tableGap(src, i) {
    让表格保持按内容收窄，说明文字按正文宽度排，不再被挤成一长条 */
 let PROBE = false, TBL_IDX = -1, KEEP_LAST = false;
 /* KEEP_FORCE 文件（fit_fix.py 维护）：一行一个表签名＝强制整表同页；「~N:签名」＝整表同页并按第 N 级压缩（SD-80）；「!签名」＝已放弃（fit_fix 自用） */
-const KEEP_FORCE = new Set(), SHRINK = new Map(), WFIX = new Map(), SPLITOK = new Set(), PBREAK = new Set();
+const KEEP_FORCE = new Set(), SHRINK = new Map(), WFIX = new Map(), SPLITOK = new Set(), PBREAK = new Set(), CONDENSE = new Map();   // CONDENSE：签名 → [[首行前 10 字, 级]]（末行孤字收紧字距，fit_fix 写入 C:）
 if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
   for (const l0 of fs.readFileSync(process.env.KEEP_FORCE, 'utf8').split('\n')) {
     const l = l0.trim(); if (!l || l.startsWith('!')) continue;
     const w = l.match(/^W:(\d+):(\d+):(.+)$/);   // SD-85 实测加宽：W:列号:加宽DXA:签名
     if (w) { if (!WFIX.has(w[3])) WFIX.set(w[3], []); WFIX.get(w[3]).push([+w[1], +w[2]]); continue; }
     if (l.startsWith('S:')) { SPLITOK.add(l.slice(2)); continue; }   // SD-87 允许按块分页的块索引表
-    if (l.startsWith('P:')) { PBREAK.add(l.slice(2)); continue; }    // SD-97 孤行兜底：该条目标题另起一页
+    if (l.startsWith('P:')) { PBREAK.add(l.slice(2)); continue; }
+    { const c = l.match(/^C:(\d):(.+)\|([^|]*)$/); if (c) { if (!CONDENSE.has(c[2])) CONDENSE.set(c[2], []); CONDENSE.get(c[2]).push([c[3], +c[1]]); continue; } }    // SD-97 孤行兜底：该条目标题另起一页
     if (/^WB?:/.test(l)) continue;
     const m = l.match(/^~(\d):(.+)$/);
     if (m) { SHRINK.set(m[2], +m[1]); KEEP_FORCE.add(m[2]); } else KEEP_FORCE.add(l);
@@ -1098,7 +1100,10 @@ function htmlTableCore(html) {
     { const sig0 = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
       for (const [k, dd] of (WFIX.get(sig0) || [])) { if (k >= nCols) continue;
         let j = -1; for (let q = 0; q < nCols; q++) if (q !== k && (j < 0 || W[q] > W[j])) j = q;
-        const d0 = j >= 0 ? Math.min(dd, Math.floor(0.15 * W[j])) : 0;
+        /* 2026-10-03 末行孤字：先用表格没占满的页宽，不够再从最宽的另一列匀出（上限由 15% 放宽到 25%） */
+        const freeW = Math.max(0, TOTAL - W.reduce((a2, b2) => a2 + b2, 0)), f0 = Math.min(dd, freeW);
+        if (f0 > 0) W[k] += f0;
+        const d0 = j >= 0 ? Math.min(dd - f0, Math.floor(0.25 * W[j])) : 0;
         if (d0 > 0) { W[k] += d0; W[j] -= d0; } } }
   }
   if (process.env.W_LOG && COMPACT) console.error('W', nCols, JSON.stringify(W), String(parsed[0].cells.map(c => c.text).join('/')).slice(0, 40));
@@ -1475,6 +1480,10 @@ function htmlTableCore(html) {
           if (!done) split.push(seg); });
         rawParas = split;
       }
+      /* 末行孤字兜底（fit_fix 写入 C:）：这一格收紧字距，1 级 -0.3pt、2 级 -0.5pt */
+      const cellCS = (() => { const lst = CONDENSE.get(tblSig); if (!lst) return 0;
+        const nt = unesc(String(c.text).replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}]/gu, '');
+        const hit = lst.find(([fk]) => fk && nt.startsWith(fk)); return hit ? (hit[1] >= 2 ? -10 : -6) : 0; })();
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
         const mk = (seg.match(/^[\uE001-\uE006]+/) || [''])[0]; seg = seg.slice(mk.length);
@@ -1486,7 +1495,7 @@ function htmlTableCore(html) {
         const prefix2 = (prefix === '– ' && /^\s*(<[^>]+>\s*)*([\u2460-\u2473]|\d+[.、)）])/.test(seg)) ? '' : prefix;   // ① 子项已编号不加短线
         return new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
-          children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS }),
+          children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS }),
           spacing: { before: 20, after: 20, line: LN },
           indent: hierarchy ? { left: parentFlags[pi] ? 180 : 360, hanging: 140 } : (mk === '\uE001' || mk === '\uE006') ? { left: 200, hanging: 200 } : mk === '\uE004' ? { left: 200 } : mk === '\uE005' ? { left: 380, hanging: 180 } : mk === '\uE002\uE002' ? { left: 560, hanging: 180 } : mk === '\uE002' ? { left: 360, hanging: 180 } : undefined,
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),

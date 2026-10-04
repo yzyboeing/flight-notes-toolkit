@@ -57,7 +57,7 @@ def measure(pdf):
                     elif len(ls) == 2 and len(re.sub(r'\s', '', txt)) <= 20:   # 短格折两行：给够一行
                         extra = sum(l[1] - l[0] for l in ls) + PAD + 3 - cw
                     if extra > 0:
-                        found.append({'page': i + 1, 'col': k, 'extra_pt': round(extra, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'cx': round((c[0] + c[2]) / 2 - t.bbox[0], 1), 'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext})
+                        found.append({'page': i + 1, 'col': k, 'extra_pt': round(extra, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'prev': norm(ls[-2][2]), 'orphan': 0 < len(last) <= 2, 'cx': round((c[0] + c[2]) / 2 - t.bbox[0], 1), 'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext})
     return found
 
 if __name__ == '__main__':

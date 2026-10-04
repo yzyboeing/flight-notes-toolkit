@@ -46,7 +46,8 @@ def to_pdf():
     return p
 
 # 状态：lv[sig] = 0（强制整表）/ 1～3（压缩级）；block＝放弃
-lv, block, wfix, wblock, splitok, pbreak = {}, set(), {}, set(), set(), set()   # pbreak＝另起一页的条目标题（P:，SD-97 孤行兜底）   # splitok＝标题被留下的块索引表：允许按块分页（S:）     # wfix[(sig, 列)] = 加宽 DXA；wblock＝加宽也没用的格，不再试
+lv, block, wfix, wblock, splitok, pbreak = {}, set(), {}, set(), set(), set()
+condense = {}   # 2026-10-03 末行孤字兜底：加宽无效的格收紧字距，condense[(sig, 首行前 10 字)] = 1（-0.3pt）/ 2（-0.5pt）   # pbreak＝另起一页的条目标题（P:，SD-97 孤行兜底）   # splitok＝标题被留下的块索引表：允许按块分页（S:）     # wfix[(sig, 列)] = 加宽 DXA；wblock＝加宽也没用的格，不再试
 for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
     l = l.strip()
     if not l: continue
@@ -58,6 +59,8 @@ for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
         pbreak.add(l[2:])
     elif l.startswith('WB:'):
         _, k, sg = l.split(':', 2); wblock.add((sg, int(k)))
+    elif l.startswith('C:'):
+        _, cl, rest = l.split(':', 2); sg, fk = rest.rsplit('|', 1); condense[(sg, fk)] = int(cl)
     elif l.startswith('!'): block.add(l[1:])
     elif l.startswith('~'): lv[l[3:]] = int(l[1])
     else: lv[l] = 0
@@ -69,6 +72,7 @@ def save():
         for (sg, k) in sorted(wblock): f.write('WB:%d:%s\n' % (k, sg))
         for sg in sorted(splitok): f.write('S:' + sg + '\n')
         for h in sorted(pbreak): f.write('P:' + h + '\n')
+        for (sg, fk), cl in sorted(condense.items()): f.write('C:%d:%s|%s\n' % (cl, sg, fk))
 
 bg = lambda x: {x[k:k + 2] for k in range(len(x) - 1)}
 def match(text, tbls):
@@ -97,7 +101,7 @@ for n in range(1, 8):
                                     capture_output=True, text=True).stdout)
     # SD-85 实测加宽：末行孤字、短格折行 → 这张表这一列加宽，下一遍重排（原文 <br> 主动换行的不算）
     sys.path.insert(0, T); from layout_measure import measure
-    wadd, wgive, now = 0, 0, set()
+    wadd, wgive, now, cadd = 0, 0, set(), 0
     for x in measure(pdf):
         for sg in match(x['table'], tbls):           # 速查区与正文同文的表一并加宽
             tb = next(t for t in tbls if t['sig'] == sg)
@@ -109,7 +113,11 @@ for n in range(1, 8):
                 acc += wq
                 if pos <= acc: col = q; break
             key = (sg, col)
-            if key in wblock or key in now or (x['first'] and x['first'] + '|' in tb.get('br', '')): continue
+            if key in now or (x.get('prev') and x['prev'] + '|' in tb.get('br', '')): continue
+            if key in wblock:   # 加宽无效（表已占满版面、邻列太窄）：只在末行孤字时收紧这一格的字距，最多两级
+                fk = (x.get('first') or '')[:10]
+                if fk and x.get('orphan') and condense.get((sg, fk), 0) < 2: condense[(sg, fk)] = condense.get((sg, fk), 0) + 1; cadd += 1
+                now.add(key); continue   # 2026-10-03：与 check_layout T8 同口径——只有倒数第二行止于原文 <br> 才算主动换行（原来看第一行，带 <br> 的格一律跳过）
             now.add(key)
             new = wfix.get(key, 0) + int(x['extra_pt'] * 20) + 20
             if new > 1500 or tried.get(key, 0) >= 3: wblock.add(key); wfix.pop(key, None); wgive += 1; continue   # 加宽 3 次或超过 75pt 仍不行：放弃
@@ -155,6 +163,7 @@ for n in range(1, 8):
     print('fit_fix 第 %d 遍：%d 页，断表 %d 处（本可整页 %d）；新增整表 %d、压缩升级 %d、放弃 %d、撤出 %d；当前压缩 %d 张；列加宽 +%d、放弃 %d；标题孤页处理 %d%s' % (
         n, res['pages'], len(res['splits']), sum(s['fits'] for s in res['splits']), add, up, gave, len(changed),
         sum(1 for v in lv.values() if v), wadd, wgive, ladd, ('；匹配不到：' + '、'.join(miss)) if miss else ''))
-    if not (add or up or gave or changed or wadd or wgive or ladd): break
+    if cadd: print('fit_fix 第 %d 遍：末行孤字收紧字距 %d 格' % (n, cadd))
+    if not (add or up or gave or changed or wadd or wgive or ladd or cadd): break
     if n == 7: print('fit_fix：7 遍仍未稳定，docx 保持本遍结果，交 check_layout 报告')
 save()
