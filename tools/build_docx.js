@@ -1144,7 +1144,9 @@ function htmlTableCore(html) {
   if (process.env.W_LOG && COMPACT) console.error('W', nCols, JSON.stringify(W), String(parsed[0].cells.map(c => c.text).join('/')).slice(0, 40));
 
   /* 续表（表头 ghost）沿用上一段的列宽，竖线对齐，看起来是同一张表（用户 2026-10-03） */
-  if (!PROBE) { const isCont = parsed.some(r => /(^|\s)ghost(\s|$)/.test(r.cls || ''));
+  if (/^\s*<table[^>]*\btailtbl\b/.test(String(html)) && globalThis.__lastW) {   // 说明行单行表：总宽与列宽沿用上表
+    const lw = globalThis.__lastW; if (lw.length === W.length) for (let k = 0; k < W.length; k++) W[k] = lw[k]; else { W.length = 0; W.push(lw.reduce((a2, b2) => a2 + b2, 0)); } }
+  else if (!PROBE) { const isCont = parsed.some(r => /(^|\s)ghost(\s|$)/.test(r.cls || ''));
     if (process.env.DOC_CONT_SAMEW && isCont && globalThis.__lastW && globalThis.__lastW.length === W.length) for (let k = 0; k < W.length; k++) W[k] = globalThis.__lastW[k];   // 默认关：两段内容分布不同时硬套列宽反而折行更多（第 13 页三种复飞）
     globalThis.__lastW = W.slice(); }
   /* ---- 自动缩排：估算表格高度，超过一页时逐级缩小字号，尽量整表放在同一页 ---- */
@@ -1907,7 +1909,7 @@ while (i < src.length) {
     i++; body.push(codeBlock(buf)); body.push(P('', { before: 0, after: 40 })); continue;
   }
   if (/^\s*<table/.test(ln)) {                 // 内嵌 HTML 表格
-    const buf = [], tStart = i;
+    const buf = [], tStart = i; let tailHtml = '';
     while (i < src.length && !/<\/table>/.test(src[i])) buf.push(src[i++]);
     buf.push(src[i++]);
     /* 续表不重复表头（用户 2026-10-03）：紧接上一张表（中间只有空行）、表头逐字相同的表，视为同一张表的续表——表头标 ghost，参与列规则判断但不印出 */
@@ -1933,13 +1935,17 @@ while (i < src.length) {
           if (notes.length === 1 && !/<br\s*\/?>/.test(notes[0])) cell = '<td colspan="' + nc + '" class="center">' + notes[0] + '</td>';
           else cell = '<td colspan="' + nc + '" class="cell-bullet">' + notes.map(n => { const ps = n.split(/<br\s*\/?>/).filter(x => x.replace(/<[^>]+>/g, '').trim());
             return ps.map((p, pi) => pi === 0 ? p : (/^\s*(<[^>]+>\s*)*[①-⑳]/.test(p) ? '- ' + p : '- ' + p)).join('<br>'); }).join('<br>') + '</td>';
-          const k = buf.length - 1; buf[k] = buf[k].replace(/<\/table>/, '<tr class="tailrow">' + cell + '</tr>\n</table>');
+          /* 用户 2026-10-04「说明行与表格分页」：说明行做成紧接的单行表（列宽沿用上表），表格与说明行之间允许换页 */
+          tailHtml = '<table class="ftn tailtbl">\n<tr class="tailrow">' + cell + '</tr>\n</table>';
           i = j; globalThis.__lastTbl.end = i; } } }
     { let j = i; while (j < src.length && !src[j].trim()) j++;
       KEEP_LAST = j < src.length && /^(注：|出处：|解释：|公司差异：)/.test(src[j].trim()); }   // 表后注 / 出处 / 解释与表格末行同页
+    const keepTail = KEEP_LAST; if (tailHtml) KEEP_LAST = false;
     const tbs = htmlTable(buf.join('\n')).filter(Boolean);
+    let tts = [];
+    if (tailHtml) { KEEP_LAST = keepTail; tts = htmlTable(tailHtml).filter(Boolean); }
     KEEP_LAST = false;
-    if (tbs.length) { body.push(...tbs); const g = tableGap(src, i); if (g) body.push(g); }
+    if (tbs.length) { body.push(...tbs, ...tts); const g = tableGap(src, i); if (g) body.push(g); }
     continue;
   }
   if (/^\s*\|/.test(ln)) {                     // markdown 表格
