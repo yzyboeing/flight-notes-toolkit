@@ -6,7 +6,7 @@
 const {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, TableOfContents,
   WidthType, ShadingType, BorderStyle, AlignmentType, VerticalAlign, HeadingLevel,
-  PageBreak, Footer, Header, SimpleField, TabStopType, SectionType, PageNumber, PageOrientation, Bookmark, PageReference, InternalHyperlink, TableLayoutType, LeaderType, TableBorders
+  PageBreak, ImageRun, Footer, Header, SimpleField, TabStopType, SectionType, PageNumber, PageOrientation, Bookmark, PageReference, InternalHyperlink, TableLayoutType, LeaderType, TableBorders
 } = require('docx');
 const fs = require('fs');
 
@@ -367,6 +367,27 @@ if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
   }
 const TBL_DUMPS = [];
 const TBL_TARGET = [];
+
+/* SD-136 插图（2026-10-04 用户「笔记中加系统图」）：
+   %%FIG%% 文件 | 图注 | 宽度mm          → 整幅图居中，下接图注
+   %%FIGSIDE%% 文件 | 图注 | 宽度mm      → 紧接的下一张 HTML 表与图并排：左图右表
+   文件路径相对 notes_src/（或 DOC_FIG_DIR），PNG / JPG；图注小号灰字、居中 */
+function figParts(spec) {
+  const [file, cap, wmm] = spec.split('|').map(x => (x || '').trim());
+  const path = require('path');
+  const base = process.env.DOC_FIG_DIR || path.join(process.cwd(), 'notes_src');
+  const full = path.isAbsolute(file) ? file : path.join(base, file);
+  const data = fs.readFileSync(full);
+  const isPng = data.slice(1, 4).toString() === 'PNG';
+  let pw = 1000, ph = 1000;
+  if (isPng) { pw = data.readUInt32BE(16); ph = data.readUInt32BE(20); }
+  const wpx = Math.round((+wmm || 120) / 25.4 * 96), hpx = Math.round(wpx * ph / pw);
+  const img = new Paragraph({ alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 60, after: 40 },
+    children: [new ImageRun({ type: isPng ? 'png' : 'jpg', data, transformation: { width: wpx, height: hpx } })] });
+  const capP = cap ? new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 },
+    children: [new TextRun({ text: cap, font: FF, size: 16, color: GRAY })] }) : null;
+  return { img, capP, wtw: Math.round((+wmm || 120) * 56.7) };
+}
 function htmlTable(html) {
   if (!PROBE) TBL_IDX++;
   const parsed = parseHtmlTable(html);
@@ -1969,6 +1990,22 @@ while (i < src.length) {
       .filter(r => !/^\s*\|[\s:|-]+\|\s*$/.test(r))
       .map(r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
     body.push(mdTable(rows)); { const g = tableGap(src, i); if (g) body.push(g); } continue;
+  }
+  if (/^%%FIG%%/.test(ln)) { const f0 = figParts(ln.replace(/^%%FIG%%\s*/, '')); body.push(f0.img); if (f0.capP) body.push(f0.capP); i++; continue; }
+  if (/^%%FIGSIDE%%/.test(ln)) {               // 左图右表
+    const f0 = figParts(ln.replace(/^%%FIGSIDE%%\s*/, '')); i++;
+    while (i < src.length && !src[i].trim()) i++;
+    const buf = []; while (i < src.length && !/<\/table>/.test(src[i])) buf.push(src[i++]); buf.push(src[i++]);
+    const tbs = htmlTable(buf.join('\n')).filter(Boolean);
+    const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+    const nb = { top: none, bottom: none, left: none, right: none };
+    const lw = f0.wtw + 240, rw = TOTAL - lw;
+    body.push(new Table({ width: { size: TOTAL, type: WidthType.DXA }, columnWidths: [lw, rw], layout: TableLayoutType.FIXED,
+      borders: { top: none, bottom: none, left: none, right: none, insideHorizontal: none, insideVertical: none },
+      rows: [new TableRow({ cantSplit: true, children: [
+        new TableCell({ width: { size: lw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.CENTER, children: [f0.img, ...(f0.capP ? [f0.capP] : [])] }),
+        new TableCell({ width: { size: rw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.CENTER, margins: { left: 200 }, children: [...tbs, new Paragraph('')] })] })] }));
+    continue;
   }
   if (/^%%PAGEBREAK%%\s*$/.test(ln)) { pendingBreak = true; i++; continue; }
   if (/^%%CHAPDESC%%/.test(ln)) { i++; continue; }   // 章简介：已排在章首页
