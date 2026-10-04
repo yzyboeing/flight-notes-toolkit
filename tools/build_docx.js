@@ -25,7 +25,7 @@ const FF_CN = { ascii: CN, hAnsi: CN, eastAsia: CN, cs: CN };
 const CIRC2 = process.env.DOC_FONT_CIRC || MAIN;   // 思源宋体自带 ⑪～⑳；黑体时期曾借宋体字形
 const BOLDF = process.env.DOC_FONT_BOLD !== undefined ? process.env.DOC_FONT_BOLD : (MAIN === 'Source Han Serif CN Medium' ? 'Source Han Serif CN' : '');
 const FF_CIRC = { ascii: CIRC2, hAnsi: CIRC2, eastAsia: CIRC2, cs: CIRC2 };
-const DOT_CHAR = process.env.DOC_DOT_CHAR || '●', DOT_SCALE = +(process.env.DOC_DOT_SCALE || 0.32), DOT_RAISE = +(process.env.DOC_DOT_RAISE || 0.13), DOT_GAP = +(process.env.DOC_DOT_GAP || 40), DOT_COLOR = process.env.DOC_DOT_COLOR || '7F7F7F';   // 用户 2026-10-03 选 B：0.32 倍、50% 灰、上提 0.13   // DOT_COLOR：圆点颜色（空＝随文字色）   // 2026-10-01 用户选 6 号：0.38 号、上提、2pt 间距   // 分条圆点：字符 / 相对字号 / 上提（比选用）
+const DOT_CHAR = process.env.DOC_DOT_CHAR || '●', DOT_SCALE = +(process.env.DOC_DOT_SCALE || 0.32), DOT_RAISE = +(process.env.DOC_DOT_RAISE || 0.13), DOT_GAP = +(process.env.DOC_DOT_GAP || 40), DOT_COLOR = process.env.DOC_DOT_COLOR || '595959';   // 用户 2026-10-03 选 B：0.32 倍、50% 灰、上提 0.13   // DOT_COLOR：圆点颜色（空＝随文字色）   // 2026-10-01 用户选 6 号：0.38 号、上提、2pt 间距   // 分条圆点：字符 / 相对字号 / 上提（比选用）
 const DOT_BIG = (process.env.DOC_DOT || (MAIN.startsWith('Source Han') ? 'big' : 'plain')) === 'big';
 const FF_MONO = { ascii: MONO, hAnsi: MONO, eastAsia: CN, cs: MONO };
 /* SD-96 页眉「左章名、右节名」：页眉用 STYLEREF 引用字符样式 HdrChap（章名、前言、总目录）与 HdrSec（节名 / 速查块名）。
@@ -570,7 +570,7 @@ function htmlTableCore(html) {
     const itemsOf = (t) => { const s1 = String(t).split(/<br\s*\/?>/).filter(x => plainOf(x));
       if (s1.length !== 1) return s1.length;
       const pp = splitOut(s1[0], /[；;]/); return pp && pp.length >= 2 && pp.every(y => pv(String(y).replace(/[；;，,。]/g, '')) >= 12) ? pp.length : 1; };
-    { const hr = parsed.find(r => r.cls.includes('hdr')), hri = hr ? parsed.indexOf(hr) : -1;
+    if (process.env.DOC_SINGLE_NODOT) { const hr = parsed.find(r => r.cls.includes('hdr')), hri = hr ? parsed.indexOf(hr) : -1;
       for (const col of [...bulletCols]) {
         const cs = []; parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
           r.cells.forEach((c, k) => { if (startCol[ri][k] === col && c.colspan === 1 && !c.head && plainOf(c.text) && !/^[—－\-–\/／无空]$/.test(plainOf(c.text))) cs.push(c); }); });
@@ -602,7 +602,7 @@ function htmlTableCore(html) {
             if (/^\s*[-–—]\s+/.test(plainOf(x))) { out1.push(MK_C + MK_C + x.replace(/^\s*[-–—]\s+/, '')); return; }
             if (/^注[：:]/.test(plainOf(x))) { out1.push(MK_Q + x); return; }   // 加点列里的「注：」行：不加点，缩进与圆点项文字对齐（速查 125，2026-10-03）   // 源文件「- 」子项 → 「–」子项
             pieces.forEach(y => out1.push(((xi > 0 || out1.length) && CONT.test(plainOf(y)) ? MK_Q : MK_B) + y)); });
-          if (out1.length === 1 && out1[0].startsWith(MK_B)) out1[0] = MK_Q + out1[0].slice(MK_B.length);   // 单句不加点，缩进与圆点项文字对齐
+          if (process.env.DOC_SINGLE_NODOT && out1.length === 1 && out1[0].startsWith(MK_B)) out1[0] = MK_Q + out1[0].slice(MK_B.length);   // 单句不加点，缩进与圆点项文字对齐
           c.text = out1.join('<br>'); return;
         }
         const segs = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
@@ -758,8 +758,14 @@ function htmlTableCore(html) {
     { const serB4 = (() => { let n = 0; for (let ri = 0; ri < parsed.length; ri++) { const r = parsed[ri]; if (/hdr|note|premise|warn/.test(r.cls)) continue;
         const c0 = r.cells.find((c, k) => startCol[ri][k] === 0); if (!c0) continue;
         if (!/^\s*([\u2460-\u2473]|\d{1,2})\s*$/.test(plainOf(c0.text))) return false; n++; } return n >= 2; })();
+      const multiCols = new Set(); parsed.forEach((r, ri) => r.cells.forEach((c, k) => { if ((String(c.text).match(/\uE001/g) || []).length >= 2) multiCols.add(startCol[ri][k]); }));   // 2026-10-03 用户：一列要加点就整列都加
       if (serB4) parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
-        r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (col === 0 || bulletCols.has(col)) return;
+        r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (col === 0 || bulletCols.has(col) || multiCols.has(col)) return;
+          /* 序号表里的父子层级（2026-10-03，4.21 空速不可靠第 ④ 步）：步骤编号已是标记，父项不加「•」（仍加粗），子项「–」照旧 */
+          { const ls = String(c.text).split(/<br\s*\/?>/);
+            if ((String(c.text).match(/\uE001/g) || []).length === 1 && /[\uE002]/.test(String(c.text))) {
+              const i0 = ls.findIndex(x => x.startsWith('\uE001'));
+              if (i0 >= 0 && i0 + 1 < ls.length && ls[i0 + 1].startsWith('\uE002')) { ls[i0] = '\uE003' + ls[i0].slice(1); c.text = ls.join('<br>'); return; } } }
           const t = String(c.text); if (!/[\uE001\uE004]/.test(t) || /[\uE002\uE003]/.test(t) || (t.match(/\uE001/g) || []).length >= 2) return;   // 多条要点保留分条（2026-10-03）
           c.text = t.replace(/[\uE001\uE004]/g, ''); }); }); }
   }
@@ -799,9 +805,15 @@ function htmlTableCore(html) {
       segs = segs.map(x => mkOf(x) === '' ? '' + x.slice(1) : x);
     c.text = segs.join('<br>');
   }));
+  /* 2026-10-03 用户「要加圆点就整个一列都加圆点」：同一列里有「•」格时，粗体小标题段（）也改为「•」，整列一致；整列都是小标题段才保持不加点 */
+  { const colsB = new Set(), colsL = new Set();
+    parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+      r.cells.forEach((c, k) => { const t = String(c.text); if (//.test(t)) colsB.add(startCol[ri][k]); if (//.test(t)) colsL.add(startCol[ri][k]); }); });
+    parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+      r.cells.forEach((c, k) => { if (colsB.has(startCol[ri][k]) && //.test(String(c.text))) c.text = String(c.text).replace(//g, ''); }); }); }
   /* SD-120 单句不加点·总收口（2026-10-03 全书审查：「同列统一」等前面的步骤会给单句格补「•」）：
      一格里只有一个「•」项（可带悬挂续句、没有子项）→ 算单句。整列都是单句：去掉标记、整列居中；混合列：单句格改为不加点、文字对齐（）；跨列格单句直接去点 */
-  { const single = (c) => { const ls = String(c.text).split(/<br\s*\/?>/).filter(x => x.replace(/<[^>]+>|[-\s]/g, ''));
+  if (process.env.DOC_SINGLE_NODOT) { const single = (c) => { const ls = String(c.text).split(/<br\s*\/?>/).filter(x => x.replace(/<[^>]+>|[-\s]/g, ''));
       return ls.length >= 1 && ls[0].startsWith('') && (ls[0].match(/^[-]+/) || [''])[0] === ''
         && ls.slice(1).every(x => /^/.test(x)) && (String(c.text).match(//g) || []).length === 1; };
     const hrS = parsed.find(r => r.cls.includes('hdr')), hriS = hrS ? parsed.indexOf(hrS) : -1;
@@ -1293,12 +1305,20 @@ function htmlTableCore(html) {
   /* 长段落不居中（用户 2026-10-03 全书评估第 1 条）：居中只给一行放得下的短内容；某列有段落超过约 1.3 行宽（语义换行也排不成整齐两行）时，
      整列数据格靠左（同列不锯齿），单句不加点照旧。表头、首列、占位格不受影响 */
   const longParaCols = new Set();
+  const hdrCenterCols = new Set();
+  { const hr0 = parsed.find(r => r.cls.includes('hdr'));
+    if (hr0) { const hi = parsed.indexOf(hr0); hr0.cells.forEach((hc, hk) => { if (hc.colspan === 1 && /(^|\s)col-center(\s|$)/.test(hc.cls || '')) hdrCenterCols.add(startCol[hi][hk]); }); } }
   { const fwp = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/^[\uE001-\uE006]+/, '').replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 260; };
     parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => { const ci = startCol[ri][k]; if (c.head || ci === 0) return;
         let w = 0; for (let j = 0; j < c.colspan; j++) w += W[Math.min(ci + j, nCols - 1)];
-        const long = String(c.text).split(/<br\s*\/?>/).some(p => fwp(p) > 1.3 * w);
+        /* 2026-10-03 用户（第 44、49、52 页）：只有真正的长段落才靠左——一段约 36 字以上且超过 1.3 行宽；
+           短内容因为列窄折行仍居中。表头显式 col-center 的列，除非一段约 60 字以上，一律居中 */
+        const nch = (p) => unesc(String(p).replace(/^[\uE001-\uE006]+/, '').replace(/<[^>]+>/g, '')).replace(/\s+/g, '').length;
+        const hdrC = hdrCenterCols.has(ci);
+        const long = !hdrC && String(c.text).split(/<br\s*\/?>/).some(p => fwp(p) > 1.3 * w && nch(p) >= 36);   // 显式 col-center 一律居中（用户 2026-10-03 第 49 页「触发音响」）
         if (!long) return;
+        if (process.env.LONG_LOG && !PROBE) console.error('LONGCOL\t' + TBL_IDX + '\t' + ci + '\t' + unesc(String(c.text).replace(/<[^>]+>/g, '')).slice(0, 30));
         if (c.colspan === 1) longParaCols.add(ci); else c.longPara = true; }); }); }
   const forcedLeftCols = new Set(), forcedCenterCols = new Set();
   if (hdrRow) {
