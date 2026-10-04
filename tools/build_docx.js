@@ -441,8 +441,11 @@ function htmlTable(html) {
   const partsOut = [...paras(pre)];
   let cur = [];
   /* SD-71：表中注解行把表拆成几段时，前一段末行、注解段与后一段首行互相「与下段同页」，不在注解处断开 */
+  let partNo = 0;
   const flush = (bindNext) => { if (cur.length) { const kl = KEEP_LAST; if (bindNext) KEEP_LAST = true;
-    partsOut.push(htmlTableCore(((String(html).match(/^\s*<table[^>]*>/) || ['<table class="ftn">'])[0].trim()) + '\n' + hdrHtml + '\n' + cur.join('\n') + '\n</table>')); KEEP_LAST = kl; } cur = []; };   // 保留原表标注（split-ok 等）
+    /* 用户 2026-10-03：表格被注解行拆成几段时，只有第一段印表头；后面几段的表头标 ghost，参与列规则判断但不印出 */
+    const hdrPart = partNo++ === 0 ? hdrHtml : hdrHtml.replace(/class="hdr/g, 'class="hdr ghost');
+    partsOut.push(htmlTableCore(((String(html).match(/^\s*<table[^>]*>/) || ['<table class="ftn">'])[0].trim()) + '\n' + hdrPart + '\n' + cur.join('\n') + '\n</table>')); KEEP_LAST = kl; } cur = []; };   // 保留原表标注（split-ok 等）
   parsed.forEach((r, k) => {
     if (k < firstData || out.includes(r)) return;
     if (mids.includes(k)) { flush(true); partsOut.push(...paras([r], true)); return; }
@@ -547,14 +550,15 @@ function htmlTableCore(html) {
           if (hc.colspan !== 1 || col === 0 || /(^|\s)col-(center|bullet|plain|left)(\s|$)/.test(hc.cls || '')) return;
           const hp = plainOf(hc.text).replace(/\s+/g, ' ');
           if (CENTERH.test(hp)) { hc.cls = ((hc.cls || '') + ' col-center').trim(); return; }
-          if (serial0 || !(DESC.test(hp) || /(条件|要求|说明|逻辑|措施|处置|要点|内容)$/.test(hp))) return;   // 表头以这些词结尾的复合词也算（「触发推力条件」「供氧要求」）
+          const descH = DESC.test(hp) || /(条件|要求|说明|逻辑|措施|处置|要点|内容)$/.test(hp);   // 表头以这些词结尾的复合词也算（「触发推力条件」「供氧要求」）
+          if (serial0) return;   // 2026-10-04 用户（第 33 页「允许差值」）：表头不在名单里、但六成以上是句子的列，同样整列加点
           const cs = [];
           parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
             r.cells.forEach((c, k) => { if (startCol[ri][k] === col && c.colspan === 1) { const t = plainOf(c.text).replace(/\s+/g, '');
               if (t && !/^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(t)) cs.push(t); } }); });
           const sent = /说明$/.test(hp) ? cs.filter(t => pv(t) >= 12 || /[，。；、]/.test(t))   // 「说明」列（SD-103 补，用户：「如果是说明列，那这一列是可以靠左加小黑点的」）：短说明也算句子
-            : cs.filter(t => pv(t) >= 30 || /[，。；]/.test(t));   // 句子：带逗号 / 分号 / 句号，或约 15 字以上；「230kt」「离地 35ft → 起落架收上」这类取值 / 分界不算（2026-10-01 用户，第 25、27、54 页）
-          if (cs.length >= 2 && sent.length >= 0.6 * cs.length) hc.cls = ((hc.cls || '') + ' col-bullet').trim(); }); } }
+            : descH ? cs.filter(t => pv(t) >= 30 || /[，。；]/.test(t)) : cs.filter(t => /[，。；]/.test(t) && pv(t) >= 24);   // 表头不在名单里的列：必须带句读且约 12 字以上才算句子（短语、名称、数值不算）   // 句子：带逗号 / 分号 / 句号，或约 15 字以上；「230kt」「离地 35ft → 起落架收上」这类取值 / 分界不算（2026-10-01 用户，第 25、27、54 页）
+          if (cs.length >= 2 && sent.length >= 0.6 * cs.length) { hc.cls = ((hc.cls || '') + ' col-bullet').trim(); if (!descH && process.env.NEWB_LOG && !PROBE) console.error('NEWBULLET\t' + TBL_IDX + '\t' + hp + '\t' + cs[0].slice(0, 24)); } }); } }
     /* 不分条的列（2026-09-30 用户，速查区第 23 条：「定义……根本不需要加圆点，只需要把这个定义居中」）：
        表头显式 col-center 的列、表头为「定义 / 含义 / 释义 / 概念」的列——一格就是一个完整概念，不拆 */
     const noSemCols = new Set(), bulletCols = new Set(), brOnlyCols = new Set();   // 表头 class="col-bullet"：整列每格按项加「•」（SD-84 显式标注）
@@ -588,7 +592,7 @@ function htmlTableCore(html) {
     parsed.forEach((r, ri) => {
       if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => {
-        if (c.head || startCol[ri][k] === 0 || (noSemCols.has(startCol[ri][k]) && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) || c.cmpShared) return;
+        if (c.head || (startCol[ri][k] === 0 && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) || (noSemCols.has(startCol[ri][k]) && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) || c.cmpShared) return;   // cell-bullet 跨列格从首列开始也分条（速查 43 高度表说明行）
         if (serialTbl && !bulletCols.has(startCol[ri][k]) && String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x)).length < 2) return;   // 序号只编行：一格 ≥ 2 条并列要点仍分条加点（用户 2026-10-03 评估第 2 条）
         if ((bulletCols.has(startCol[ri][k]) && c.colspan === 1) || /(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) {   // 显式整列加点：每段按「；」拆项（各 ≥ 约 6 字），延续句悬挂对齐
           const s1 = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
@@ -1086,13 +1090,32 @@ function htmlTableCore(html) {
     if (process.env.W_LOG && filled) console.error('BACKFILL', filled, JSON.stringify(W), String(parsed[0].cells.map(c => c.text).join('/')).replace(/<[^>]+>/g, '').slice(0, 40));
     /* SD-84 末行孤字（2026-09-30 用户，速查区第 55 条「警」字单独占一行）：某格折行后末行只剩约 1～2 个字、且共 2～4 行时，
        从最宽的列匀出宽度（不超过其 12%），让该格少折一行 */
+    /* 用空余页宽减少行数（用户 2026-10-03，第 29 页备用襟翼「限值」列）：表格没占满版面时，每一轮挑「加宽最少就能让该列最多行的格子少一行」的列加宽，
+       直到空余用完或再也省不出行；只动数据格（含表头），跨列格不参与 */
+    { let free = TOTAL - W.reduce((a2, b2) => a2 + b2, 0);
+      const segsByCol = Array.from({ length: nCols }, () => []);
+      parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
+        r.cells.forEach((c, ck) => { if (c.colspan !== 1) return; const k = startCol[ri][ck];
+          String(c.text).split(/<br\s*\/?>/).forEach(sg => { if (!sg.replace(/<[^>]+>|[-\s]/g, '')) return;
+            const mk0 = (sg.match(/^[-]+/) || [''])[0];
+            const ind0 = mk0 === '\uE006' ? 200 : 0;
+            segsByCol[k].push(fineVis(sg.replace(/^[-]+/, '')) * 90 + ind0); }); }); });
+      for (let it = 0; it < 30 && free > 60; it++) {
+        let best = -1, bestNeed = Infinity;
+        for (let k = 0; k < nCols; k++) { const avail = W[k] - 340; if (avail <= 0 || !segsByCol[k].length) continue;
+          const lines = segsByCol[k].map(L => Math.ceil(L / avail)), mx = Math.max(...lines); if (mx < 2) continue;
+          const need = Math.max(...segsByCol[k].filter((L, q) => lines[q] === mx).map(L => Math.ceil(L / (mx - 1)) + 340 + 40)) - W[k];
+          if (need > 0 && need <= free && need < bestNeed) { bestNeed = need; best = k; } }
+        if (best < 0) break;
+        W[best] += bestNeed; free -= bestNeed;
+        if (process.env.W_LOG) console.error('FREEGROW', best, bestNeed); } }
     const tail = new Array(nCols).fill(0);
     parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, ck) => { if (c.colspan !== 1) return; const k = startCol[ri][ck];
         const bold = r.cls.includes('hdr') || c.head || k === 0, avail = W[k] - 340;   // 左留白 170 + 右 90 + 余量
         String(c.text).split(/<br\s*\/?>/).forEach(sg => {
           const mk0 = (sg.match(/^[\uE001-\uE006]+/) || [''])[0];
-          const ind0 = mk0 === '\uE006' ? 200 : (mk0 === '\uE005' || mk0.startsWith('\uE002')) ? 320 : 0;   // 悬挂圆点后   // 分条 / 子项的左缩进也占掉可用宽度
+          const ind0 = mk0 === '\uE006' ? 200 : 0;   // 悬挂圆点后   // 分条 / 子项的左缩进也占掉可用宽度
           const L = fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * 90 + ind0; if (avail <= 0 || !L) return;   // 按宋体 9pt 实际字宽（汉字 180 DXA，粗体同宽）
           const lines = Math.ceil(L / avail), rem = L - (lines - 1) * avail;
           if (lines >= 2 && lines <= 4 && rem <= 4.4 * 90) tail[k] = Math.max(tail[k], Math.ceil(L / (lines - 1)) + 340 + 60 - W[k]);
@@ -1120,6 +1143,10 @@ function htmlTableCore(html) {
   }
   if (process.env.W_LOG && COMPACT) console.error('W', nCols, JSON.stringify(W), String(parsed[0].cells.map(c => c.text).join('/')).slice(0, 40));
 
+  /* 续表（表头 ghost）沿用上一段的列宽，竖线对齐，看起来是同一张表（用户 2026-10-03） */
+  if (!PROBE) { const isCont = parsed.some(r => /(^|\s)ghost(\s|$)/.test(r.cls || ''));
+    if (process.env.DOC_CONT_SAMEW && isCont && globalThis.__lastW && globalThis.__lastW.length === W.length) for (let k = 0; k < W.length; k++) W[k] = globalThis.__lastW[k];   // 默认关：两段内容分布不同时硬套列宽反而折行更多（第 13 页三种复飞）
+    globalThis.__lastW = W.slice(); }
   /* ---- 自动缩排：估算表格高度，超过一页时逐级缩小字号，尽量整表放在同一页 ---- */
   const PAGE_H = PAGE_HT - M_TOP - M_BOT;   // 可用高度（DXA），随页边距自适应
   const BUDGET = PAGE_H - 900;          // 留出小节标题与段间距
@@ -1136,7 +1163,7 @@ function htmlTableCore(html) {
         for (const seg0 of String(c.text).split(/<br\s*\/?>/)) {
           /* SD-78：加点 / 子项有悬挂缩进，可用行宽变窄；每多一段多一份段前后间距 */
           const mk = (seg0.match(/^[\uE001-\uE006]+/) || [''])[0];
-          const ind = mk === '\uE006' ? 200 : (mk === '\uE005' || mk.startsWith('\uE002')) ? 320 : 0;   // 悬挂圆点后：「•」与单句不占缩进
+          const ind = mk === '\uE006' ? 200 : 0;   // 悬挂圆点后：「•」与单句不占缩进
           const perLine = Math.max(4, (w - 180 - ind) / unit);
           lines += Math.max(1, Math.ceil(vis(seg0.slice(mk.length).trim()) / perLine)); np++;
         }
@@ -1462,7 +1489,9 @@ function htmlTableCore(html) {
       const forceLeft = c.colspan === 1 && forcedLeftCols.has(ci);
       const forceCenter = c.colspan === 1 && forcedCenterCols.has(ci);
       const longLeft = !isHdr && !c.head && !placeholder && ci > 0 && (c.colspan === 1 ? longParaCols.has(ci) : !!c.longPara);
-      const center = !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
+      /* 用户 2026-10-04 样本：加圆点的列靠左，不加圆点的数据格一律居中（长短不论）；显式 col-left、序号表（A7）、父子层级除外 */
+      const plainCenter = !isHdr && !c.head && ci > 0 && !semMarked && !hierarchy && !forceLeft && !(c.colspan === 1 && serialLeft.has(ci)) && !process.env.DOC_F12_LEFT;
+      const center = plainCenter || !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
         || (!forceLeft && !hierarchy && ((labelShort && (!longCols.has(ci) || firstAllLabel)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
           || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
           ? (!isNote && !isPre && !isWarn &&
@@ -1511,13 +1540,13 @@ function htmlTableCore(html) {
         /* 父项加粗（用户 2026-10-03「父子关系，父都加粗加黑」）：以「：」结尾、下一段是子项（– / 编号子项 / 层级子段）的那一段 */
         const nmk = ((rawParas[pi + 1] || '').match(/^[\uE001-\uE006]+/) || [''])[0];
         const parentSeg = hierarchy ? !!parentFlags[pi]
-          : (/[：:]\s*(<\/[^>]+>\s*)*$/.test(seg) && pi + 1 < rawParas.length && (nmk.startsWith('\uE002') || nmk === '\uE005'));
+          : (/[：:]\s*(<\/[^>]+>\s*)*$/.test(seg) && pi + 1 < rawParas.length && (nmk.startsWith('\uE002') || nmk === '\uE005' || c.cmpShared));   // 对照表共有格不分层，但父项照样加粗（噜噜 M14-L005）
         const prefix2 = (prefix === '– ' && /^\s*(<[^>]+>\s*)*([\u2460-\u2473]|\d+[.、)）])/.test(seg)) ? '' : prefix;   // ① 子项已编号不加短线
         return new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
           children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS }),
           spacing: { before: 20, after: 20, line: LN },
-          indent: hierarchy ? (parentFlags[pi] ? { left: 0, hanging: 120 } : { left: 320, hanging: 160 }) : mk === '\uE001' ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : mk === '\uE004' ? undefined : mk === '\uE005' ? { left: 320, hanging: 160 } : mk === '\uE002\uE002' ? { left: 320, hanging: 160 } : mk === '\uE002' ? { left: 320, hanging: 160 } : undefined,   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
+          indent: hierarchy ? { left: 0, hanging: 120 } : (mk === '\uE001' || mk.startsWith('\uE002')) ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : undefined,   // 用户 2026-10-04 样本：子项「–」与圆点对齐（都悬挂在左留白），子项文字与父项文字对齐；编号子项、单句同一起点   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
           /* 单格居中（<td class="center">，2026-10-01 用户，速查 120「条件」跨列格）优先于列规则 */
           alignment: (/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? AlignmentType.CENTER : (hierarchy || semMarked) ? undefined : (center ? AlignmentType.CENTER : undefined)
@@ -1547,7 +1576,7 @@ function htmlTableCore(html) {
     return new TableRow({ tableHeader: false, cantSplit: true, children: cells });   // 不重复表头（用户要求，2026-09-28）
   });
   /* 固定列宽：Word 默认「根据内容自动调整」会改写按内容算好的列宽，导致首列等短列被拉宽 */
-  return new Table({ layout: TableLayoutType.FIXED, columnWidths: W, width: { size: W.reduce((a,b)=>a+b,0), type: WidthType.DXA }, rows: trs });
+  return new Table({ layout: TableLayoutType.FIXED, columnWidths: W, width: { size: W.reduce((a,b)=>a+b,0), type: WidthType.DXA }, rows: trs.filter((_, ri) => !/(^|\s)ghost(\s|$)/.test(parsed[ri].cls || '')) });   // ghost 表头不印
 }
 
 function mdTable(rows) {
@@ -1555,7 +1584,7 @@ function mdTable(rows) {
   const W = []; for (let i = 0; i < n; i++) W.push(Math.floor(TOTAL / n));
   W[n - 1] = TOTAL - W.slice(0, n - 1).reduce((a, b) => a + b, 0);
   const trs = rows.map((cells, ri) => new TableRow({
-    tableHeader: ri === 0, cantSplit: true,
+    tableHeader: false, cantSplit: true,   // 跨页不重复表头（用户 2026-10-03）
     children: Array.from({ length: n }, (_, ci) => new TableCell({
       width: { size: W[ci], type: WidthType.DXA },
       shading: { type: ShadingType.CLEAR, color: 'auto', fill: ri === 0 ? HDR_F : (ri % 2 ? ALT : 'FFFFFF') },
@@ -1878,9 +1907,34 @@ while (i < src.length) {
     i++; body.push(codeBlock(buf)); body.push(P('', { before: 0, after: 40 })); continue;
   }
   if (/^\s*<table/.test(ln)) {                 // 内嵌 HTML 表格
-    const buf = [];
+    const buf = [], tStart = i;
     while (i < src.length && !/<\/table>/.test(src[i])) buf.push(src[i++]);
     buf.push(src[i++]);
+    /* 续表不重复表头（用户 2026-10-03）：紧接上一张表（中间只有空行）、表头逐字相同的表，视为同一张表的续表——表头标 ghost，参与列规则判断但不印出 */
+    { const hm = buf.join('\n').match(/<tr class="hdr[^"]*">[\s\S]*?<\/tr>/); const hs = hm ? hm[0].replace(/<[^>]+>|\s+/g, '') : '';
+      let k = tStart - 1; while (k >= 0 && (!src[k].trim() || /^(注：|出处：|来源：)/.test(src[k].trim()))) k--;   // 中间只隔空行或注 / 出处行，仍算续表（4.8 电气故障处置）
+      if (hs && globalThis.__lastTbl && globalThis.__lastTbl.end === k + 1 && globalThis.__lastTbl.hdr === hs) {
+        const j0 = buf.findIndex(x => /<tr class="hdr/.test(x)); if (j0 >= 0) buf[j0] = buf[j0].replace('<tr class="hdr', '<tr class="hdr ghost'); }
+      globalThis.__lastTbl = { end: i, hdr: hs }; }
+    /* 用户 2026-10-04 样本：表后紧跟的「注：」放进表格最后一行（整行合并）——多条：每条一个「•」（条内 <br> 后的段落作「–」子项 / 编号子项）；
+       只有一条且不分段：整行居中；不再写「注：」前缀。「出处 / 公司差异」仍在表外。DOC_NOTES_OUTSIDE=1 可恢复旧排法 */
+    if (!process.env.DOC_NOTES_OUTSIDE) {
+      let j = i; const notes = [];
+      while (j < src.length) { const t = src[j].trim();
+        if (!t) { j++; continue; }
+        if (/^注：/.test(t)) { notes.push(t.replace(/^注：\s*/, '')); j++; continue; }
+        break; }
+      if (notes.length) {
+        const html0 = buf.join('\n');
+        const hr = html0.match(/<tr class="hdr[^"]*">([\s\S]*?)<\/tr>/) || html0.match(/<tr[^>]*>([\s\S]*?)<\/tr>/);
+        let nc = 0; if (hr) hr[1].replace(/<t[hd]([^>]*)>/g, (m, at) => { const cs = at.match(/colspan="(\d+)"/); nc += cs ? +cs[1] : 1; return m; });
+        if (nc >= 1) {
+          let cell;
+          if (notes.length === 1 && !/<br\s*\/?>/.test(notes[0])) cell = '<td colspan="' + nc + '" class="center">' + notes[0] + '</td>';
+          else cell = '<td colspan="' + nc + '" class="cell-bullet">' + notes.map(n => { const ps = n.split(/<br\s*\/?>/).filter(x => x.replace(/<[^>]+>/g, '').trim());
+            return ps.map((p, pi) => pi === 0 ? p : (/^\s*(<[^>]+>\s*)*[①-⑳]/.test(p) ? '- ' + p : '- ' + p)).join('<br>'); }).join('<br>') + '</td>';
+          const k = buf.length - 1; buf[k] = buf[k].replace(/<\/table>/, '<tr class="tailrow">' + cell + '</tr>\n</table>');
+          i = j; globalThis.__lastTbl.end = i; } } }
     { let j = i; while (j < src.length && !src[j].trim()) j++;
       KEEP_LAST = j < src.length && /^(注：|出处：|解释：|公司差异：)/.test(src[j].trim()); }   // 表后注 / 出处 / 解释与表格末行同页
     const tbs = htmlTable(buf.join('\n')).filter(Boolean);
