@@ -14,6 +14,16 @@ from onenote_conv import convert, page, strip_index, FONT, TABW
 NS = os.path.expanduser('~/flight-repos/gh-private/notes_src/')
 WORK = os.path.expanduser('~/flight-repos/_work/onenote')
 CHN = {'第一章': '第一章 系统理论', '第二章': '第二章 机组训练手册', '第三章': '第三章 运行手册', '第四章': '第四章 模拟机训练', '第五章': '第五章 技术提示'}
+NB_ID = '0-A7EF8B8B1AAC2778!s8966e7df85744afd957d97c2f66eb275'   # 用户自己的「飞行」笔记本（2026-10-05 用户：「以后更新就在这里更新」）
+def locate(nb_id, group=''):
+    """返回 ({分区名: id}, 新建分区用的父路径)。group 为空时分区直接在笔记本下。"""
+    if group:
+        sgs = req('GET', '/notebooks/%s/sectionGroups?$select=id,displayName' % nb_id)['value']
+        sg = next((g for g in sgs if g['displayName'] == group), None) or req('POST', '/notebooks/%s/sectionGroups' % nb_id, {'displayName': group})
+        parent = '/sectionGroups/%s' % sg['id']
+    else:
+        parent = '/notebooks/%s' % nb_id
+    return {s['displayName']: s['id'] for s in req('GET', parent + '/sections?$select=id,displayName')['value']}, parent
 NUM = {'1': '第一章', '2': '第二章', '3': '第三章', '4': '第四章', '5': '第五章'}
 def L(*a): print(*a, flush=True)
 def txt(x): return re.sub(r'[\s​]+', ' ', html.unescape(re.sub(r'<[^>]+>', '', x))).strip()
@@ -61,25 +71,27 @@ def add_figs(pid, title):
         w = min(TABW, round(fg['wmm'] / 270 * TABW)); name = 'fig' + uuid.uuid4().hex[:8]
         c = ('<img src="name:%s" width="%d" height="%d" alt="%s"/>' % (name, w, round(w * ph / pw), html.escape(fg['cap'])) +
              '<p style="margin-top:0;margin-bottom:0"><span style="font-family:%s;font-size:9pt;color:#595959">%s</span></p>' % (FONT, html.escape(fg['cap'], quote=False)))
-        patch_with_image(pid, [{'target': tid, 'action': 'insert', 'position': fg['anchor'][1], 'content': c}], name, data); L('   补图', fg['cap'][:16], w)
+        try:
+            patch_with_image(pid, [{'target': tid, 'action': 'insert', 'position': fg['anchor'][1], 'content': c}], name, data); L('   补图', fg['cap'][:16], w)
+        except RuntimeError as e:
+            L('   !! 补图出错（可能已插入，重跑会自动跳过）', fg['cap'][:16], str(e)[:40]); time.sleep(20)
         time.sleep(2)
 # ---------- 3. 主流程 ----------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--docx', required=True); ap.add_argument('--notebook', default='日积月累')
-    ap.add_argument('--group', default='B737 机型理论知识笔记（新版）'); ap.add_argument('--chapters', default='1-5')
+    ap.add_argument('--docx', required=True)
+    ap.add_argument('--notebook-id', default=NB_ID, help='默认：用户自己的「飞行」笔记本（另有同名共享只读本，必须按编号区分）')
+    ap.add_argument('--group', default='', help='分区组名；留空表示分区直接放在笔记本下（2026-10-05 起）')
+    ap.add_argument('--chapters', default='1-5')
     ap.add_argument('--only', default=''); ap.add_argument('--figs-only', action='store_true'); ap.add_argument('--audit-only', action='store_true')
     a = ap.parse_args()
     lo, hi = a.chapters.split('-'); want_ch = [NUM[str(n)] for n in range(int(lo), int(hi) + 1)]
     pages = [p for p in split(a.docx) if p['chap'] in want_ch]; L('拆页', len(pages), '节')
-    nb = [n for n in req('GET', '/notebooks?$select=id,displayName&$top=100')['value'] if n['displayName'] == a.notebook][0]
-    sgs = req('GET', '/notebooks/%s/sectionGroups?$select=id,displayName' % nb['id'])['value']
-    sg = next((g for g in sgs if g['displayName'] == a.group), None) or req('POST', '/notebooks/%s/sectionGroups' % nb['id'], {'displayName': a.group})
-    secs = {s['displayName']: s['id'] for s in req('GET', '/sectionGroups/%s/sections?$select=id,displayName' % sg['id'])['value']}
+    secs, parent = locate(a.notebook_id, a.group)
     only = [x for x in a.only.split(',') if x]
     for p in pages:
         name = CHN[p['chap']]
-        if name not in secs: secs[name] = req('POST', '/sectionGroups/%s/sections' % sg['id'], {'displayName': name})['id']; L('建分区', name)
+        if name not in secs: secs[name] = req('POST', parent + '/sections', {'displayName': name})['id']; L('建分区', name)
         sid = secs[name]; existing = {q['title']: q['id'] for q in list_pages(sid)}
         if a.audit_only: continue
         if only and not any(p['title'].startswith(o + ' ') for o in only):
