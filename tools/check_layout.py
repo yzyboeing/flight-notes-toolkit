@@ -318,14 +318,20 @@ def scan(pdf, name, header):
                     if (a[0] and not b[0] and b[1]) or (b[0] and not a[0] and a[1]):
                         sug('T9', '%s 第 %d 页：737-NG / 737-8 对照两列一列分条加点、另一列没有——两列格式应一致（表头标 col-bullet 或 col-center）' % (name, i + 1))
             except Exception: pass
+            # T8 末行孤字（SD-84 / SD-85；2026-10-05 起逐条查：长格、带圆点的格都查，报错误——用户：「APU 火警……不是应该调整宽度，让『1s』和『保持』在一行吗？」）
             for r in info:
                 for x in r:
-                    if not x or len(x[1]) < 2 or len(x[1]) > 3 or x[1][0][2].lstrip().startswith('•'): continue   # 只管短格；长段落末行一两个字属正常
-                    last = re.sub(r'[\s，。；：、（）()「」.,;:]', '', x[1][-1][2])
-                    prev = x[1][-2]   # 上一行接近撑满格宽才是自然折行；原文 <br> 主动换行（如「（被动）」）不算
-                    if (prev[1] - prev[0]) < (x[0][2] - x[0][0]) - PAD - 18 or re.match(r'\s*[（(]', x[1][-1][2]) or explicit_br(x[1][-2][2]): continue
-                    if 0 < len(last) <= 2 and not re.match(r'[•–▪]', x[1][-1][2].strip()):
-                        sug('T8', '%s 第 %d 页：「%s…」折行后末行只剩「%s」——调列宽让它少折一行' % (name, i + 1, x[1][0][2].strip()[:14], last))
+                    if not x or len(x[1]) < 2: continue
+                    cw = x[0][2] - x[0][0]; ls = x[1]
+                    full = lambda l: (l[1] - l[0]) >= cw - PAD - 20
+                    for q in range(1, len(ls)):
+                        cur, prev = ls[q], ls[q - 1]
+                        if not full(prev) or explicit_br(prev[2]) or re.match(r'\s*[•–▪①-⑳（(]', cur[2]): continue
+                        nxt = ls[q + 1] if q + 1 < len(ls) else None
+                        if nxt is not None and full(cur) and not re.match(r'\s*[•–▪①-⑳]', nxt[2]): continue
+                        last = re.sub(r'[\s，。；：、（）()「」.,;:]', '', cur[2])
+                        if 0 < len(last) <= 2:
+                            err('T8', '%s 第 %d 页：「…%s」折行后末行只剩「%s」——加宽这一列或收紧字距，让它少折一行' % (name, i + 1, prev[2].strip()[-12:], cur[2].strip()))
             # SD-102：序号表（首列全是 ①② / 1、2）——T4 不报（序号表不分条）；T12 报自动加点；非序号表的说明类句子列没加点报 T11
             try:
                 ctext = lambda x: ''.join(l[2] for l in x[1]).strip() if x else ''

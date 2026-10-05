@@ -85,7 +85,11 @@ def match(text, tbls):
     want = bg(text)
     if not want: return set()
     score = sorted(((len(want & t['bg']) / len(want), t['sig']) for t in tbls), reverse=True)
-    if not score or score[0][0] < 0.75: return set()
+    if not score: return set()
+    if score[0][0] < 0.75:
+        # 跨页表、紧贴表后注的表：PDF 上截到的文字只是源表的一部分，覆盖率偏低。最高分 ≥ 0.5 且明显高于第二名（≥ 0.2）也算匹配上（2026-10-05）
+        second = score[1][0] if len(score) > 1 else 0
+        return {score[0][1]} if score[0][0] >= 0.5 and score[0][0] - second >= 0.2 else set()
     return {s for v, s in score if v >= max(0.75, score[0][0] - 0.1)}
 
 dump = os.path.join(tempfile.mkdtemp(), 'dump.jsonl')
@@ -119,7 +123,8 @@ for n in range(1, 8):
                 if pos <= acc: col = q; break
             key = (sg, col)
             if key in now or (x.get('prev') and x['prev'] + '|' in tb.get('br', '')): continue
-            if key in wblock:   # 加宽无效（表已占满版面、邻列太窄）：只在末行孤字时收紧这一格的字距，最多两级
+            if x.get('span') and not x.get('orphan'): continue   # 跨列格的短格折行不处理
+            if key in wblock or x.get('span'):   # 加宽无效（或跨列格，不能单独加宽一列）（表已占满版面、邻列太窄）：只在末行孤字时收紧这一格的字距，最多两级
                 fk = (x.get('first') or '')[:10]
                 if fk and x.get('orphan') and condense.get((sg, fk), 0) < 2: condense[(sg, fk)] = condense.get((sg, fk), 0) + 1; cadd += 1
                 now.add(key); continue   # 2026-10-03：与 check_layout T8 同口径——只有倒数第二行止于原文 <br> 才算主动换行（原来看第一行，带 <br> 的格一律跳过）
