@@ -1172,23 +1172,33 @@ function htmlTableCore(html) {
       const tot1 = W.reduce((a2, b2) => a2 + b2, 0);
       const minTot = Math.max(0, ...wide0.map((L, q) => Math.ceil(L / wl0[q]) + 340 + 60));
       if (tot1 < minTot) { let j = 0; for (let q = 1; q < nCols; q++) if (W[q] > W[j]) j = q; W[j] += Math.min(minTot, tot0) - tot1; } }
+    /* SD-143（2026-10-05 用户）：「在页面右侧空间足够的情况下，尽量增加文字多的表格宽度，以减少行数」。
+       逐格算：每一轮在各列里找「加宽多少能让某一格少折一行」，按「每加 1 DXA 省几行」取最划算的一项加上，
+       直到空余用完或再也省不出行（原来只在「该列行数最多的格全都能少一行」时才加宽，长格排不进一行时整列不动）。
+       字宽口径与上面的「不增行收窄」一致（96 DXA × 1.03，粗体 × 1.08，左右留白 300）。跨列格不参与。 */
     { let free = TOTAL - W.reduce((a2, b2) => a2 + b2, 0);
+      const LN2 = (L, w) => Math.ceil(L / Math.max(1, w - 300));
       const segsByCol = Array.from({ length: nCols }, () => []);
       parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
         r.cells.forEach((c, ck) => { if (c.colspan !== 1) return; const k = startCol[ri][ck];
           String(c.text).split(/<br\s*\/?>/).forEach(sg => { if (!sg.replace(/<[^>]+>|[-\s]/g, '')) return;
             const mk0 = (sg.match(/^[-]+/) || [''])[0];
-            const ind0 = mk0 === '\uE006' ? 200 : 0;
-            segsByCol[k].push(fineVis(sg.replace(/^[-]+/, '')) * 90 + ind0); }); }); });
-      for (let it = 0; it < 30 && free > 60; it++) {
-        let best = -1, bestNeed = Infinity;
-        for (let k = 0; k < nCols; k++) { const avail = W[k] - 340; if (avail <= 0 || !segsByCol[k].length) continue;
-          const lines = segsByCol[k].map(L => Math.ceil(L / avail)), mx = Math.max(...lines); if (mx < 2) continue;
-          const need = Math.max(...segsByCol[k].filter((L, q) => lines[q] === mx).map(L => Math.ceil(L / (mx - 1)) + 340 + 40)) - W[k];
-          if (need > 0 && need <= free && need < bestNeed) { bestNeed = need; best = k; } }
+            segsByCol[k].push(fineVis(sg.replace(/^[-]+/, '')) * 96 * (r.cls.includes('hdr') || c.head || k === 0 || /<strong>/.test(sg) ? 1.08 : 1.03) + (mk0 === '' ? 200 : 0)); }); }); });
+      const colLines = (k, w) => segsByCol[k].reduce((a2, L) => a2 + LN2(L, w), 0);
+      for (let it = 0; it < 80 && free > 60; it++) {
+        let best = -1, bestAdd = 0, bestRate = 0;
+        for (let k = 0; k < nCols; k++) {
+          if (!segsByCol[k].length) continue;
+          const base = colLines(k, W[k]);
+          const cands = new Set();
+          for (const L of segsByCol[k]) { const n = LN2(L, W[k]); if (n >= 2) cands.add(Math.ceil(L / (n - 1)) + 300 + 40 - W[k]); }
+          for (const add of cands) { if (add <= 0 || add > free) continue;
+            const saved = base - colLines(k, W[k] + add), rate = saved / add;
+            if (saved > 0 && rate > bestRate) { bestRate = rate; best = k; bestAdd = add; } }
+        }
         if (best < 0) break;
-        W[best] += bestNeed; free -= bestNeed;
-        if (process.env.W_LOG) console.error('FREEGROW', best, bestNeed); } }
+        W[best] += bestAdd; free -= bestAdd;
+        if (process.env.W_LOG) console.error('FREEGROW', best, bestAdd); } }
     const tail = new Array(nCols).fill(0);
     parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, ck) => { if (c.colspan !== 1) return; const k = startCol[ri][ck];
