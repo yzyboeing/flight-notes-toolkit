@@ -35,9 +35,15 @@ def content(pid, ids=False):
 def list_pages(sid):
     return req('GET', '/sections/%s/pages?$select=id,title&$top=100' % sid)['value']
 def delete_page(pid):
-    try: req('DELETE', '/pages/%s' % pid)
-    except RuntimeError as e:
-        if '404' not in str(e): raise
+    # 删除可以安全重发：网络超时就重试（第二次返回 404 视为已删）
+    for k in range(5):
+        try: req('DELETE', '/pages/%s' % pid); return
+        except RuntimeError as e:
+            if '404' in str(e): return
+            raise
+        except OSError:   # socket.timeout / URLError
+            if k == 4: raise
+            time.sleep(10 * (k + 1))
 def create_page(sid, title, html):
     """建一页并读回确认；读不到就删掉重建（最多 3 次）。返回 page id 或 None。"""
     for att in range(3):
