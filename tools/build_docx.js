@@ -101,8 +101,11 @@ function serialTable(parsed, startCol) {
   for (let ri = 0; ri < parsed.length; ri++) { const r = parsed[ri]; if (/hdr|note|premise|warn/.test(r.cls)) continue;
     const c0 = r.cells.find((c, k) => startCol[ri][k] === 0); if (!c0) continue;
     const t = unesc(String(c0.text).replace(/<[^>]+>/g, '')).trim();
-    if (!SERIAL_RE.test(t)) return false; vals.push(serialVal(t)); }
-  return vals.length >= 2 && vals.every((v, i) => v === i + 1);
+    vals.push(SERIAL_RE.test(t) ? serialVal(t) : NaN); }
+  /* 末尾允许 1～2 行非编号的补充行（如 4.6 「①～⑦ + 特殊情况」，2026-10-05），前面须是从 1 开始、至少 3 行的连续编号 */
+  let n = vals.length; while (n > 0 && Number.isNaN(vals[n - 1]) && vals.length - n < 2) n--;
+  const head = vals.slice(0, n), tailN = vals.length - n;
+  return head.length >= (tailN ? 3 : 2) && head.every((v, i) => v === i + 1);
 }
 let TOTAL = PAGE_W - M_IN - M_OUT;   // 表格最大宽度＝版心宽度，随页边距自适应（2026-09-30 用户）
 const SC = (w) => Math.round(w * TOTAL / 14400);
@@ -1140,21 +1143,23 @@ function htmlTableCore(html) {
     /* 不增行收窄（2026-10-05 用户，3.6 C-2「步骤」列：「表格有点太宽了，宽度应该刚好把内容放在里面就可以了」）：
        每列在各格（含表头）行数都不增加的前提下，收窄到刚好放下内容；收回的宽度交给下面的「用空余页宽减少行数」，
        用不上就让表格变窄。跨列格所在的列不动；通栏的前提 / 注 / 警告行行数也不许增加。 */
-    { const LN = (L, w) => Math.ceil(L / Math.max(1, w - 340));
+    { const LN = (L, w) => Math.ceil(L / Math.max(1, w - 300));   // 与上面「回填」同一字宽口径（96 DXA × 1.03），避免估小后把一行挤成两行
       const spanned = new Set(); const cellsByCol = Array.from({ length: nCols }, () => []);
       parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
         r.cells.forEach((c, ck) => { const k = startCol[ri][ck];
           if (c.colspan !== 1) { for (let q = 0; q < c.colspan; q++) spanned.add(k + q); return; }
           const segs = String(c.text).split(/<br\s*\/?>/).filter(sg => sg.replace(/<[^>]+>|[\uE001-\uE006\s]/g, '')).map(sg => {
             const mk0 = (sg.match(/^[\uE001-\uE006]+/) || [''])[0];
-            return fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * 90 * (r.cls.includes('hdr') || c.head || k === 0 ? 1.05 : 1) + (mk0 === '\uE006' ? 200 : 0); });
+            return fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * 96 * (r.cls.includes('hdr') || c.head || k === 0 || /<strong>/.test(sg) ? 1.08 : 1.03) + (mk0 === '\uE006' ? 200 : 0); });
           if (segs.length) cellsByCol[k].push(segs); }); });
       const wide0 = parsed.filter(r => /note|premise|warn/.test(r.cls)).map(r => fineVis(String(r.cells.map(c => c.text).join('')).replace(/<br\s*\/?>/g, '')) * 90);
       const tot0 = W.reduce((a2, b2) => a2 + b2, 0), wl0 = wide0.map(L => LN(L, tot0));
       for (let k = 0; k < nCols; k++) {
         if (spanned.has(k) || !cellsByCol[k].length) continue;
         const cur = cellsByCol[k].map(sg => sg.reduce((a2, L) => a2 + LN(L, W[k]), 0));
-        const ok = w => cellsByCol[k].every((sg, q) => sg.reduce((a2, L) => a2 + LN(L, w), 0) <= cur[q]);
+        const ORPH = 6 * 180;   // 末行至少留约 6 个字（SD-85；估算与实排有误差，留足余量）：只收窄到不会出现末行孤字的宽度
+        const tailOK = (L, w) => { const av = Math.max(1, w - 300), n = Math.ceil(L / av); return n < 2 || L - (n - 1) * av >= ORPH; };
+        const ok = w => cellsByCol[k].every((sg, q) => sg.reduce((a2, L) => a2 + LN(L, w), 0) <= cur[q] && sg.every(L => tailOK(L, w) || !tailOK(L, W[k])));
         const tokW = Math.max(0, ...cellsByCol[k].length ? parsed.flatMap((r, ri) => r.cells.filter((c, ck) => startCol[ri][ck] === k && c.colspan === 1)
           .flatMap(c => (unesc(String(c.text).replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '')).match(/(?:【[^】]{1,12}】)?[A-Za-z0-9][A-Za-z0-9.\/\-:+%°]*|【[^】]{1,12}】/g) || [])
           .map(tk => fineVis(tk) * 90 * 1.1 + 340))) : [0]);   // 英文 / 数字串、【机型】标签不能从中间拆开
