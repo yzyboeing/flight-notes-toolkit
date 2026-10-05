@@ -203,6 +203,9 @@ def scan(pdf, name, header):
             if not rows: continue
             ncol = max(len(r) for r in rows)
             info = [[(c, cell_lines(lines, c)) if c else None for c in r] for r in rows]
+            # 表后淡蓝底注、公司差异、警告条紧贴表格时会被识别成表格的末几行：去掉，免得序号表判不出（2026-10-05）
+            _nt = lambda r: r and r[0] and re.match(r'\s*(注[：:]|公司差异|警告[：:])', ''.join(l[2] for l in r[0][1]))
+            while len(info) > 1 and _nt(info[-1]): info.pop(); rows.pop()
             # 每列：宽度与最长一行的占用
             colw, colused = [0] * ncol, [0] * ncol
             for r in info:
@@ -331,7 +334,13 @@ def scan(pdf, name, header):
                 def _sv(t):
                     t = re.sub(r'[\s（()）.、]', '', t)
                     return ord(t) - 0x245F if re.fullmatch(r'[\u2460-\u2473]', t) else int(t) if t.isdigit() else ord(t.lower()) - 96 if re.fullmatch(r'[a-zA-Z]', t) else -1
-                serial = serial and [_sv(f) for f in firsts] == list(range(1, len(firsts) + 1))   # 从 1 开始的连续编号才算（襟翼位置 10 / 15 / 25 不算）
+                if not serial and len(firsts) >= 4:   # 末尾 1～2 行非编号补充行（如「特殊情况」），与生成器同口径
+                    for tn in (1, 2):
+                        hd = firsts[:-tn]
+                        if len(hd) >= 3 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in hd) and [_sv(f) for f in hd] == list(range(1, len(hd) + 1)):
+                            serial = True; firsts = hd; break
+                else:
+                    serial = serial and [_sv(f) for f in firsts] == list(range(1, len(firsts) + 1))   # 从 1 开始的连续编号才算（襟翼位置 10 / 15 / 25 不算）
                 hdrs = [ctext(x) for x in info[0]] if info else []
                 for k, h in enumerate(hdrs):
                     if k == 0 or not h: continue
