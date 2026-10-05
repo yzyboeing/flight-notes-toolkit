@@ -60,14 +60,25 @@ def load():
     return out
 
 def unwiki(t):
-    """[[4.4 离场阶段航线规划]] → 4.4（Word 里只保留编号）；[[目标|显示]] → 显示"""
+    """[[4.4 离场阶段航线规划]] / [[4.4 …|4.4 A-1]] → <a href="SEC_4_4">4.4</a>（SD-137：只显示节号、生成器做成超链接）；非节目标还原为文字"""
     def rep(m):
-        if m.group(2):
-            return m.group(2).strip()
         tgt = m.group(1).strip()
-        h = re.match(r'(\d+(?:\.\d+)?)\s', tgt)
-        return h.group(1) if h else tgt
-    return WIKI.sub(rep, t)
+        h = re.match(r'(\d+\.\d+)[\s\u3000]', tgt + ' ')
+        if h:
+            return '<a href="SEC_%s">%s</a>' % (h.group(1).replace('.', '_'), h.group(1))
+        return (m.group(2) or tgt).strip()
+    t = WIKI.sub(rep, t)
+    # 同一行里重复指向同一节的链接只留一个（如「2.2 A-5 · 2.2 A-3」→「2.2」）
+    def dedup(line):
+        seen = set()
+        def one(mm):
+            sep, link, href = mm.group(1), mm.group(2), mm.group(3)
+            if href in seen:
+                return ''
+            seen.add(href)
+            return sep + link
+        return re.sub(r'((?:\s*[·、/／]\s*)?)(<a href="([^"]+)">[^<]*</a>)', one, line)
+    return '\n'.join(dedup(l) if '<a href=' in l else l for l in t.split('\n'))
 
 def key(sid):
     a, _, b = sid.partition('.')

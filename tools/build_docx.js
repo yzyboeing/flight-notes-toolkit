@@ -94,10 +94,12 @@ const SC = (w) => Math.round(w * TOTAL / 14400);
 /* ---------- 行内解析：**bold** `code` <em>红</em> <strong>粗</strong> ---------- */
 const unesc = (t) => t.replace(/&lt;/g,'<').replace(/&gt;/g,'>')
   .replace(/&nbsp;/g,' ').replace(/&quot;/g,'"').replace(/&amp;/g,'&');
+/* SD-137：「详见」双链在 Word / PDF 里做成内部超链接，跳到该节书签（SEC_x_y）；目标节不在本书时退回普通文字 */
+const KNOWN_BM = new Set(); let IN_LINK = false;
 function runs(text, o = {}) {
   text = unesc(text);
   const out = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|<r>[\s\S]*?<\/r>|<k>[\s\S]*?<\/k>|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|<r>[\s\S]*?<\/r>|<k>[\s\S]*?<\/k>|<a href="[^"]+">[\s\S]*?<\/a>|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
   let last = 0, m;
   const push = (t, kind) => {
     if (!t) return;
@@ -127,7 +129,7 @@ function runs(text, o = {}) {
       font: kind === 'code' ? FF_MONO : (circ && /[\u246A-\u2473]/.test(t)) ? FF_CIRC : circ ? FF_CN : FF,
       size: grayK && !o.inTable ? (o.size || 20) - 2 : (o.size || 20),
       bold: kind === 'bold' || kind === 'red' || kind === 'key' || kind === 'graybold' || o.bold,
-      underline: (BW && kind === 'red' && !o.noRed) ? {} : undefined,
+      underline: ((BW && kind === 'red' && !o.noRed) || IN_LINK) ? {} : undefined,
       ...(kind === 'key' && KEY_BG && !BW ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: KEY_BG } } : {}),
       color: (kind === 'red' && !o.noRed) || kind === 'redn' ? (BW ? '000000' : RED) : (kind === 'key' || kind === 'keyn' ? KEY_C : (kind === 'code' ? '9C2A00' : (grayK ? (o.inTable ? '4A4A4A' : GRAY) : (o.color || '000000')))),
       ...(o.cs ? { characterSpacing: o.cs } : {}),
@@ -136,13 +138,18 @@ function runs(text, o = {}) {
   };
   /* 嵌套标记：<em> 与 <strong> 可互相嵌套，红色优先（红色本身已是粗体） */
   const walk = (s, kind) => {
-    const r = /(\*\*[^*]+\*\*|`[^`]+`|<r>[\s\S]*?<\/r>|<k>[\s\S]*?<\/k>|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
+    const r = /(\*\*[^*]+\*\*|`[^`]+`|<r>[\s\S]*?<\/r>|<k>[\s\S]*?<\/k>|<a href="[^"]+">[\s\S]*?<\/a>|<em>[\s\S]*?<\/em>|<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<small>[\s\S]*?<\/small>|〔待补来源〕|<br\s*\/?>)/g;
     let l = 0, mm;
     while ((mm = r.exec(s)) !== null) {
       push(s.slice(l, mm.index), kind);
       const tk = mm[0];
       if (tk.startsWith('**')) walk(tk.slice(2, -2), kind === 'red' ? 'red' : (/^gray/.test(kind || '') ? 'graybold' : 'bold'));
       else if (tk.startsWith('`')) push(tk.slice(1, -1), 'code');
+      else if (tk.startsWith('<a ')) {
+        const href = (tk.match(/href="([^"]+)"/) || [])[1], inner = tk.replace(/^<a[^>]*>/, '').replace(/<\/a>$/, '');
+        if (href && KNOWN_BM.has(href)) { const at = out.length; IN_LINK = true; walk(inner, kind); IN_LINK = false; const kids = out.splice(at); out.push(new InternalHyperlink({ anchor: href, children: kids })); }
+        else walk(inner, kind);
+      }
       else if (tk.startsWith('<r>')) walk(tk.slice(3, -4), 'redn');   // 用户 2026-10-04 速查 48：常规字重红字（口诀首字）
       else if (tk.startsWith('<k>')) walk(tk.slice(3, -4), 'keyn');   // 常规字重蓝字（A / B 成对项）
       else if (tk.startsWith('<em>')) {
@@ -1642,6 +1649,7 @@ function mdTable(rows) {
 
 /* ---------- 解析 markdown ---------- */
 let rawSrc = fs.readFileSync(SRC, 'utf8');
+rawSrc.split('\n').forEach(l => { const m = l.match(/^#{1,4}\s+(\d+\.\d+)[\s\u3000]/); if (m) KNOWN_BM.add('SEC_' + m[1].replace(/\./g, '_')); });
 if (rawSrc.startsWith('---')) {                 // 跳过 YAML front matter
   const end = rawSrc.indexOf('\n---', 3);
   if (end > 0) rawSrc = rawSrc.slice(rawSrc.indexOf('\n', end + 1) + 1);
@@ -2113,11 +2121,11 @@ while (i < src.length) {
   if (/^(详见\s|来源：)/.test(ln.trim())) {     // 回查入口行 / 速查区标题下的出处行：小号灰字
     const under = /^来源：/.test(ln.trim()) || (COMPACT && /^详见\s/.test(ln.trim()));
     body.push(new Paragraph({
-      children: [new TextRun({ text: (() => {
+      children: runs((() => {
         let t = ln.trim().replace(/^来源：部分内容待补来源$/, '来源：待补');
-        /* 「详见 x.y A-n」内部不断行 */
-        t = t.replace(/详见 ([^｜]+)$/, (m0, r) => '详见\u00A0' + r.replace(/ /g, '\u00A0'));
-        return t; })(), font: FF, size: 16, color: GRAY })],
+        /* 「详见 x.y A-n」内部不断行（SD-137：链接标签里的空格不能换成不断行空格） */
+        t = t.replace(/详见 ([^｜]+)$/, (m0, r) => '详见\u00A0' + r.replace(/ /g, '\u00A0')).replace(/<a\u00A0href/g, '<a href');
+        return t; })(), { size: 16, color: GRAY }),
       spacing: under ? { before: 0, after: 80 } : { before: 20, after: 160 },
       keepNext: true          // 来源 / 详见行与下文同页，不孤立在页底
     }));
