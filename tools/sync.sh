@@ -85,7 +85,8 @@ fi
 [ "$DIRTY" = 0 ] && info "工作区无改动，但 --full 要求重建"
 
 # ---------- 1b. 速查区改动的连带检查（SD-92，2026-09-30 用户：速查区改了，后续章节对应内容要一并改） ----------
-if [ -f "$TOOLKIT/quickref_sync_hint.py" ]; then python3 "$TOOLKIT/quickref_sync_hint.py" || true; fi
+# SD-139（2026-10-05 用户）：第零章速查区已删除，速查连带检查停用
+# if [ -f "$TOOLKIT/quickref_sync_hint.py" ]; then python3 "$TOOLKIT/quickref_sync_hint.py" || true; fi
 
 # ---------- 2. 找出改了哪些模块 ----------
 # core.quotepath=false：否则中文路径会被转义成 \346\250\241，匹配不到模块号
@@ -133,6 +134,8 @@ if [ "$BUILD" = 1 ]; then
   DOC_EDITION="${DOC_EDITION:-$(git config --get notes.docEdition)}"; export DOC_EDITION
   # SD-118 速查「按主题查」索引（主题表按条目标题引用）
   DOC_QRTOPICS="${DOC_QRTOPICS:-$ROOT/速查主题索引.json}"; export DOC_QRTOPICS
+  # SD-139 目录后「按主题查」索引（主题 → 正文块「节号 块号」）
+  DOC_TOPICS="${DOC_TOPICS:-$ROOT/按主题查索引.json}"; export DOC_TOPICS
   DOC_NOTICE="${DOC_NOTICE:-$(git config --get notes.docNotice)}"; export DOC_NOTICE
   DOC_PREFACE="${DOC_PREFACE:-$ROOT/前言.md}"; export DOC_PREFACE   # SD-51 前言页（文件不存在则不出前言）
   DOC_PREFACE_SIGNATURE="${DOC_PREFACE_SIGNATURE:-$(git config --get notes.docPrefaceSignature)}"; export DOC_PREFACE_SIGNATURE
@@ -153,17 +156,8 @@ if [ "$BUILD" = 1 ]; then
     python3 "$TOOLKIT/fit_fix.py" build/book.md "$out" || die "全书渲染失败（横版）"
     # SD-71（2026-09-29 用户）：只出横版。竖版的表格在窄版面里文字堆叠严重、不利阅读，不再产出、也不再为竖版优化排版。
     # 需要临时出竖版时手动运行：DOC_PORTRAIT=1 node "$TOOLKIT/build_docx.js" build/book.md build/737 机型理论知识笔记_竖版.docx
-    # 单册页脚册名「B737理论基础知识速查」（2026-09-30 用户：书名由「机型基础知识速查」改为「理论基础知识速查」，SD-100）
-    # 单册《B737理论基础知识速查》（SD-66 / SD-74 / SD-100）：与全书同批生成，封面提示与版本号同全书；不带前言、不出总目录页
-    out2="build/B737理论基础知识速查.docx"
-    { echo "# 理论基础知识速查"; echo; echo "## 第零章　基础知识速查区"; tail -n +2 build/mod0.md; } > build/single.md
-    # SD-116（2026-10-02 用户）：单册另附 4.21 记忆项目、4.22 机动飞行，作为目录里可点击的主题组
-    if [ -f "$TOOLKIT/single_extra.py" ] && [ -f build/mod4.md ]; then
-      python3 "$TOOLKIT/single_extra.py" build/single.md build/mod4.md "${SINGLE_EXTRA:-4.21,4.22}" || warn "单册追加记忆项目 / 机动飞行失败"
-    fi
-    DOC_SINGLE=1 DOC_NOTOC=1 DOC_PREFACE="" DOC_HEADER="B737理论基础知识速查" DOC_SUBTITLE="数据 · 限制 · 概念" \
-      python3 "$TOOLKIT/fit_fix.py" build/single.md "$out2" || die "单册渲染失败"
-    BUILT="$out"$'\n'"$out2"
+    # SD-139（2026-10-05 用户）：「以后的速查笔记也就不用再维护了，以后只维护这一本笔记」——速查单册停出（原生成步骤见 git 历史）
+    BUILT="$out"
   else
     for n in $CHANGED; do
       if [ ! -f "build/mod$n.md" ]; then warn "build/mod$n.md 不存在，跳过"; continue; fi
