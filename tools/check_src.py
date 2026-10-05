@@ -107,7 +107,7 @@ def main():
             c = len(re.findall(r'</%s>' % tag, body))
             if o != c:
                 errors.append('<%s> 开闭不配对 (%d 开 / %d 闭): %s' % (tag, o, c, rel(f)))
-        # SD-137（2026-10-05 用户）：表格内不出现交叉引用（见 x.y / 第 N 条 / 见 A-1 / 见上表 等），需要的写进表后「注：……——详见 x.y」；节首不写「本节为……」导语
+        # SD-137（2026-10-04 用户）：表格内不出现交叉引用（见 x.y / 第 N 条 / 见 A-1 / 见上表 等），需要的写进表后「注：……——详见 x.y」；节首不写「本节为……」导语
         intbl = False
         for ln_no, ln in enumerate(t.split('\n'), 1):
             if '<table' in ln: intbl = True
