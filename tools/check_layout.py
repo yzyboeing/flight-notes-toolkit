@@ -34,7 +34,7 @@ def vis(s):   # 视觉宽度：汉字 2，西文 1
 
 # ---------- S 源头校验（沿用三件套） ----------
 if '--no-src' not in sys.argv:
-    for rule, tool, extra in (('S1', 'check_src.py', ['--quiet']), ('S2', 'check_blocks.py', []), ('S3', 'check_quickref.py', [])):
+    for rule, tool, extra in (('S1', 'check_src.py', ['--quiet']), ('S2', 'check_blocks.py', [])) + ((('S3', 'check_quickref.py', []),) if os.path.isdir(os.path.join(REPO, 'notes_src', '0 基础知识速查区')) else ()):   # SD-139 第零章已删：没有速查区就不跑 S3
         r = subprocess.run([sys.executable, os.path.join(T, tool), '--src', 'notes_src'] + extra, cwd=REPO, capture_output=True, text=True)
         if r.returncode:
             tail = [l for l in (r.stdout + r.stderr).strip().splitlines() if l.strip()][-6:]
@@ -271,7 +271,11 @@ def scan(pdf, name, header):
                 def lefty(x):
                     return all(l[0] - x[0][0] < PAD + 2 for l in x[1]) and any((x[0][2] - x[0][0]) - (l[1] - l[0]) > PAD + 8 for l in x[1])
                 nb = [x for x in cells if x not in bul]
-                cen = [x for x in nb if centered(x)]; lef = [x for x in nb if lefty(x) and not centered(x)]
+                # 表前有通栏说明行时，info[1] 是表头：最上面一格是 ≤ 8 字的短词（「步骤」「自动动作」），按表头处理，不算居中数据格
+                hdrlike = lambda x: x is cells[0] and len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) <= 8
+                # 列宽收窄到刚好放下（2026-10-05）后，填满格子的文字左右留白都很小，看不出是居中还是靠左：两边都不算
+                full = lambda x: all((x[0][2] - x[0][0]) - (l[1] - l[0]) <= PAD + 24 for l in x[1])
+                cen = [x for x in nb if centered(x) and not hdrlike(x) and not full(x)]; lef = [x for x in nb if lefty(x) and not centered(x) and not full(x)]
                 if cen and lef:
                     sug('T7', '%s 第 %d 页：第 %d 列 %d 格居中、%d 格左对齐（如「%s」）——统一对齐' % (
                         name, i + 1, k + 1, len(cen), len(lef), lef[0][1][0][2].strip()[:18]))
@@ -323,7 +327,11 @@ def scan(pdf, name, header):
             try:
                 ctext = lambda x: ''.join(l[2] for l in x[1]).strip() if x else ''
                 firsts = [ctext(r[0]) for r in info[1:] if r and r[0]]
-                serial = len(firsts) >= 2 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2})', f) for f in firsts)
+                serial = len(firsts) >= 2 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in firsts)
+                def _sv(t):
+                    t = re.sub(r'[\s（()）.、]', '', t)
+                    return ord(t) - 0x245F if re.fullmatch(r'[\u2460-\u2473]', t) else int(t) if t.isdigit() else ord(t.lower()) - 96 if re.fullmatch(r'[a-zA-Z]', t) else -1
+                serial = serial and [_sv(f) for f in firsts] == list(range(1, len(firsts) + 1))   # 从 1 开始的连续编号才算（襟翼位置 10 / 15 / 25 不算）
                 hdrs = [ctext(x) for x in info[0]] if info else []
                 for k, h in enumerate(hdrs):
                     if k == 0 or not h: continue
@@ -333,8 +341,8 @@ def scan(pdf, name, header):
                     bul = sum(1 for c in cs if c.startswith('•') and '–' not in c)   # 「• 引语：」+「– 子项」是 F2 层级写法，不算自动加点
                     single_b = sum(1 for c in cs if c.count('•') == 1 and '–' not in c and len(c) < 80)
                     multi_b = any(c.count('•') >= 2 for c in cs)   # 2026-10-03 用户：一列要加点就整列都加——序号表这一列有多条加点时，单句加点是对的
-                    if serial and single_b and not multi_b and h not in EXPLICIT_BULLET:
-                        sug('T12', '%s 第 %d 页：序号表的「%s」列有自动加点——序号表其余列不加「•」（SD-102）' % (name, i + 1, h))
+                    if serial and any('•' in c or '●' in c for c in cs):   # SD-140（2026-10-05 用户）：「有了序号就不要加小圆点」，无例外，报错
+                        err('T12', '%s 第 %d 页：序号表的「%s」列有小圆点——序号表其余列不加「•」（SD-140）' % (name, i + 1, h))
                     if any(re.match(r'([\u2460-\u2473]|\d+[.、])', c) for c in cs): continue   # 格内本身是 ①② / 1. 编号条目的列不报
                     sent = ([c for c in cs if vis(c) >= 12 or re.search(r'[，。；、]', c)] if re.search(r'说明$', h)
                             else [c for c in cs if vis(c) >= 36 or re.search(r'[，。；]', c)])   # 与生成器同口径，门槛略放宽避免临界误报

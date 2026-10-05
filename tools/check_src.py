@@ -111,6 +111,10 @@ def main():
         for ln_no, line in enumerate(body.split('\n'), 1):
             if re.match(r'^[ \t]*(?:>[ \t]*)?(?:\*\*)?(来源|出处)[：:]', line) or '（来源：' in line:
                 errors.append('SD-138 来源 / 出处 %s:%d' % (rel(f), ln_no))
+        # SD-140（2026-10-05 用户）：全书不写「详见」——「本身目录和前面的序号都会改变」
+        for ln_no, line in enumerate(body.split('\n'), 1):
+            if '详见' in line and not line.lstrip().startswith('<!--'):
+                errors.append('SD-140 详见 %s:%d' % (rel(f), ln_no))
         # SD-137（2026-10-04 用户）：表格内不出现交叉引用（见 x.y / 第 N 条 / 见 A-1 / 见上表 等），需要的写进表后「注：……——详见 x.y」；节首不写「本节为……」导语
         intbl = False
         for ln_no, ln in enumerate(t.split('\n'), 1):
