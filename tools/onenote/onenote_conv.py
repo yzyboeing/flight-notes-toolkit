@@ -159,45 +159,72 @@ def fit_widths(h):
         W = [0] * n
         for i in short: W[i] = max(int(need[i] + 0.5), 30)
         if long_:
-            target = min(TABW, max(total, sum(W[i] for i in short) + LONG_MIN * len(long_)))
+            # 2026-10-05 用户：「明明右边还是有空位的，可以让表格尽量宽一点，这样行数就会少一点」——
+            # 长句列只要会折行，表格就加宽，直到长句都一行排下或到满宽 TABW 为止（不再锁在原表宽的等比例上）
+            target = min(TABW, max(total, sum(W[i] for i in short) + sum(max(need[i], LONG_MIN) for i in long_)))
             rest = max(target - sum(W[i] for i in short), LONG_MIN * len(long_))
-            lo = sum(orig[i] for i in long_) or len(long_)
-            for i in long_: W[i] = max(LONG_MIN, int(rest * (orig[i] or 1) / lo))
+            # 按原宽比例分给长句列；某列分到的超过它一行排下所需，多出的再分给其余长句列
+            def fill(capped, rest=rest):
+                V, todo, left = list(W), list(long_), rest
+                while todo:
+                    lo = sum(orig[i] or 1 for i in todo)
+                    cap = [i for i in todo if capped and left * (orig[i] or 1) / lo >= need[i]]
+                    if not cap:
+                        for i in todo: V[i] = max(LONG_MIN, int(left * (orig[i] or 1) / lo))
+                        break
+                    for i in cap: V[i] = max(LONG_MIN, int(need[i] + 0.5)); left -= V[i]; todo.remove(i)
+                return V
+            t0 = min(TABW, max(total, sum(W[i] for i in short) + LONG_MIN * len(long_)))   # 旧做法：表宽按原表比例
+            cands = [fill(True), fill(False), fill(False, max(t0 - sum(W[i] for i in short), LONG_MIN * len(long_)))]   # 几种分法都做完后处理，取总行数少的（同样行数取先者，即更宽的）
         else:
-            W = [max(W[i], orig[i]) for i in range(n)]
-        # SD-85：消除尾行短字——某格最后一行只剩 ≤ ORPHAN 宽度的字时，给该列加宽，从不会因此多折一行的列匀出宽度
-        segs_by_col = [[] for _ in range(n)]
-        for r, c, cs, segs, w0 in cells:
-            if cs == 1: segs_by_col[c] += [_seg_w(x) for x in segs if x]
-        def lines(w, cw): return max(1, -(-int(w) // max(int(cw), 1)))
-        def demand(i):
-            cw = W[i] - PAD; best = 0
-            for w in segs_by_col[i]:
-                L = lines(w, cw)
-                if L >= 2 and w - (L - 1) * cw <= ORPHAN:
-                    best = max(best, int(w / (L - 1) - cw) + 2)
-            return best
-        def slack(i):
-            cw = W[i] - PAD; sl = W[i] - 30
-            for w in segs_by_col[i]:
-                L = lines(w, cw); sl = min(sl, int(cw - w / L))
-            return max(sl, 0)
-        for _ in range(3 * n):
-            changed = False
-            for i in range(n):
-                d = demand(i)
-                if not d or d > 120: continue
-                room = max(0, TABW - sum(W))
-                donors = sorted([j for j in range(n) if j != i], key=lambda j: -slack(j))
-                give = min(d, room); takes = []
-                for j in donors:
-                    if give >= d: break
-                    tk = min(slack(j), d - give)
-                    if tk > 0: takes.append((j, tk)); give += tk
-                if give >= d:
-                    for j, tk in takes: W[j] -= tk
-                    W[i] += d; changed = True
-            if not changed: break
+            cands = [[max(W[i], orig[i]) for i in range(n)]]
+        def nlines(V):
+            return sum(max(1, -(-int(_seg_w(x)) // max(int(sum(V[c:c + cs]) - PAD), 1)))
+                       for r, c, cs, segs, w0 in cells for x in segs if x)
+        done = []
+        for W in cands:
+            # 跨列格（colspan）里的长句：所跨各列之和不够一行排下时，把差额匀给这几列，表宽以 TABW 为限
+            for r, c, cs, segs, w0 in cells:
+                if cs < 2: continue
+                nw = max((_seg_w(x) for x in segs), default=0) + PAD
+                gap = min(nw - sum(W[c:c + cs]), TABW - sum(W))
+                if gap > 0:
+                    for k in range(cs): W[c + k] += int(gap / cs) + (1 if k < gap % cs else 0)
+            # SD-85：消除尾行短字——某格最后一行只剩 ≤ ORPHAN 宽度的字时，给该列加宽，从不会因此多折一行的列匀出宽度
+            segs_by_col = [[] for _ in range(n)]
+            for r, c, cs, segs, w0 in cells:
+                if cs == 1: segs_by_col[c] += [_seg_w(x) for x in segs if x]
+            def lines(w, cw): return max(1, -(-int(w) // max(int(cw), 1)))
+            def demand(i):
+                cw = W[i] - PAD; best = 0
+                for w in segs_by_col[i]:
+                    L = lines(w, cw)
+                    if L >= 2 and w - (L - 1) * cw <= ORPHAN:
+                        best = max(best, int(w / (L - 1) - cw) + 2)
+                return best
+            def slack(i):
+                cw = W[i] - PAD; sl = W[i] - 30
+                for w in segs_by_col[i]:
+                    L = lines(w, cw); sl = min(sl, int(cw - w / L))
+                return max(sl, 0)
+            for _ in range(3 * n):
+                changed = False
+                for i in range(n):
+                    d = demand(i)
+                    if not d or d > 120: continue
+                    room = max(0, TABW - sum(W))
+                    donors = sorted([j for j in range(n) if j != i], key=lambda j: -slack(j))
+                    give = min(d, room); takes = []
+                    for j in donors:
+                        if give >= d: break
+                        tk = min(slack(j), d - give)
+                        if tk > 0: takes.append((j, tk)); give += tk
+                    if give >= d:
+                        for j, tk in takes: W[j] -= tk
+                        W[i] += d; changed = True
+                if not changed: break
+            done.append(W)
+        W = min(done, key=nlines)
         # 写回：每格宽度 = 所跨各列之和
         k = [0]
         def td(cm):

@@ -52,7 +52,8 @@ def figs_for(title):
     for i, l in enumerate(Ls):
         if not l.startswith('%%FIG'): continue
         fn, cap, wmm = [x.strip() for x in re.sub(r'^%%FIG(SIDE)?%%\s*', '', l).split('|')]
-        prev = [x for x in Ls[:i] if x.strip()][-1].strip(); nxt = [x for x in Ls[i + 1:] if x.strip()][0].strip()
+        # OneNote 版删了「详见」行，不能当锚点（1.14-2）
+        prev = [x for x in Ls[:i] if x.strip() and not re.match(r'\s*详见', x)][-1].strip(); nxt = [x for x in Ls[i + 1:] if x.strip()][0].strip()
         anchor = (re.sub(r'^#+\s*', '', nxt), 'before') if prev.startswith('<') else (re.sub(r'^#+\s*', '', prev), 'after')
         out.append(dict(file=NS + fn, cap=cap, wmm=float(wmm or 120), anchor=anchor))
     return out
