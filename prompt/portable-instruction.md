@@ -280,7 +280,7 @@ updated: "2026-09-30"
     - 新的排版要求先加进 `layout-checklist.md` 和 `check_layout.py`，再改成品；
     - 每出新基线，同步噜噜交接包；**OneNote 阅读版不自动更新**，只在桌面《OneNote待同步记录.md》追加一行，用户说「更新 OneNote」时再一次性同步（SD-141，`pub/tools/onenote/OneNote写入流程.md` 第六节）；
     - 规则有变时同步噜噜的 `SKILL.md`（桌面 `Muse交接包/`，副本在私有库 `协作/噜噜/`，**不放公开仓库**）；
-    - **出基线**：基线名用当天日期 `YYYYMMDD`（同日第二个起 `YYYYMMDD-2`），打标签 `git -C ~/flight-repos/gh-private tag baseline/<基线名> <提交>`（联动检查以它为比较基准，SD-115）；
+    - **出基线**：先跑 `python3 ~/flight-repos/pub/tools/release_name.py --next` 得到版本名和标签（SD-142：版本名「月日 + R + 当天第几版」，如 1005R7；标签仍带年份 `baseline/YYYYMMDD`、同日第 n 版 `baseline/YYYYMMDD-n`，联动检查以它为比较基准）；打标签 `git -C ~/flight-repos/gh-private tag <标签> <提交>`；交付文件（桌面、交接包）命名为 `B737机型理论知识笔记<版本名>.docx / .pdf`，`build/` 里的内部文件名不变（检查器、fit_fix 的排版记录按它查找）；
     - **清理过期文件**：被新版取代的基线、汇报、复核记录、旧指令移到 `~/flight-repos/_to_delete/<日期>_…/`，只留最新有用的。
 11. **汇报**（第十二节格式）。
 

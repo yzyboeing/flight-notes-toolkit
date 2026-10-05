@@ -23,7 +23,7 @@
 ```bash
 cd ~/flight-repos/pub/tools/onenote
 python3 onenote_auth.py      # 1. 登录：屏幕给出网址和代码，请用户自己在浏览器登录并同意（令牌存 ~/.config/flight-onenote/，自动续期）
-python3 onenote_build.py --docx ~/Desktop/飞行理论笔记整理/Muse交接包/B737机型理论知识笔记_基线<号>.docx   # 2. 写入全部 69 页 + 补图 + 核查（默认写入「B737 机型理论知识笔记」笔记本）
+python3 onenote_build.py --docx ~/Desktop/飞行理论笔记整理/Muse交接包/B737机型理论知识笔记<版本名>.docx   # 2. 写入全部 69 页 + 补图 + 核查（默认写入「B737 机型理论知识笔记」笔记本）
 # 只改了少量段落时：python3 onenote_patch.py --docx <同上> --sections 1.5,3.11 --dry   先预演，再去掉 --dry 执行（逐段替换，保留页序和插图）
 python3 onenote_build.py --docx <同上> --audit-only   # 3. 再做一次只读核查，确认不缺页、不重复
 ```
