@@ -85,11 +85,150 @@ def drop_sources(h):
         SRC_STATS['del']+=1
         return ''
     return re.sub(r'<p\b[^>]*>.*?</p>',f,h,flags=re.S)
+
+XREF_STATS={'line':0,'note_del':0,'note_strip':0}
+def drop_xref(h):
+    """OneNote 版不写「详见」（用户 2026-10-05「掉 OneNote 里面的详见和来源」）：
+    独立的「详见 x.y」行删除；注「注：标题——实际内容——详见 x.y」只删「——详见 x.y」保留内容；其余指路注整条删。"""
+    def f(m):
+        p = m.group(0)
+        t = re.sub(r'\s+', ' ', html.unescape(re.sub(r'<[^>]+>', '', p))).strip()
+        if '详见' not in t: return p
+        if t.startswith('详见'): XREF_STATS['line'] += 1; return ''
+        body = re.sub(r'^注[：:]\s*', '', t)
+        mm = re.match(r'^[^—]+——(.+)——\s*详见[^—；;]*$', body)
+        if mm and body.count('详见') == 1 and '，' in mm.group(1):      # 「标题——带逗号的实际内容——详见 x.y」才保留内容
+            k = p.rfind('——详见')
+            if k > 0: XREF_STATS['note_strip'] += 1; return p[:k] + '。</span></p>'
+        XREF_STATS['note_del'] += 1; return ''
+    return re.sub(r'<p\b[^>]*>.*?</p>', f, h, flags=re.S)
+
+NOTE_BG = '#eef4fb'   # SD-130：表后「注：」淡蓝底整块；连续几条注连成一块
+def note_blocks(h):
+    out, i = [], 0
+    items = list(re.finditer(r'<table\b.*?</table>|<p\b[^>]*>.*?</p>', h, re.S))
+    buf, last = [], 0
+    def flush():
+        if buf:
+            out.append('<table><tr><td style="background-color:%s;width:%dpx">%s</td></tr></table>' % (NOTE_BG, TABW, ''.join(buf)))
+            buf.clear()
+    for m in items:
+        g = m.group(0)
+        gap = h[last:m.start()]
+        if gap.strip(): flush(); out.append(gap)
+        t = html.unescape(re.sub(r'<[^>]+>', '', g)).strip()
+        if g.startswith('<p') and re.match(r'注[：:]', t): buf.append(g)
+        else: flush(); out.append(g)
+        last = m.end()
+    flush(); out.append(h[last:])
+    return ''.join(out)
+
+CJK_W, ASC_W, PAD = 13.5, 7.0, 18      # 9pt 宋体-简在 OneNote 中的近似字宽（px）与格子左右内边距
+SHORT_MAX, LONG_MIN = 240, 140
+ORPHAN = 4 * CJK_W                     # 尾行不超过 4 个汉字宽视为短字，要消除         # SD-35③：短列一行排下；长句列不少于约 10 个汉字
+def _seg_w(t):
+    return sum(CJK_W if ord(ch) > 0x2E80 else ASC_W for ch in t)
+def fit_widths(h):
+    """按原笔记 SD-35③ / SD-85 重新定列宽：短列（标签、数值、序号）按最长一行排下；长句列分剩余宽度。"""
+    def one(m):
+        t = m.group(0)
+        rows = re.findall(r'<tr>(.*?)</tr>', t, re.S)
+        grid, cells = {}, []          # (行, 列) 占位；cells: (行, 起列, 跨列, 每行文字段, 原宽)
+        for r, row in enumerate(rows):
+            c = 0
+            for cm in re.finditer(r'<td\b([^>]*)>(.*?)</td>', row, re.S):
+                while (r, c) in grid: c += 1
+                attrs, inner = cm.group(1), cm.group(2)
+                cs = int((re.search(r'colspan="(\d+)"', attrs) or [0, 1])[1]); rs = int((re.search(r'rowspan="(\d+)"', attrs) or [0, 1])[1])
+                w0 = int((re.search(r'width:(\d+)px', attrs) or [0, 0])[1])
+                segs = [html.unescape(re.sub(r'<[^>]+>', '', x)).strip() for x in re.split(r'<br/>|</p>\s*<p[^>]*>', inner)]
+                cells.append((r, c, cs, segs, w0))
+                for dr in range(rs):
+                    for dc in range(cs): grid[(r + dr, c + dc)] = 1
+                c += cs
+        n = max((c + cs for _, c, cs, _, _ in cells), default=0)
+        if n < 2: return t
+        need, orig = [0] * n, [0] * n
+        for r, c, cs, segs, w0 in cells:
+            if cs == 1:
+                need[c] = max(need[c], max((_seg_w(x) for x in segs), default=0) + PAD)
+                orig[c] = max(orig[c], w0)
+        total = max(sum(orig), 1)
+        short = [i for i in range(n) if need[i] <= SHORT_MAX]
+        long_ = [i for i in range(n) if i not in short]
+        W = [0] * n
+        for i in short: W[i] = max(int(need[i] + 0.5), 30)
+        if long_:
+            target = min(TABW, max(total, sum(W[i] for i in short) + LONG_MIN * len(long_)))
+            rest = max(target - sum(W[i] for i in short), LONG_MIN * len(long_))
+            lo = sum(orig[i] for i in long_) or len(long_)
+            for i in long_: W[i] = max(LONG_MIN, int(rest * (orig[i] or 1) / lo))
+        else:
+            W = [max(W[i], orig[i]) for i in range(n)]
+        # SD-85：消除尾行短字——某格最后一行只剩 ≤ ORPHAN 宽度的字时，给该列加宽，从不会因此多折一行的列匀出宽度
+        segs_by_col = [[] for _ in range(n)]
+        for r, c, cs, segs, w0 in cells:
+            if cs == 1: segs_by_col[c] += [_seg_w(x) for x in segs if x]
+        def lines(w, cw): return max(1, -(-int(w) // max(int(cw), 1)))
+        def demand(i):
+            cw = W[i] - PAD; best = 0
+            for w in segs_by_col[i]:
+                L = lines(w, cw)
+                if L >= 2 and w - (L - 1) * cw <= ORPHAN:
+                    best = max(best, int(w / (L - 1) - cw) + 2)
+            return best
+        def slack(i):
+            cw = W[i] - PAD; sl = W[i] - 30
+            for w in segs_by_col[i]:
+                L = lines(w, cw); sl = min(sl, int(cw - w / L))
+            return max(sl, 0)
+        for _ in range(3 * n):
+            changed = False
+            for i in range(n):
+                d = demand(i)
+                if not d or d > 120: continue
+                room = max(0, TABW - sum(W))
+                donors = sorted([j for j in range(n) if j != i], key=lambda j: -slack(j))
+                give = min(d, room); takes = []
+                for j in donors:
+                    if give >= d: break
+                    tk = min(slack(j), d - give)
+                    if tk > 0: takes.append((j, tk)); give += tk
+                if give >= d:
+                    for j, tk in takes: W[j] -= tk
+                    W[i] += d; changed = True
+            if not changed: break
+        # 写回：每格宽度 = 所跨各列之和
+        k = [0]
+        def td(cm):
+            r, c, cs, segs, w0 = cells[k[0]]; k[0] += 1
+            w = sum(W[c:c + cs])
+            a = re.sub(r'width:\d+px', 'width:%dpx' % w, cm.group(1)) if 'width:' in cm.group(1) else cm.group(1).replace('style="', 'style="width:%dpx;' % w, 1)
+            return '<td%s>%s</td>' % (a, cm.group(2))
+        t2 = re.sub(r'<td\b([^>]*)>(.*?)</td>', td, t, flags=re.S)
+        return re.sub(r'(<table border="1" style="[^"]*?)width:\d+px', r'\1width:%dpx' % sum(W), t2, count=1)
+    return re.sub(r'<table border="1".*?</table>', one, h, flags=re.S)
+
+def unshrink(h):
+    """PDF 为整表同页把部分表压到 8～8.5pt（C9）；OneNote 不分页，统一恢复 9pt，表内各字号按同一比例放大。"""
+    def one(m):
+        t = m.group(0)
+        sizes = [float(x) for x in re.findall(r'font-size:([\d.]+)pt', t)]
+        if not sizes: return t
+        base = max(set(sizes), key=sizes.count)
+        if base >= 9: return t
+        k = 9.0 / base
+        return re.sub(r'font-size:([\d.]+)pt', lambda q: 'font-size:%gpt' % (round(float(q.group(1)) * k * 2) / 2), t)
+    return re.sub(r'<table border="1".*?</table>', one, h, flags=re.S)
 def convert(src):
     p=C(); p.feed(src); h=''.join(p.out)
     h=re.sub(r'<p style="[^"]*">(\s|<br/>)*<br/>(\s|<br/>)*</p>','<p style="margin-top:0;margin-bottom:0"><span style="font-size:4pt">&#160;</span></p>',h)  # 表间分隔段
     h=re.sub(r'<p style="[^"]*">(\s|<span[^>]*>\s*</span>)*</p>','',h)  # 去空段
     h=drop_sources(h)
+    h=drop_xref(h)
+    h=unshrink(h)
+    h=fit_widths(h)
+    h=note_blocks(h)
     return h
 def strip_index(s):
     m=re.search(r'<h\d[^>]*>(?:(?!</h\d>).)*块索引(?:(?!</h\d>).)*</h\d>\s*',s,re.S)

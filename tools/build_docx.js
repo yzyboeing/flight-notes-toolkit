@@ -1753,7 +1753,7 @@ const chapNo = (cn) => { const k = '零一二三四五六七八九'.indexOf(Stri
 function tocLine(e, w, o = {}) {
   const NUMW = o.numW || 640;
   if (e.chap) return new Paragraph({
-    keepNext: true,
+    keepNext: !o.noKeep,   // 按主题查：分栏行要能跨页拆开，单元格内不设 keepNext（LibreOffice 会因此整行推到下一页）
     tabStops: [{ type: TabStopType.RIGHT, position: w - 60 }],
     shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E6E6E6' },   // SD-97：去掉左侧粗竖条，只留浅灰底
     indent: { left: 80 },
@@ -1846,6 +1846,72 @@ function singleToc(ch, brk) {
   return out.concat(qrTopicPage());   // SD-118 单册：目录之后「按主题查」
 }
 /* SD-118 按主题查：速查条目按主题表（DOC_QRTOPICS，JSON，按标题前缀匹配）列出，点击跳到条目；编号随条目自动更新 */
+let CUR_SEC = '';
+/* SD-139：块书签名。块号「A-1」→ BLK_1_14_A1；第 4、5 章「3.」→ BLK_4_17_N3 */
+function blkId(sec, title) {
+  const s = String(sec).replace('.', '_');
+  let m = String(title).match(/^([A-H])-(\d+)[\s\u3000]/); if (m) return 'BLK_' + s + '_' + m[1] + m[2];
+  m = String(title).match(/^(\d+)\.\s/); if (m) return 'BLK_' + s + '_N' + m[1];
+  return null;
+}
+/* SD-139 目录后「按主题查」（2026-10-05 用户：删除第零章，保留并扩充按主题查，点击跳到相应章节的知识点）。
+   主题表 DOC_TOPICS（JSON）：[{dim, themes:[{theme, items:["1.2 A-2", "4.17 3", "x.y 块号|简称"]}]}]，找不到的块报错。 */
+function bodyTopicPage() {
+  const fp = process.env.DOC_TOPICS;
+  if (!fp || !fs.existsSync(fp)) return [];
+  let dims;
+  try { dims = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (e) { console.error('按主题查索引读取失败：' + e.message); return []; }
+  const blocks = {}; let sec = '', comp = false;
+  for (const s0 of src) {
+    if (/^%%COMPACT%%\s*$/.test(s0)) { comp = true; continue; }
+    if (/^%%ENDCOMPACT%%\s*$/.test(s0)) { comp = false; continue; }
+    let m = s0.match(/^###\s+(\d+\.\d+)[\s\u3000]/); if (m) { sec = m[1]; continue; }
+    if (/^###\s+/.test(s0)) { sec = ''; continue; }
+    m = !comp && sec && s0.match(/^####\s+(.+)$/);
+    if (m) { const t = unesc(m[1].trim()); const id = blkId(sec, t); if (!id) continue;
+      const k = t.match(/^([A-H]-\d+)[\s\u3000]/) ? t.match(/^([A-H]-\d+)/)[1] : t.match(/^(\d+)\./)[1];
+      blocks[sec + ' ' + k] = { id, t: t.replace(/^([A-H]-\d+|\d+\.)[\s\u3000]+/, '') }; }
+  }
+  const clean = (t) => String(t).replace(/（单位：[^）]*）/g, '').replace(/【[^】]*】/g, '').replace(/\s{2,}/g, ' ').trim();
+  const out = [new Paragraph({ pageBreakBefore: true, alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 120 },
+    children: [new Bookmark({ id: 'TOPICS', children: [new TextRun({ text: '按主题查', font: FF, size: 32, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()] })];
+  out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: 20 }, children: [new TextRun({ text: '', size: 2 })],
+    border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
+  let bad = 0, firstDim = true;
+  for (const d of dims) {
+    const groups = [];
+    for (const tp of d.themes) {
+      const got = [];
+      for (const ent of tp.items) {
+        const [key, short] = String(ent).split('|'); const b = blocks[key.trim()];
+        if (!b) { console.error('按主题查索引：找不到块「' + key + '」（主题：' + tp.theme + '）'); bad++; continue; }
+        got.push({ id: b.id, num: key.trim(), text: clean(short || b.t) });
+      }
+      if (got.length) groups.push([{ chap: true, id: got[0].id, cn: '', ct: clean(tp.theme) }].concat(got));
+    }
+    if (!groups.length) continue;
+    // 第一个维度紧跟页标题，不设 keepNext：否则整张分栏表被推到下一页，页标题孤页（B4）
+    out.push(new Paragraph({ keepNext: !firstDim, spacing: { before: firstDim ? 120 : 160, after: 60 }, children: [new TextRun({ text: d.dim, font: FF, size: 24, bold: true, color: H2_C })],
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: H1_LINE, space: 2 } } }));
+    firstDim = false;
+    const nc = PORTRAIT ? 2 : 4, GAP = 360, colW = Math.floor((TOTAL - GAP * (nc - 1)) / nc);
+    const perLn = Math.max(8, Math.floor((colW - 760 - 420) / 170));   // 每行约容纳的汉字数（8.5pt，扣编号栏和页码）
+    const wlen = (t) => [...String(t)].reduce((a, c) => a + (c.charCodeAt(0) < 128 ? 0.55 : 1), 0);
+    const hgt = (g) => g.reduce((a, l) => a + (l.chap ? 1.4 : Math.max(1, Math.ceil(wlen(l.text) / perLn))), 0);
+    const Hs = groups.map(hgt), pre = [0]; Hs.forEach(h => pre.push(pre[pre.length - 1] + h));
+    let best = null;
+    const rec = (start, left, cuts) => {
+      if (left === 1) { const c = cuts.concat([groups.length]); let st = 0, mx = 0; c.forEach(e => { mx = Math.max(mx, pre[e] - pre[st]); st = e; }); if (!best || mx < best.mx) best = { mx, c }; return; }
+      for (let e = start + 1; e <= groups.length - left + 1; e++) rec(e, left - 1, cuts.concat([e]));
+    };
+    rec(0, Math.min(nc, groups.length), []);
+    const cols = []; let st = 0; best.c.forEach(e => { cols.push([].concat(...groups.slice(st, e))); st = e; });
+    while (cols.length < nc) cols.push([]);
+    out.push(colsTable(cols.map(c => c.map((l, k) => tocLine(l, colW, { numW: 760, small: true, noKeep: true, first: k === 0 }))), colW, GAP));
+  }
+  if (bad) console.error('按主题查索引：共 ' + bad + ' 处引用找不到对应的块');
+  return out;
+}
 function qrTopicPage() {
   const fp = process.env.DOC_QRTOPICS;
   if (!fp || !fs.existsSync(fp)) return [];
@@ -2045,9 +2111,11 @@ while (i < src.length) {
   }
   if (/^#####\s+/.test(ln)) { body.push(H(ln.replace(/^#####\s+/, ''), 4, pendingBreak || HEAD_BREAK.has(i))); pendingBreak = false; i++; continue; }
   if (/^####\s+/.test(ln)) { const t4 = ln.replace(/^####\s+/, ''), qn = COMPACT && t4.match(/^(\d+)\.\s/);   // SD-118：速查条目加书签 QRI_n，供「按主题查」跳转
-    body.push(H(t4, 3, pendingBreak || HEAD_BREAK.has(i), qn ? 'QRI_' + qn[1] : undefined)); pendingBreak = false; i++; continue; }
+    const bid = !COMPACT && CUR_SEC ? blkId(CUR_SEC, t4) : null;                                          // SD-139：正文块加书签 BLK_节_块，供目录后的「按主题查」跳转
+    body.push(H(t4, 3, pendingBreak || HEAD_BREAK.has(i), qn ? 'QRI_' + qn[1] : (bid || undefined))); pendingBreak = false; i++; continue; }
   if (/^###\s+/.test(ln)) {
     const t3 = ln.replace(/^###\s+/, '').trim();
+    { const sm = t3.match(/^(\d+\.\d+)[\s\u3000]/); CUR_SEC = sm ? sm[1] : ''; }
     body.push(H(t3, 2, pendingBreak || HEAD_BREAK.has(i), COMPACT ? 'QRB_' + (QRB_N++) : undefined));
     pendingBreak = false; i++; continue;
   }
@@ -2286,7 +2354,7 @@ function buildToc() {
     /* 标题两页都写「总目录」（用户 2026-09-29）；只有第一页进 PDF 书签，避免重复 */
     out.push(new Paragraph({ pageBreakBefore: pg > 0 || (!DUPLEX && pg === 0), alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 },
       outlineLevel: pg ? undefined : 0,
-      children: [new TextRun({ text: '总目录', font: FF, size: pg ? 28 : 40, bold: true, characterSpacing: pg ? 20 : 60, color: H1_C, style: 'HdrChap' }), SECMARK()] }));
+      children: [new TextRun({ text: '目录', font: FF, size: pg ? 28 : 40, bold: true, characterSpacing: pg ? 20 : 60, color: H1_C, style: 'HdrChap' }), SECMARK()] }));
     out.push(rule({ size: 12, color: H1_LINE, after: 0 }));
     if (pg === 0) out.push(new Paragraph({ spacing: { before: 0, after: 120 }, children: [] }));
     /* 2026-10-02：某一栏行数多（如第四章 23 节）时整页收紧行距，避免整栏被挤到下一页、留下只有标题的空页 */
@@ -2295,6 +2363,7 @@ function buildToc() {
     const pc = pgCols.map(c => c.map((l, k) => tocLine(l, colW, { first: k === 0, tight })));
     out.push(pc.length === 1 && PORTRAIT ? colsTable(pc, colW, GAP) : colsTable(pc.length < PER ? pc.concat([[]]) : pc, colW, GAP));
   }
+  out.push(...bodyTopicPage());   // SD-139：目录后接「按主题查」
   return out;
 }
 /* 主题线索引（SD-61）：总目录之后、正文之前一页。文件由 DOC_TOPICINDEX 指定（gh-private/主题线索引.md）。

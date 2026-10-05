@@ -24,20 +24,26 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--docx', required=True); ap.add_argument('--sections', required=True)
     ap.add_argument('--notebook-id', default=NB_ID); ap.add_argument('--group', default=''); ap.add_argument('--dry', action='store_true')
     a = ap.parse_args(); want = [x.strip() for x in a.sections.split(',') if x.strip()]
-    pages = [p for p in split(a.docx) if any(p['title'].startswith(w + ' ') for w in want)]
+    pages = [p for p in split(a.docx) if p['chap'] in CHN and any(p['title'].startswith(w + ' ') for w in want)]
     secs, _ = locate(a.notebook_id, a.group)
     for p in pages:
         sid = secs[CHN[p['chap']]]
         cands = [q for q in list_pages(sid) if q['title'] == p['title'] and content(q['id'])]
         if len(cands) != 1: print('!!', p['title'], '可读页数', len(cands), '跳过'); continue
         pid = cands[0]['id']; cur = top_ps(content(pid, ids=True))
-        cur = [c for c in cur if c[2] and not c[2].startswith(pt(CHN[p['chap']]))]          # 去掉页眉、空段
+        cur = [c for c in cur if c[2] and not c[2].startswith(pt(CHN[p['chap']])) and not re.match(r'图\d+\.\d+-\d+', c[2])]   # 去掉页眉、空段、补图时加的图注
         src, _ = strip_index(p['html']); new = [n for n in top_ps(convert(src)) if n[2]]
         sm = difflib.SequenceMatcher(a=[c[2] for c in cur], b=[n[2] for n in new], autojunk=False)
         cmds = []
         for op, i1, i2, j1, j2 in sm.get_opcodes():
             if op == 'equal': continue
-            if op == 'insert': print('  !! 新增段落（需人工处理）', p['title'], new[j1][2][:30]); continue
+            if op == 'insert':
+                if i1 > 0: tgt, pos, order = cur[i1 - 1][0], 'after', reversed(range(j1, j2))
+                elif cur: tgt, pos, order = cur[0][0], 'before', range(j1, j2)
+                else: print('  !! 新增段落找不到插入位置', p['title'], new[j1][2][:30]); continue
+                for j in order:
+                    cmds.append({'target': tgt, 'action': 'insert', 'position': pos, 'content': new[j][1]}); print('  增', p['title'], new[j][2][:30])
+                continue
             for k in range(i1, i2):
                 c = cur[k]
                 if not c[0]: continue

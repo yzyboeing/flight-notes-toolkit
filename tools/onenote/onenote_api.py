@@ -9,7 +9,7 @@ def refresh():
     r = json.load(urllib.request.urlopen(urllib.request.Request('https://login.microsoftonline.com/consumers/oauth2/v2.0/token', data=d), timeout=60))
     r.setdefault('refresh_token', t['refresh_token']); json.dump(r, open(TOK, 'w')); os.chmod(TOK, 0o600)
 def _open(method, url, data=None, ctype='application/json', timeout=180):
-    for k in range(6):
+    for k in range(10):
         r = urllib.request.Request(url, data=data, method=method, headers={'Authorization': 'Bearer ' + tok(), 'Content-Type': ctype})
         try:
             resp = urllib.request.urlopen(r, timeout=timeout); return resp.status, resp.read()
@@ -20,7 +20,7 @@ def _open(method, url, data=None, ctype='application/json', timeout=180):
             raise RuntimeError('%s %s' % (e.code, body[:300]))
         except Exception as e:
             if method != 'GET': raise          # 写操作不盲目重发（会产生重复页）
-            time.sleep(4)
+            time.sleep(min(30, 4 * (k + 1)))
     raise RuntimeError('重试耗尽 %s' % url)
 def req(method, path, body=None, ctype='application/json'):
     url = path if path.startswith('http') else G + path

@@ -36,14 +36,15 @@ for i, pg in enumerate(d):
     # 页眉 / 页脚的横线会被识别成一行「表格」，剔掉
     tabs = [t for t in tabs if t.bbox[1] >= hy - 2 and t.bbox[3] <= fy + 2 and t.bbox[3] - t.bbox[1] > 4]
     top = min((b[1] for b in body), default=H); bot = max((b[3] for b in body), default=0)
-    info.append({'tabs': tabs, 'top': top, 'bot': bot, 'H': H, 'blocks': body})
+    info.append({'tabs': tabs, 'top': top, 'bot': bot, 'H': H, 'blocks': body,
+                 'idx': any(re.match(r'\s*(按主题查|目录)', x[4]) for x in foot)})   # SD-139：目录 / 按主题查页的条目是索引行，不是标题
 AREA = max(x['bot'] - x['top'] for x in info if x['blocks']) if info else 0
 problems, allsplits = [], []
 head_re = re.compile(r'^\s*(\d{1,3}\.\s+\S|[A-Z]-\d+\s|\d\.\d+\s|块索引\s*$)')   # 条目标题、节标题、「块索引」小标题
 for i in range(len(info) - 1):
     a, b = info[i], info[i + 1]
     # 标题孤立：本页最后一个文字块是条目标题
-    if a['blocks']:
+    if a['blocks'] and not a['idx']:
         last = max(a['blocks'], key=lambda x: x[3])
         txt = last[4].strip().split('\n')[0]
         if head_re.match(txt) and len(txt) < 40 and not any(t.bbox[3] > last[1] for t in a['tabs']):

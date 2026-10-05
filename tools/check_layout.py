@@ -50,8 +50,10 @@ def _hdr_tables(txt):
         cells = re.findall(r'<th([^>]*)>(.*?)</th>', m.group(1))
         out.append(([re.sub(r'<[^>]+>|\s', '', c[1]) for c in cells], [(re.search(r'class="([^"]+)"', c[0]) or [None, ''])[1] for c in cells]))
     return out
+_QMD = os.path.join(REPO, 'notes_src', '0 基础知识速查区', '0 基础知识速查区.md')   # SD-139 已删第零章：无此文件时 S5 不查
 try:
-    _q = open(os.path.join(REPO, 'notes_src', '0 基础知识速查区', '0 基础知识速查区.md'), encoding='utf-8').read()
+    if not os.path.exists(_QMD): raise StopIteration
+    _q = open(_QMD, encoding='utf-8').read()
     _files = {}
     for _f in glob.glob(os.path.join(REPO, 'notes_src', '[1-5]*', '*.md')):
         _m = re.match(r'(\d\.\d+)', os.path.basename(_f))
@@ -69,19 +71,22 @@ try:
                 for _hb, _cb in _hdr_tables(_b):
                     if len(_hb) == len(_hq) and sum(x == y for x, y in zip(_hb, _hq)) >= max(1, len(_hq) - 1) and (any(_cq) or any(_cb)) and _cq != _cb:
                         err('S5', '速查第 %s 条「%s」与正文 %s %s 同一张表的表头标注不一致：速查 %s，正文 %s' % (_m.group(1), _m.group(2)[:12], _sec, _addr, _cq, _cb))
+except StopIteration:
+    pass
 except Exception as _e:
     sug('S5', '速查 / 正文标注对照未能完成：%s' % _e)
 
 # ---------- F 成品文件 ----------
-for p in (BOOK, QREF, BOOK[:-4] + '.docx', QREF[:-4] + '.docx'):
+QON = os.path.exists(QREF)   # SD-139：速查单册停出，有单册文件时才检查
+for p in (BOOK, BOOK[:-4] + '.docx') + ((QREF, QREF[:-4] + '.docx') if QON else ()):
     if not os.path.exists(p): err('F1', '缺成品：' + os.path.relpath(p, REPO))
 for p in glob.glob(os.path.join(REPO, 'build', '*竖版*')):
     err('F2', '不应再有竖版成品（SD-71）：' + os.path.relpath(p, REPO))
 src_m = max((os.path.getmtime(f) for f in glob.glob(os.path.join(REPO, 'notes_src', '*', '*.md'))), default=0)
-for p in (BOOK, QREF):
+for p in (BOOK,) + ((QREF,) if QON else ()):
     if os.path.exists(p) and os.path.getmtime(p) < src_m:
         err('F3', '%s 比 notes_src 旧，先重新 sync 再检查' % os.path.basename(p))
-if not (os.path.exists(BOOK) and os.path.exists(QREF)):
+if not os.path.exists(BOOK):
     print('成品不全，先跑 sync.sh --full'); ERR and [print(' ', r, m) for r, m in ERR]; sys.exit(1)
 
 # ---------- 逐页分析（两本都查） ----------
@@ -350,11 +355,11 @@ def scan(pdf, name, header):
                         sug('T4', '%s 第 %d 页：「%s…」含 %d 个并列长分句，考虑按语义分条加「•」' % (name, i + 1, txt[:20], len(parts)))
     return d
 
-book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录)')   # SD-96 页眉左侧为章名
-scan(QREF, '单册', 'B737理论基础知识速查')   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
+book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录|目录|按主题查)')   # SD-96 页眉左侧为章名
+if QON: scan(QREF, '单册', 'B737理论基础知识速查')   # SD-139 单册停出：只有新近生成的单册才检查   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
 
 # B4 一页只有一两行（2026-09-30 用户：「尽量避免在一页中只有一两行的情况」）：正文（去页眉页脚）不超过 2 行的页
-for nm, pdf in (('全书', BOOK), ('单册', QREF)):
+for nm, pdf in (('全书', BOOK),) + ((('单册', QREF),) if QON else ()):
     dd = pymupdf.open(pdf); Hh = dd[0].rect.height
     for i in range(1, len(dd) - 1):
         ln = [l for l in body_lines(dd[i]) if l[1] > 0.06 * Hh]
@@ -370,15 +375,15 @@ else:
     if re.search(r'以\s*(SOP|FCOM)[^。]{0,6}为准', t): err('P1', '前言不应再有「以 SOP / FCOM 为准」一句（SD-73）')
 toc = ''.join(book[i].get_text() for i in range(1, 6))
 if '运行规范' in re.sub(r'运行规范\s*C\d+', '', toc): err('P2', '总目录仍出现「运行规范」，第三章名应为「运行手册」（SD-73）')
-if '速查主题清单' not in toc: err('P2', '总目录缺「速查主题清单」入口（SD-73）')
+if '按主题查' not in toc: err('P2', '目录后缺「按主题查」（SD-139，取代 SD-73 的速查主题清单入口）')
 
 # V 成品通用校验（verify.py：空白页、标签泄漏、异常项目符号、front matter）
-for pdf in (BOOK, QREF):
+for pdf in (BOOK,) + ((QREF,) if QON else ()):
     r = subprocess.run([sys.executable, os.path.join(T, 'verify.py'), pdf], capture_output=True, text=True)
     if r.returncode: err('V1', '%s verify.py 未通过：%s' % (os.path.basename(pdf), ' / '.join(l for l in r.stdout.splitlines() if '[]' not in l)))
 
 # B 断表 / 孤行 / 标题孤立（SD-71 / SD-77 / SD-79）
-for pdf in (BOOK, QREF):
+for pdf in (BOOK,) + ((QREF,) if QON else ()):
     r = subprocess.run([sys.executable, os.path.join(T, 'check_splits.py'), pdf], capture_output=True, text=True)
     for l in r.stdout.splitlines()[1:]:
         l = l.strip()
