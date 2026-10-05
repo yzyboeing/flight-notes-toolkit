@@ -418,7 +418,7 @@ function htmlTable(html) {
   if (!PROBE) TBL_IDX++;
   const parsed = parseHtmlTable(html);
   if (!parsed.length || !(COMPACT || FIT_ALL)) return [htmlTableCore(html)];
-  const visC = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '').replace(HIDE_TBD ? /〔待补来源〕/g : /(?!)/g, ''))) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : 1.05; return n; };
+  const visC = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '').replace(HIDE_TBD ? /〔待补来源〕/g : /(?!)/g, ''))) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : 1.05; return n; };
   const nCols = parsed[0].cells.reduce((a, c) => a + c.colspan, 0) || 2;
   const need = new Array(nCols).fill(0);
   parsed.forEach(r => {
@@ -516,7 +516,7 @@ function htmlTableCore(html) {
   const vis = (t) => {
     const s = unesc(String(t).replace(/<[^>]+>/g, '').replace(HIDE_TBD ? /〔待补来源〕/g : /(?!)/g, '')).replace(/\*\*/g, '');
     let n = 0;
-    for (const ch of s) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : 1;
+    for (const ch of s) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : 1;
     return n;
   };
   /* 占位网格：rowspan 会让后续行少一个单元格，必须据此推算每个单元格真正的起始列 */
@@ -546,7 +546,7 @@ function htmlTableCore(html) {
   {
     const MK_B = '', MK_C = '', MK_P = '', MK_Q = '\uE004', MK_N = '\uE005';
     const plainOf = (t) => unesc(String(t).replace(/<[^>]+>/g, '')).trim();
-    const pv = (t) => { let n = 0; for (const ch of plainOf(t)) n += /[⺀-鿿＀-￯]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n; };
+    const pv = (t) => { let n = 0; for (const ch of plainOf(t)) n += /[⺀-鿿＀-￯\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n; };
     const balanced = (t) => ['em', 'strong', 'b', 'i', 'small', 'span', 'sup', 'sub', 'u'].every(g =>
       (String(t).match(new RegExp('<' + g + '(\\s[^>]*)?>', 'g')) || []).length === (String(t).match(new RegExp('</' + g + '>', 'g')) || []).length);
     const splitOut = (t, sepRe) => { const out = []; let cur = '', dep = 0;
@@ -962,7 +962,7 @@ function htmlTableCore(html) {
     const vis = (t) => {
       const s = unesc(String(t).replace(/<[^>]+>/g, '').replace(HIDE_TBD ? /〔待补来源〕/g : /(?!)/g, '')).replace(/\*\*/g, '');
       let n = 0;
-      for (const ch of s) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2
+      for (const ch of s) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2
         : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1;
       return Math.ceil(n);
     };
@@ -1122,7 +1122,7 @@ function htmlTableCore(html) {
      只补到刚好一行放下为止（不把短表硬撑满宽，仍守「按内容定宽、不留空白」）。 */
   if (COMPACT || FIT_ALL) {
     const fineVis = (t) => { const s0 = unesc(String(t).replace(/<[^>]+>/g, '').replace(/〔待补来源〕/g, '')).replace(/\*\*/g, '').trim(); let n = 0;
-      for (const ch of s0) n += /[⺀-鿿＀-￯]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n; };
+      for (const ch of s0) n += /[⺀-鿿＀-￯\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n; };
     const U = 96;   // 9pt 下每视觉单位约 96 DXA（与列宽模型同一套字宽）
     const req = new Array(nCols).fill(0), hdrReq = new Array(nCols).fill(0);
     parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
@@ -1298,7 +1298,7 @@ function htmlTableCore(html) {
     const vis = (t) => {
       const s0 = unesc(String(t).replace(/<[^>]+>/g, '').replace(HIDE_TBD ? /〔待补来源〕/g : /(?!)/g, '')).replace(/\*\*/g, '');
       let n = 0;
-      for (const ch of s0) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2
+      for (const ch of s0) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2
         : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1;
       return n;
     };
@@ -1378,7 +1378,7 @@ function htmlTableCore(html) {
         r.cells.forEach((c, ck) => { if (startCol[ri][ck] !== k || c.colspan !== 1 || c.head) return; n++;
           const segs = String(c.text).split(/<br\s*\/?>/);
           if (segs.length > 1) multi++;
-          segs.forEach(sg => { let v = 0; for (const ch of unesc(sg.replace(/<[^>]+>/g, ''))) v += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; mx = Math.max(mx, v); }); }); });
+          segs.forEach(sg => { let v = 0; for (const ch of unesc(sg.replace(/<[^>]+>/g, ''))) v += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; mx = Math.max(mx, v); }); }); });
       cols.push({ w: W[k], need: Math.round(mx * 96 * FS / 18 + 260), n, multi, left: longCols.has(k) });
     }
     console.error('ALOG ' + JSON.stringify({ t: TBL_IDX, h: (hdrRowA => hdrRowA ? hdrRowA.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('|') : '')(parsed.find(r => r.cls.includes('hdr'))), cols }));
@@ -1417,7 +1417,7 @@ function htmlTableCore(html) {
   const hdrCenterCols = new Set();
   { const hr0 = parsed.find(r => r.cls.includes('hdr'));
     if (hr0) { const hi = parsed.indexOf(hr0); hr0.cells.forEach((hc, hk) => { if (hc.colspan === 1 && /(^|\s)col-center(\s|$)/.test(hc.cls || '')) hdrCenterCols.add(startCol[hi][hk]); }); } }
-  { const fwp = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/^[\uE001-\uE006]+/, '').replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 260; };
+  { const fwp = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/^[\uE001-\uE006]+/, '').replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 260; };
     parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => { const ci = startCol[ri][k]; if (c.head || ci === 0) return;
         let w = 0; for (let j = 0; j < c.colspan; j++) w += W[Math.min(ci + j, nCols - 1)];
@@ -1461,7 +1461,7 @@ function htmlTableCore(html) {
      覆盖 col-left 与「长句左齐」判定。多段、多句、列举、分条的格仍左齐。 */
   const sentCols = new Set();
   {
-    const pvS = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : 1.1; return n; };
+    const pvS = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : 1.1; return n; };
     const ok = new Array(nCols).fill(true), seen = new Array(nCols).fill(0);
     parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, ck) => { if (c.head) return; const k = startCol[ri][ck];
@@ -1481,7 +1481,7 @@ function htmlTableCore(html) {
   /* SD-78（2026-09-30 用户，速查区第 5 条）：整列每一格都只有一段、且按最终列宽一行排得下时，整列居中 */
   const oneLineCols = new Set();
   {
-    const fv = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n; };
+    const fv = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n; };
     const okc = new Array(nCols).fill(true), seen = new Array(nCols).fill(0);
     parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, ck) => { if (c.colspan !== 1 || c.head) return; const k = startCol[ri][ck]; seen[k]++;
@@ -1590,7 +1590,7 @@ function htmlTableCore(html) {
       /* 括注整句另起一行（用户 2026-10-03，1.6 慢车表「空中结冰环境（发动机防冰开且无进近形态时）」）：
          居中格里「名称（括注）」一行排不下时，括注不在中间断开，整句另起一行、同样居中；名称本身排得下才拆 */
       if (center && !hierarchy && !semMarked && !isNote && !isPre && !isWarn) {
-        const fvw = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 260; };
+        const fvw = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 260; };
         const split = [];
         rawParas.forEach(seg => {
           /* 语义断点（用户 2026-10-03，速查 155）：一行排不下时，依次在「（括注」「 + 」「 → 」「，」处断开，前后两段各自排得下；

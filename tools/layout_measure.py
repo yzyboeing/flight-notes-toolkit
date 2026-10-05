@@ -3,7 +3,7 @@
 """layout_measure.py —— 在成品 PDF 上实测「该加宽的格子」（SD-85，2026-09-30）
 供 fit_fix.py 调用，也可单独运行：python3 layout_measure.py <全书.pdf>
 找两类格子，给出所在表格的文字（用于匹配源表签名）、列号、需要加宽多少（pt）：
-  · 末行孤字：3 行以内的短格，折行后末行只剩 1～2 个字（如「警 / 戒」），上一行接近撑满（自然折行）；
+  · 末行孤字：任一格里的任一条（按 <br>、圆点、编号分条），折行后末行只剩 1～2 个字（2026-10-05 起不限短格）（如「警 / 戒」），上一行接近撑满（自然折行）；
   · 短格折行：约 20 字以内的表头或短格自然折成 2 行，一行放得下。
 原文 <br> 主动换行（上一行明显短于格宽）、括注行、分条（•）格不管。只读。"""
 import sys, re, json, collections
@@ -43,21 +43,29 @@ def measure(pdf):
             ttext = norm(p.get_text(clip=t.bbox))
             for r in t.rows:
                 for k, c in enumerate(r.cells):
-                    if not c or (k + 1 < len(r.cells) and r.cells[k + 1] is None): continue   # 跨列格不处理
+                    if not c: continue
+                    span = k + 1 < len(r.cells) and r.cells[k + 1] is None   # 跨列格：不能单独加宽一列，fit_fix 直接收紧字距（2026-10-05，原来整格跳过，检查器却照查）
                     ls = cell_lines(lines, c)
-                    if len(ls) < 2 or len(ls) > 3 or ls[0][2].lstrip().startswith('•'): continue
+                    if len(ls) < 2: continue
                     cw = c[2] - c[0]
-                    prev = ls[-2]
-                    if (prev[1] - prev[0]) < cw - PAD - 18 or re.match(r'\s*[（(]', ls[-1][2]): continue   # 原文主动换行
-                    last = re.sub(r'[\s，。；：、（）()「」.,;:]', '', ls[-1][2])
                     txt = ''.join(l[2] for l in ls).strip()
-                    extra = 0
-                    if 0 < len(last) <= 2:                     # 末行孤字：把末行摊到前面各行
-                        extra = (ls[-1][1] - ls[-1][0]) / (len(ls) - 1) + 3
-                    elif len(ls) == 2 and len(re.sub(r'\s', '', txt)) <= 20:   # 短格折两行：给够一行
-                        extra = sum(l[1] - l[0] for l in ls) + PAD + 3 - cw
-                    if extra > 0:
-                        found.append({'page': i + 1, 'col': k, 'extra_pt': round(extra, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'prev': norm(ls[-2][2]), 'orphan': 0 < len(last) <= 2, 'cx': round((c[0] + c[2]) / 2 - t.bbox[0], 1), 'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext})
+                    # 2026-10-05：逐条查（格内按 <br>、圆点、①② 分成几条；长格、带圆点的格都查），原来只查 2～3 行的短格
+                    full = lambda l: (l[1] - l[0]) >= cw - PAD - 20
+                    seg0 = 0
+                    for q in range(1, len(ls)):
+                        cur, prev = ls[q], ls[q - 1]
+                        if not full(prev) or re.match(r'\s*[•–▪①-⑳]', cur[2]):
+                            seg0 = q; continue                      # 新的一条（上一条主动换行 / 圆点 / 编号开头）
+                        nxt = ls[q + 1] if q + 1 < len(ls) else None
+                        if nxt is not None and full(cur) and not re.match(r'\s*[•–▪①-⑳]', nxt[2]): continue   # 这一条还没完
+                        last = re.sub(r'[\s，。；：、（）()「」.,;:]', '', cur[2])
+                        extra = 0
+                        if 0 < len(last) <= 2:                  # 末行孤字：把末行摊到这一条前面各行
+                            extra = (cur[1] - cur[0]) / max(1, q - seg0) + 3
+                        elif len(ls) == 2 and len(re.sub(r'\s', '', txt)) <= 20:   # 短格折两行：给够一行
+                            extra = sum(l[1] - l[0] for l in ls) + PAD + 3 - cw
+                        if extra > 0:
+                            found.append({'page': i + 1, 'col': k, 'extra_pt': round(extra, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'prev': norm(prev[2]), 'orphan': 0 < len(last) <= 2, 'cx': round((c[0] + c[2]) / 2 - t.bbox[0], 1), 'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext, 'span': span})
     return found
 
 if __name__ == '__main__':

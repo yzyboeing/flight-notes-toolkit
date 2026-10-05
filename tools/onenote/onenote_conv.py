@@ -127,7 +127,7 @@ CJK_W, ASC_W, PAD = 13.5, 7.0, 18      # 9pt 宋体-简在 OneNote 中的近似�
 SHORT_MAX, LONG_MIN = 240, 140
 ORPHAN = 4 * CJK_W                     # 尾行不超过 4 个汉字宽视为短字，要消除         # SD-35③：短列一行排下；长句列不少于约 10 个汉字
 def _seg_w(t):
-    return sum(CJK_W if ord(ch) > 0x2E80 else ASC_W for ch in t)
+    return sum(CJK_W if ord(ch) > 0x2E80 or 0x2190 <= ord(ch) <= 0x22FF or ch in '±×' else ASC_W for ch in t)   # 箭头、≤ ≥ ≈ × ± 在宋体里是全角（2026-10-05 实测）
 def fit_widths(h):
     """按原笔记 SD-35③ / SD-85 重新定列宽：短列（标签、数值、序号）按最长一行排下；长句列分剩余宽度。"""
     def one(m):
