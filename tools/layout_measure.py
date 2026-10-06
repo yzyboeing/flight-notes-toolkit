@@ -5,14 +5,29 @@
 找两类格子，给出所在表格的文字（用于匹配源表签名）、列号、需要加宽多少（pt）：
   · 末行孤字：任一格里的任一条（按 <br>、圆点、编号分条），折行后末行只剩 1～2 个字（2026-10-05 起不限短格）（如「警 / 戒」），上一行接近撑满（自然折行）；
   · 短格折行：约 20 字以内的表头或短格自然折成 2 行，一行放得下。
+  · 加宽省行（grow，SD-144）：页面右侧有空余时，按实测行宽算出加宽哪一列能让某一条少折一行，只用空余、不动邻列（2026-10-05 用户：「表格宽度根据内容灵活调整，目标是行数最少」）；
+  · 实测收窄（nw）：某列每一行距右边都有大片空白（≥ 24pt），按实测最长行收窄不会增加任何行。
 原文 <br> 主动换行（上一行明显短于格宽）、括注行、分条（•）格不管。只读。"""
-import sys, re, json, collections
+import sys, os, re, json, collections
 try:
     import pymupdf
 except ImportError:
     import fitz as pymupdf
 
 PAD = 13   # 单元格左右内边距合计（pt）：左 170 + 右 90 DXA ≈ 13pt（2026-10-03 悬挂圆点后）
+
+# 源文件 <br> 主动换行的位置（与 check_layout 同口径，2026-10-05 下沉到这里，检查与修复看同一批格子）：
+# 把 build/book.md 去标签后只留字母数字，<br> 记为「|」；某行文字后紧跟「|」说明这是作者主动换行，不算孤字
+_BR = {}
+def _brtext(srcmd):
+    if srcmd in _BR: return _BR[srcmd]
+    t = ''
+    if srcmd and os.path.exists(srcmd):
+        raw = re.sub(r'<br\s*/?>', '\x01', open(srcmd, encoding='utf-8').read())
+        raw = re.sub(r'<[^>]+>', '', raw)
+        t = ''.join(ch if (ch.isalnum() or ch == '\x01') else '' for ch in raw).replace('\x01', '|')
+    _BR[srcmd] = t
+    return t
 norm = lambda x: ''.join(ch for ch in str(x or '') if ch.isalnum())
 
 def lines_of(pg):
@@ -32,15 +47,43 @@ def cell_lines(lines, bb):
         r[0] = min(r[0], l[0]); r[1] = max(r[1], l[2]); r[2] += l[4]
     return [tuple(v) for v in rows.values()]
 
-def measure(pdf):
+def measure(pdf, srcmd=None):
+    if srcmd is None: srcmd = os.path.join(os.path.dirname(os.path.abspath(pdf)), 'book.md')
+    br = _brtext(srcmd)
+    ebr = lambda line: bool(br) and (lambda k: bool(k) and (k + '|') in br)(''.join(ch for ch in line if ch.isalnum()))
     d = pymupdf.open(pdf); H = d[0].rect.height; found = []
+    CW = d[0].rect.width - 72   # 版心宽（左右页边距各 36pt）
     for i, p in enumerate(d):
         try: tabs = p.find_tables().tables
         except Exception: continue
         lines = lines_of(p)
         for t in tabs:
-            if t.bbox[3] - t.bbox[1] < 8 or t.bbox[1] < 0.08 * H: continue
+            if t.bbox[3] - t.bbox[1] < 8: continue   # 2026-10-05：不再跳过页顶的表——SD-97 后顶端没有页眉，页顶的表都是跨页续段，跳过它们曾让续段测不到、否决票发不出（C-3 教训）
             ttext = norm(p.get_text(clip=t.bbox))
+            # 实测收窄（nw）：列里每一行距两边的空白都 ≥ 24pt（按行宽算，居中列同样适用）→ 收到最长行 + 6pt，
+            # 不会增加任何行。有跨列 / 跨行合并格的表整表跳过（收窄会挤到合并格里的长句）。
+            # 每一段都必须表态（跨页的表一页一段）：空白不足或本段有合并格 / 折行列的，发 0 当否决票，
+            # 否则只看到空白大的那一段就会把另一段的长行挤折（C-3 首列的教训，2026-10-05）
+            _spanfree = all(c is not None for r0 in t.rows for c in r0.cells)
+            if not _spanfree or t.col_count < 2:
+                found.append({'page': i + 1, 'col': -1, 'extra_pt': 0, 'cell': '', 'first': '', 'prev': '',
+                              'orphan': False, 'nw': True, 'cx': 0,
+                              'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext})
+            else:
+                for k0 in range(t.col_count):
+                    cols = [r0.cells[k0] for r0 in t.rows if k0 < len(r0.cells) and r0.cells[k0]]
+                    cw0 = max(c0[2] - c0[0] for c0 in cols); mx = 0; n_l = 0; wrapped = False
+                    for c0 in cols:
+                        ls0 = cell_lines(lines, c0)
+                        if len(ls0) > 1: wrapped = True
+                        for l0 in ls0:
+                            mx = max(mx, l0[1] - l0[0]); n_l += 1
+                    slack = 0 if (not n_l or wrapped) else max(0, cw0 - PAD - mx - 6)   # 有折行的列不收（宽度由加宽通道管）
+                    found.append({'page': i + 1, 'col': k0, 'extra_pt': round(slack, 1),
+                                  'cell': ''.join(l0[2] for l0 in cell_lines(lines, cols[0]))[:24] if cols else '', 'first': '', 'prev': '',
+                                  'orphan': False, 'nw': True,
+                                  'cx': round((cols[0][0] + cols[0][2]) / 2 - t.bbox[0], 1) if cols else 0,
+                                  'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext})
             for r in t.rows:
                 for k, c in enumerate(r.cells):
                     if not c: continue
@@ -60,12 +103,28 @@ def measure(pdf):
                         if nxt is not None and full(cur) and not re.match(r'\s*[•–▪①-⑳]', nxt[2]): continue   # 这一条还没完
                         last = re.sub(r'[\s，。；：、（）()「」.,;:]', '', cur[2])
                         extra = 0
-                        if 0 < len(last) <= 2:                  # 末行孤字：把末行摊到这一条前面各行
+                        if 0 < len(last) <= 2 and not ebr(prev[2]):   # 末行孤字：把末行摊到这一条前面各行；上一行止于原文 <br> 的是主动换行，不算
                             extra = (cur[1] - cur[0]) / max(1, q - seg0) + 3
-                        elif len(ls) == 2 and len(re.sub(r'\s', '', txt)) <= 20:   # 短格折两行：给够一行
+                        elif len(ls) == 2 and len(re.sub(r'\s', '', txt)) <= 20 and not ebr(ls[0][2]):   # 短格折两行：给够一行（原文 <br> 的不算）
                             extra = sum(l[1] - l[0] for l in ls) + PAD + 3 - cw
                         if extra > 0:
                             found.append({'page': i + 1, 'col': k, 'extra_pt': round(extra, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'prev': norm(prev[2]), 'orphan': 0 < len(last) <= 2, 'cx': round((c[0] + c[2]) / 2 - t.bbox[0], 1), 'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext, 'span': span})
+                    # SD-144（2026-10-05 用户）：「在页面右侧空间足够的情况下，尽量增加文字多的表格宽度，以减少行数」——
+                    # 表格右侧有空余时，按实测行宽算出加宽多少能让某一条少折一行；空余放得下就交给 fit_fix 加宽这一列（只用空余，不从邻列匀）
+                    free = CW - (t.bbox[2] - t.bbox[0])
+                    if free > 20 and not span:
+                        segs, cur_s = [], []
+                        for l in ls:
+                            if cur_s and (not full(cur_s[-1]) or re.match(r'\s*[•●–▪①-⑳]', l[2])): segs.append(cur_s); cur_s = []
+                            cur_s.append(l)
+                        if cur_s: segs.append(cur_s)
+                        best, bsg = None, None
+                        for sg in segs:
+                            if len(sg) < 2: continue
+                            need = sum(l[1] - l[0] for l in sg) * 1.03 / (len(sg) - 1) + PAD + 2 - cw
+                            if 0 < need <= free - 2 and (best is None or need < best): best, bsg = need, sg
+                        if best is not None:
+                            found.append({'page': i + 1, 'col': k, 'extra_pt': round(best, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'prev': norm(bsg[-2][2]), 'brs': [norm(l[2]) for l in bsg[:-1]], 'orphan': False, 'grow': True, 'cx': round((c[0] + c[2]) / 2 - t.bbox[0], 1), 'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext, 'span': False})
     return found
 
 if __name__ == '__main__':

@@ -9,7 +9,7 @@
 
 规则来源：standing-decisions.md SD-51 / SD-66 / SD-71～SD-79，AI交接/04 经验，用户历次排版反馈。
 依赖：PyMuPDF；读 build/ 下的成品 PDF，所以先跑 `./sync.sh --full --no-push "…"` 再检查。"""
-import sys, os, re, glob, subprocess, collections
+import sys, os, re, glob, subprocess, collections, json
 try:
     import pymupdf
 except ImportError:
@@ -318,20 +318,7 @@ def scan(pdf, name, header):
                     if (a[0] and not b[0] and b[1]) or (b[0] and not a[0] and a[1]):
                         sug('T9', '%s 第 %d 页：737-NG / 737-8 对照两列一列分条加点、另一列没有——两列格式应一致（表头标 col-bullet 或 col-center）' % (name, i + 1))
             except Exception: pass
-            # T8 末行孤字（SD-84 / SD-85；2026-10-05 起逐条查：长格、带圆点的格都查，报错误——用户：「APU 火警……不是应该调整宽度，让『1s』和『保持』在一行吗？」）
-            for r in info:
-                for x in r:
-                    if not x or len(x[1]) < 2: continue
-                    cw = x[0][2] - x[0][0]; ls = x[1]
-                    full = lambda l: (l[1] - l[0]) >= cw - PAD - 20
-                    for q in range(1, len(ls)):
-                        cur, prev = ls[q], ls[q - 1]
-                        if not full(prev) or explicit_br(prev[2]) or re.match(r'\s*[•–▪①-⑳（(]', cur[2]): continue
-                        nxt = ls[q + 1] if q + 1 < len(ls) else None
-                        if nxt is not None and full(cur) and not re.match(r'\s*[•–▪①-⑳]', nxt[2]): continue
-                        last = re.sub(r'[\s，。；：、（）()「」.,;:]', '', cur[2])
-                        if 0 < len(last) <= 2:
-                            err('T8', '%s 第 %d 页：「…%s」折行后末行只剩「%s」——加宽这一列或收紧字距，让它少折一行' % (name, i + 1, prev[2].strip()[-12:], cur[2].strip()))
+            # T8 末行孤字：改在 scan 之后统一用 layout_measure.measure() 实测（与 fit_fix 同一双眼睛，2026-10-05），这里不再自己另测
             # SD-102：序号表（首列全是 ①② / 1、2）——T4 不报（序号表不分条）；T12 报自动加点；非序号表的说明类句子列没加点报 T11
             try:
                 ctext = lambda x: ''.join(l[2] for l in x[1]).strip() if x else ''
@@ -380,6 +367,16 @@ def scan(pdf, name, header):
 
 book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录|目录|按主题查)')   # SD-96 页眉左侧为章名
 if QON: scan(QREF, '单册', 'B737理论基础知识速查')   # SD-139 单册停出：只有新近生成的单册才检查   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
+# T8 末行孤字（SD-84 / SD-85，错误级）：用 layout_measure.measure() 实测——与 fit_fix 的自动修复看同一批格子，
+# 检查器不再维护第二套测量（2026-10-05，APU 火警「1s」教训：两套眼睛必然漏）
+try:
+    from layout_measure import measure as _lm_measure
+    for _x in _lm_measure(BOOK):
+        if _x.get('orphan'):
+            err('T8', '全书 第 %d 页：「%s…」末行只剩一两个字（上一行止于「…%s」）——加宽该列或收紧字距（fit_fix 会自动处理，仍在就看 keep_force 的 W/WB/C 记录）' % (_x['page'], _x['cell'][:16], _x['prev'][-10:]))
+except Exception as _e:
+    err('T8', '末行孤字实测未能完成：%s' % _e)
+
 
 # B4 一页只有一两行（2026-09-30 用户：「尽量避免在一页中只有一两行的情况」）：正文（去页眉页脚）不超过 2 行的页
 for nm, pdf in (('全书', BOOK),) + ((('单册', QREF),) if QON else ()):
@@ -425,11 +422,42 @@ for kf in sorted(glob.glob(os.path.join(REPO, 'build', 'keep_force_*.txt'))):
             sug('Z2', '%s：「%s…」压到 8pt 仍放不下，照常分页——看能否精简内容或拆表' % (book_name, l[1:21]))
 
 # ---------- 报告 ----------
-out = ['# 排版与规则检查报告', '', '全书 %d 页。错误 %d 条（必须改），建议 %d 条（AI 看成品页后按 layout-checklist.md 裁定）。' % (len(book), len(ERR), len(SUG)), '']
-for title, items in (('## 错误', ERR), ('## 建议', SUG)):
-    out.append(title)
-    if not items: out.append('（无）')
-    for rule, msg in sorted(items, key=lambda x: x[0]): out.append('- [%s] %s' % (rule, msg))
+# 建议裁定（2026-10-05）：裁定过的建议（改了，或「不改＋理由」）记进 gh-private/排版建议裁定.json
+# { "<签名>": {"rule": "Z1", "摘要": "…", "结论": "不改", "理由": "…", "日期": "2026-10-05"} }
+# 签名 = 规则号 + 去掉页码后的内容文字（页码随分页漂移，不进签名）。已裁定的建议只计数，不再逐条列出；
+# 报告对每条新建议给出签名，裁定后把整块 JSON 粘进裁定文件即可。内容变了签名就变，会重新出现。
+import hashlib
+def _sig(rule, msg):
+    t = re.sub(r'第\s*\[?[\d,\s\[\]…]+\]?\s*页', '', msg)
+    t = re.sub(r'[\s，。；：]', '', t)
+    return rule + '-' + hashlib.md5(t.encode('utf-8')).hexdigest()[:8]
+ADJ_FILE = os.path.join(REPO, '排版建议裁定.json')
+try:
+    ADJ = json.load(open(ADJ_FILE, encoding='utf-8')) if os.path.exists(ADJ_FILE) else {}
+except Exception:
+    ADJ = {}
+news, settled = [], []
+for rule, msg in SUG:
+    (settled if _sig(rule, msg) in ADJ else news).append((rule, msg))
+out = ['# 排版与规则检查报告', '',
+       '全书 %d 页。错误 %d 条（必须改）；建议：新 %d 条（逐条裁定），已裁定 %d 条（结论在 排版建议裁定.json，不再列出）。'
+       % (len(book), len(ERR), len(news), len(settled)), '']
+out.append('## 错误')
+if not ERR: out.append('（无）')
+for rule, msg in sorted(ERR, key=lambda x: x[0]): out.append('- [%s] %s' % (rule, msg))
+out.append('')
+out.append('## 新建议（裁定后把下面的 JSON 行并进 排版建议裁定.json）')
+if not news: out.append('（无）')
+for rule, msg in sorted(news, key=lambda x: x[0]):
+    out.append('- [%s] %s' % (rule, msg))
+    out.append('  `"%s": {"rule": "%s", "摘要": "%s", "结论": "", "理由": "", "日期": ""}`'
+               % (_sig(rule, msg), rule, re.sub(r'[`"\\]', '', msg)[:40]))
+out.append('')
+if settled:
+    out.append('## 已裁定建议（%d 条，按规则号计数）' % len(settled))
+    cnt = {}
+    for rule, _ in settled: cnt[rule] = cnt.get(rule, 0) + 1
+    out.append('、'.join('%s×%d' % (r, n) for r, n in sorted(cnt.items())))
     out.append('')
 txt = '\n'.join(out)
 print(txt)

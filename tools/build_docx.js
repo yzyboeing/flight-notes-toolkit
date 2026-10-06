@@ -377,12 +377,14 @@ function tableGap(src, i) {
 let PROBE = false, TBL_IDX = -1, KEEP_LAST = false;
 /* KEEP_FORCE 文件（fit_fix.py 维护）：一行一个表签名＝强制整表同页；「~N:签名」＝整表同页并按第 N 级压缩（SD-80）；「!签名」＝已放弃（fit_fix 自用） */
 const NCOND = new Map();   // SD-130 表外注段落收紧字距（fit_fix 写入 N:）
-const KEEP_FORCE = new Set(), SHRINK = new Map(), WFIX = new Map(), SPLITOK = new Set(), PBREAK = new Set(), CONDENSE = new Map();   // CONDENSE：签名 → [[首行前 10 字, 级]]（末行孤字收紧字距，fit_fix 写入 C:）
+const KEEP_FORCE = new Set(), SHRINK = new Map(), WFIX = new Map(), NWFIX = new Map(), SPLITOK = new Set(), PBREAK = new Set(), CONDENSE = new Map();   // CONDENSE：签名 → [[首行前 10 字, 级]]（末行孤字收紧字距，fit_fix 写入 C:）
 if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
   for (const l0 of fs.readFileSync(process.env.KEEP_FORCE, 'utf8').split('\n')) {
     const l = l0.trim(); if (!l || l.startsWith('!')) continue;
     const w = l.match(/^W:(\d+):(\d+):(.+)$/);   // SD-85 实测加宽：W:列号:加宽DXA:签名
     if (w) { if (!WFIX.has(w[3])) WFIX.set(w[3], []); WFIX.get(w[3]).push([+w[1], +w[2]]); continue; }
+    const nw = l.match(/^NW:(\d+):(\d+):(.+)$/);   // SD-144 实测收窄：NW:列号:收窄DXA:签名（layout_measure 保证不增行）
+    if (nw) { if (!NWFIX.has(nw[3])) NWFIX.set(nw[3], []); NWFIX.get(nw[3]).push([+nw[1], +nw[2]]); continue; }
     if (l.startsWith('S:')) { SPLITOK.add(l.slice(2)); continue; }   // SD-87 允许按块分页的块索引表
     if (l.startsWith('P:')) { PBREAK.add(l.slice(2)); continue; }
     { const nn = l.match(/^N:(\d):(.+)$/); if (nn) { NCOND.set(nn[2], +nn[1]); continue; } }
@@ -1143,14 +1145,18 @@ function htmlTableCore(html) {
     /* 不增行收窄（2026-10-05 用户，3.6 C-2「步骤」列：「表格有点太宽了，宽度应该刚好把内容放在里面就可以了」）：
        每列在各格（含表头）行数都不增加的前提下，收窄到刚好放下内容；收回的宽度交给下面的「用空余页宽减少行数」，
        用不上就让表格变窄。跨列格所在的列不动；通栏的前提 / 注 / 警告行行数也不许增加。 */
-    { const LN = (L, w) => Math.ceil(L / Math.max(1, w - 300));   // 与上面「回填」同一字宽口径（96 DXA × 1.03），避免估小后把一行挤成两行
+    /* 字宽口径（2026-10-05 按成品 PDF 实测 1900 行校准）：每视觉单位 9pt 常规 / 粗体中位 91 DXA、九成 ≤ 94；以拉丁字母为主的行九成 ≤ 99。
+       取 94，拉丁字母占比越高加得越多（最多 100）；收窄时再加 3（约九成八分位），估小了会把一行挤成两行，宁可少收。原 96 × 1.03（粗体 × 1.08）对中文高估约 10%～16%，收窄时把一行挤成两行、加宽时以为放不下而不加 */
+    const UNIT_W = (sg) => { const t = unesc(String(sg).replace(/<[^>]+>/g, '')).replace(/\s/g, ''); if (!t) return 94;
+      const lat = [...t].filter(ch => ch.charCodeAt(0) < 128).length / [...t].length; return 94 + 6 * lat; };
+    { const LN = (L, w) => Math.ceil(L / Math.max(1, w - 300));
       const spanned = new Set(); const cellsByCol = Array.from({ length: nCols }, () => []);
       parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
         r.cells.forEach((c, ck) => { const k = startCol[ri][ck];
           if (c.colspan !== 1) { for (let q = 0; q < c.colspan; q++) spanned.add(k + q); return; }
           const segs = String(c.text).split(/<br\s*\/?>/).filter(sg => sg.replace(/<[^>]+>|[\uE001-\uE006\s]/g, '')).map(sg => {
             const mk0 = (sg.match(/^[\uE001-\uE006]+/) || [''])[0];
-            return fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * 96 * (r.cls.includes('hdr') || c.head || k === 0 || /<strong>/.test(sg) ? 1.08 : 1.03) + (mk0 === '\uE006' ? 200 : 0); });
+            return fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * (UNIT_W(sg) + 3) + (mk0 === '\uE006' ? 200 : 0); });
           if (segs.length) cellsByCol[k].push(segs); }); });
       const wide0 = parsed.filter(r => /note|premise|warn/.test(r.cls)).map(r => fineVis(String(r.cells.map(c => c.text).join('')).replace(/<br\s*\/?>/g, '')) * 90);
       const tot0 = W.reduce((a2, b2) => a2 + b2, 0), wl0 = wide0.map(L => LN(L, tot0));
@@ -1175,7 +1181,7 @@ function htmlTableCore(html) {
     /* SD-143（2026-10-05 用户）：「在页面右侧空间足够的情况下，尽量增加文字多的表格宽度，以减少行数」。
        逐格算：每一轮在各列里找「加宽多少能让某一格少折一行」，按「每加 1 DXA 省几行」取最划算的一项加上，
        直到空余用完或再也省不出行（原来只在「该列行数最多的格全都能少一行」时才加宽，长格排不进一行时整列不动）。
-       字宽口径与上面的「不增行收窄」一致（96 DXA × 1.03，粗体 × 1.08，左右留白 300）。跨列格不参与。 */
+       字宽口径与上面的「不增行收窄」一致（UNIT_W：94～100 DXA / 单位，左右留白 300）。跨列格不参与。 */
     { let free = TOTAL - W.reduce((a2, b2) => a2 + b2, 0);
       const LN2 = (L, w) => Math.ceil(L / Math.max(1, w - 300));
       const segsByCol = Array.from({ length: nCols }, () => []);
@@ -1183,8 +1189,13 @@ function htmlTableCore(html) {
         r.cells.forEach((c, ck) => { if (c.colspan !== 1) return; const k = startCol[ri][ck];
           String(c.text).split(/<br\s*\/?>/).forEach(sg => { if (!sg.replace(/<[^>]+>|[-\s]/g, '')) return;
             const mk0 = (sg.match(/^[-]+/) || [''])[0];
-            segsByCol[k].push(fineVis(sg.replace(/^[-]+/, '')) * 96 * (r.cls.includes('hdr') || c.head || k === 0 || /<strong>/.test(sg) ? 1.08 : 1.03) + (mk0 === '' ? 200 : 0)); }); }); });
+            segsByCol[k].push(fineVis(sg.replace(/^[-]+/, '')) * UNIT_W(sg) + (mk0 === '' ? 200 : 0)); }); }); });
       const colLines = (k, w) => segsByCol[k].reduce((a2, L) => a2 + LN2(L, w), 0);
+      const _dbgSig = process.env.TBLDBG ? parsed.map(r => r.cells.map(c => String(c.text)).join('')).join('') : '';
+      if (process.env.TBLDBG && _dbgSig.includes(process.env.TBLDBG)) {
+        console.error('DBG-W', JSON.stringify(W), 'free', free, 'TOTAL', TOTAL);
+        segsByCol.forEach((ss, k) => ss.forEach(L => { const n = LN2(L, W[k]); if (n >= 1) console.error('DBG-SEG', k, Math.round(L), 'n=', n); }));
+      }
       for (let it = 0; it < 80 && free > 60; it++) {
         let best = -1, bestAdd = 0, bestRate = 0;
         for (let k = 0; k < nCols; k++) {
@@ -1229,7 +1240,13 @@ function htmlTableCore(html) {
         const freeW = Math.max(0, TOTAL - W.reduce((a2, b2) => a2 + b2, 0)), f0 = Math.min(dd, freeW);
         if (f0 > 0) W[k] += f0;
         const d0 = j >= 0 ? Math.min(dd - f0, Math.floor(0.25 * W[j])) : 0;
-        if (d0 > 0) { W[k] += d0; W[j] -= d0; } } }
+        if (d0 > 0) { W[k] += d0; W[j] -= d0; } }
+      /* SD-144 实测收窄（fit_fix 写入 NW:）：这一列按成品实测收到最长行 + 6pt，表格整体变窄；下限 FLOOR，防御性再留 tokMin */
+      for (const [k, dd] of (NWFIX.get(sig0) || [])) { if (k >= nCols) continue;
+        const lo = Math.max(FLOOR, (typeof tokMin !== 'undefined' && tokMin[k]) ? tokMin[k] + 300 : 0);
+        const nv = Math.max(lo, W[k] - dd);
+        if (process.env.W_LOG && nv < W[k]) console.error('NARROW', k, W[k], '→', nv);
+        W[k] = nv; } }
   }
   if (process.env.W_LOG && (COMPACT || FIT_ALL)) console.error('W', nCols, JSON.stringify(W), String(parsed[0].cells.map(c => c.text).join('/')).slice(0, 40));
 
