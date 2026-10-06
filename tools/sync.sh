@@ -250,9 +250,15 @@ PYEOF
       mkdir -p "$ROOT/规则" "$ROOT/交接" "$ROOT/协作/噜噜"
       cp "$TOOLKIT/../prompt/portable-instruction.md" "$ROOT/规则/规则总纲.md" 2>/dev/null
       cp "$TOOLKIT/../prompt/layout-checklist.md"     "$ROOT/规则/排版检查清单.md" 2>/dev/null
-      # 规则副本自动同步（2026-10-05）：噜噜镜像与桌面交接包的《排版规则总表》都是 layout-checklist 的副本，不再手工 cp
-      cp "$TOOLKIT/../prompt/layout-checklist.md" "$ROOT/协作/噜噜/排版规则总表.md" 2>/dev/null
-      [ -d "$HOME/Desktop/飞行理论笔记整理/Muse交接包" ] && cp "$TOOLKIT/../prompt/layout-checklist.md" "$HOME/Desktop/飞行理论笔记整理/Muse交接包/排版规则总表.md" 2>/dev/null
+      cp "$TOOLKIT/../prompt/content-core.md"         "$ROOT/规则/内容校对核心规则.md" 2>/dev/null
+      # 给噜噜的规则与台账（2026-10-05 单源）：正本在 pub/prompt（排版规则总表、内容校对核心规则）与私有库根目录（内容裁定台账.json），
+      # 先拷进桌面交接包；下面的噜噜镜像再从交接包整体拷回（含 *.json），不要再直接写 协作/噜噜/（那里每次会被清空重建）
+      HB="$HOME/Desktop/飞行理论笔记整理/Muse交接包"
+      if [ -d "$HB" ]; then
+        cp "$TOOLKIT/../prompt/layout-checklist.md" "$HB/排版规则总表.md" 2>/dev/null
+        cp "$TOOLKIT/../prompt/content-core.md"     "$HB/内容校对核心规则.md" 2>/dev/null
+        [ -f "$ROOT/内容裁定台账.json" ] && cp "$ROOT/内容裁定台账.json" "$HB/" 2>/dev/null
+      fi
       cp "$TOOLKIT/../prompt/standing-decisions.md"   "$ROOT/规则/长期决策.md" 2>/dev/null
       [ -f build/笔记结构索引.md ] && cp build/笔记结构索引.md "$ROOT/笔记结构索引.md"
       HAND="$HOME/Desktop/飞行理论笔记整理"
@@ -260,7 +266,7 @@ PYEOF
         cp "$HAND/00_先读我_AI交接.md" "$ROOT/交接/" 2>/dev/null
         cp "$HAND"/AI交接/0*.md "$ROOT/交接/" 2>/dev/null
         rm -rf "$ROOT/协作/噜噜"; mkdir -p "$ROOT/协作/噜噜"
-        cp "$HAND"/Muse交接包/*.md "$HAND"/噜噜_*.md "$ROOT/协作/噜噜/" 2>/dev/null
+        cp "$HAND"/Muse交接包/*.md "$HAND"/Muse交接包/*.json "$HAND"/噜噜_*.md "$ROOT/协作/噜噜/" 2>/dev/null
         [ -f "$HAND/噜噜收件箱/README.md" ] && cp "$HAND/噜噜收件箱/README.md" "$ROOT/协作/噜噜/噜噜收件箱_README.md"
       fi
       ok "规则 / 结构索引 / 交接快照 / 噜噜指令 已同步进私有库"
