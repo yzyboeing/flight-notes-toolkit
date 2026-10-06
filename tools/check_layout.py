@@ -134,6 +134,25 @@ if os.path.exists(_bk):
 def explicit_br(first_line):
     k = ''.join(ch for ch in first_line if ch.isalnum())
     return bool(k) and (k + '|') in BRTEXT
+# R6（SD-152）：源文件标 one-page 的表（允许 7.5pt）——取表头文字作识别签名
+ONEPAGE_SIGS = []
+try:
+    _bm = open(os.path.join(REPO, 'build', 'book.md'), encoding='utf-8').read()
+    for _m in re.finditer(r'<table class="[^"]*\bone-page\b[^"]*">\s*<tr class="hdr">(.*?)</tr>', _bm, re.S):
+        ONEPAGE_SIGS.append(nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12])
+    FIXW_SIGS = [nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12] for _m in re.finditer(r'<tr class="hdr">((?:(?!</tr>).)*\bw-\d+(?:(?!</tr>).)*)</tr>', _bm, re.S)]
+except Exception:
+    FIXW_SIGS = []
+NWL = set()   # fit_fix 实测证明「再收就多行」的列（keep_force 的 NWL: 记录）：已收到「不增行」的极限，T13 不报
+try:
+    for _kf in ('keep_force_B737机型理论知识笔记.txt', 'keep_force_B737机型理论知识速查.txt'):   # 全书与速查各有一份记录
+        if not os.path.exists(os.path.join(REPO, 'build', _kf)): continue
+        for _l in open(os.path.join(REPO, 'build', _kf), encoding='utf-8'):
+            if _l.startswith('NWL:'):
+                _k, _sg = _l.strip()[4:].split(':', 1); NWL.add((_sg[:20], int(_k)))
+except Exception:
+    pass
+
 def scan(pdf, name, header):
     d = pymupdf.open(pdf)
     W, H = d[0].rect.width, d[0].rect.height
@@ -197,6 +216,7 @@ def scan(pdf, name, header):
             # T5 表内字号底线 8pt（SD-80）
             small = [sp['size'] for b in p.get_text('dict', clip=t.bbox)['blocks'] for l in b.get('lines', []) for sp in l['spans']
                      if sp['text'].strip() and sp['text'].strip() != '●' and sp['size'] < 7.9]   # 分条圆点「●」按半号排，不算小字
+            if small and min(small) >= 6.9 and any(sig in nosp(p.get_text()) for sig in ONEPAGE_SIGS): small = []   # R6：源文件标 one-page 的超大表允许 7.5pt
             if small: err('T5', '%s 第 %d 页：表内有 %.1fpt 的字，低于 8pt 底线' % (name, i + 1, min(small)))
             if tw > CW + 4: err('T1', '%s 第 %d 页：表格宽 %.0fpt 超过版心 %.0fpt' % (name, i + 1, tw, CW))
             rows = [[c for c in r.cells] for r in t.rows]
@@ -216,6 +236,7 @@ def scan(pdf, name, header):
                     colw[k] = max(colw[k], c[2] - c[0])
                     colused[k] = max(colused[k], max((l[1] - l[0] for l in ls), default=0))
             spare = [max(0, colw[k] - colused[k] - PAD) for k in range(ncol)]
+            # T13 改由 layout_measure 实测统一检查（见 scan 之后，跨页表按各段最小余量），这里不再单页判断
             # T2 有剩余宽度却折行（SD-72）：表头、以及 20 个字宽以内的短格
             for ri, r in enumerate(info):
                 for k, x in enumerate(r):
@@ -346,7 +367,7 @@ def scan(pdf, name, header):
                     multi_b = any(c.count('•') >= 2 for c in cs)   # 2026-10-03 用户：一列要加点就整列都加——序号表这一列有多条加点时，单句加点是对的
                     if serial and any('•' in c or '●' in c for c in cs):   # SD-140（2026-10-05 用户）：「有了序号就不要加小圆点」，无例外，报错
                         err('T12', '%s 第 %d 页：序号表的「%s」列有小圆点——序号表其余列不加「•」（SD-140）' % (name, i + 1, h))
-                    if serial:   # SD-140「后面的一列都是靠左」：居中的格（左右留白相等且明显大于内边距）报错（M18-L015，2026-10-06）
+                    if serial and not re.fullmatch(r'(时机|宣布时机|总则|类别)', h.replace(' ', '')):   # SD-140「后面的一列都是靠左」（类别等居中表头除外，2026-10-06 用户）：居中的格（左右留白相等且明显大于内边距）报错（M18-L015，2026-10-06）
                         ctr = 0
                         pad = (collections.Counter(round(l[0] - x[0][0]) for r in info[1:] for x in r if x for l in x[1] if l[2].strip()).most_common(1) or [(6, 0)])[0][0]   # 本表实际左内边距：取众数（悬挂缩进的「–」子项会更靠左，不能取最小）
                         for r in info[1:]:
@@ -384,6 +405,34 @@ if QON: scan(QREF, '单册', 'B737机型理论知识速查')   # SD-146 册名  
 # 检查器不再维护第二套测量（2026-10-05，APU 火警「1s」教训：两套眼睛必然漏）
 try:
     from layout_measure import measure as _lm_measure
+    for _nm, _pdf in (('全书', BOOK),) + ((('单册', QREF),) if QON else ()):
+        _res = _lm_measure(_pdf)
+        # T13 列宽多余（SD-151，错误级）：与 fit_fix 实测收窄同口径（严格余量：本格行数不增）；跨页的表按各段最小余量（页底段 + 下页页顶续段，列数、表宽相同算同一张）
+        _segs = collections.OrderedDict()
+        for _x in _res:
+            if _x.get('nw') and _x.get('col', -1) >= 0 and 'tb' in _x:
+                _segs.setdefault((_x['page'], _x['tb']), []).append(_x)
+        _keys = list(_segs); _grp = {}; _gid = 0
+        for _q, _k in enumerate(_keys):
+            _e = _segs[_k][0]
+            _cand = [kk for kk in _keys[:_q] if kk[0] == _k[0] - 1 and _segs[kk][0]['nc'] == _e['nc'] and abs(_segs[kk][0]['tw'] - _e['tw']) < 3] if _e['tb'] < 70 else []
+            _prev = _cand[-1] if _cand else None   # 上一页列数、表宽相同的那张（块索引可按块分页，不一定是上一页最后一张、也不一定排到页底）
+            if _prev:
+                _grp[_k] = _grp[_prev]
+            else:
+                _gid += 1; _grp[_k] = _gid
+        _byg = collections.defaultdict(list)
+        for _k in _keys: _byg[_grp[_k]].append(_k)
+        for _g, _ks in _byg.items():
+            for _c in range(_segs[_ks[0]][0]['nc']):
+                _vals = [next((e for e in _segs[_k] if e['col'] == _c), None) for _k in _ks]
+                if any(v is None for v in _vals): continue
+                _sl = min(v.get('extra_strict', v['extra_pt']) for v in _vals)
+                if any(nosp(_vals[0].get('table', '')).startswith(re.sub(r'[^\w]', '', sg)[:10]) for sg in FIXW_SIGS): continue   # 表头标 w-NN 的固定列宽表不按自动列宽判
+                if any(nosp(_vals[0].get('table', '')).startswith(sg) and kk == _c for sg, kk in NWL): continue   # 已证明收到极限（再收就多行）
+                if _sl >= 10 and not any(v.get('wrapped') or v.get('anywrap') for v in _vals):   # 只查没折行的列（用户原话「空白太多」）
+                    err('T13', '%s 第 %d 页：第 %d 列（「%s」）没有折行，右侧仍空约 %.0fpt——按最长一行收窄（以文字成行为标准）' % (_nm, _ks[0][0], _c + 1, _vals[0].get('head', ''), _sl))
+        if _nm != '全书': continue
     for _x in _lm_measure(BOOK):
         if _x.get('orphan'):
             err('T8', '全书 第 %d 页：「%s…」末行只剩一两个字（上一行止于「…%s」）——加宽该列或收紧字距（fit_fix 会自动处理，仍在就看 keep_force 的 W/WB/C 记录）' % (_x['page'], _x['cell'][:16], _x['prev'][-10:]))
@@ -408,7 +457,12 @@ else:
     if re.search(r'以\s*(SOP|FCOM)[^。]{0,6}为准', t): err('P1', '前言不应再有「以 SOP / FCOM 为准」一句（SD-73）')
 toc = ''.join(book[i].get_text() for i in range(1, 6))
 if '运行规范' in re.sub(r'运行规范\s*C\d+', '', toc): err('P2', '总目录仍出现「运行规范」，第三章名应为「运行手册」（SD-73）')
-if '按主题查' not in toc: err('P2', '目录后缺「按主题查」（SD-139，取代 SD-73 的速查主题清单入口）')
+if '按主题查' not in toc: err('P2', '目录里缺「按主题查（速查入口）」（SD-139 / SD-149）')
+# SD-149（2026-10-06 用户）：五种查法放在第五章之后——第五章最后一页之后才出现「按主题查」页
+_tp = [i for i in range(6, len(book)) if nosp(book[i].get_text()).startswith('按主题查') or '按主题查按系统' in nosp(book[i].get_text())[:40]]
+_c5 = max((i for i in range(len(book)) if '第五章' in book[i].get_text()[:60]), default=-1)
+if not _tp: err('P2', '找不到「按主题查」页（SD-149）')
+elif _tp[0] < _c5: err('P2', '「按主题查」在第 %d 页，应放在第五章之后（SD-149）' % (_tp[0] + 1))
 
 # V 成品通用校验（verify.py：空白页、标签泄漏、异常项目符号、front matter）
 for pdf in (BOOK,) + ((QREF,) if QON else ()):
