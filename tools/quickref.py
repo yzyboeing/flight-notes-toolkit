@@ -1,171 +1,96 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""quickref.py —— 由完整版自动生成《速查版》（2026-10-05 用户：「保留一个速查版的手册……所有知识点的一个集合，
-随着完整版更新，我需要的时候你再给我」；用户选「每块一条要点」）
+"""quickref.py —— 生成《B737 机型理论知识速查》（SD-146，2026-10-06 用户；取代 SD-145 的自动摘句版，旧脚本留作 quickref_auto_sd145.py）
 
-做法：读 build/book.md（完整版拼好的源），每一节一张表「条目 ｜ 要点」，全书每个知识点块一行：
-  · 要点＝这一块里带红（<em>，限制 / 门槛）或蓝（<b>，要背的数值）标记的原句，按「；」「。」「<br>」切成短句后原样保留（不改字、不截半句）；
-    表格行的短句前加行名（「行名：……」）；同一块最多取 MAXC 句；
-  · 没有红蓝标记的块，取第一句原文作要点；
-  · 速查版独立成册：不写正文页码、「另 N 项」等指向完整版的内容（2026-10-05 用户：「速查版是独立的，所以不用添加正文项目或者相关」）。
-不改 notes_src、不进 git；只生成 build/quickref.md 和 build/B737机型理论知识笔记速查版.docx / .pdf。
+用户要求：
+  · 「这个形式的速查笔记，不分章节，只分知识点」——参照 1005R2 时的《理论基础知识速查》：一条一个知识点，只有数据、限制、概念，没有多余解释；
+  · 「目录可以参考总笔记的，按主题查、按飞行阶段查，或者按运行环境查，包括非正常与应急、限制与规章等」；
+  · 正文顺序由 Claude 评估后定：正文按主题分组（只用主题小标题，不出章节号），五种查法都做成目录；
+  · 随完整版更新，用户要时再给；噜噜一起核对。
+
+源：gh-private/速查/速查源.md
+  「## 主题」分组（主题名取自 按主题查索引.json）；「### 标题」一条知识点，不写编号（生成时全书连续编号）；
+  每条第一行 <!-- 详见 [[x.y 节名|x.y A-n]] --> 绑定正文块：决定五维目录归类，正文改动时提示联动（check_quickref / quickref_sync_hint）。
+产物：build/qr_single.md、build/qr_dims.json、build/B737机型理论知识速查.docx / .pdf（不进 git）。
 用法：python3 quickref.py [--repo ~/flight-repos/gh-private]
 """
-import sys, os, re, html, subprocess, shutil, tempfile
+import sys, os, re, json, subprocess, shutil
 
 T = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.expanduser(sys.argv[sys.argv.index('--repo') + 1]) if '--repo' in sys.argv else os.path.expanduser('~/flight-repos/gh-private')
+SRC = os.path.join(REPO, '速查', '速查源.md')
+IDX = os.path.join(REPO, '按主题查索引.json')
 BUILD = os.path.join(REPO, 'build')
-BOOK_MD = os.path.join(BUILD, 'book.md')
-BOOK_PDF = os.path.join(BUILD, 'B737机型理论知识笔记.pdf')
-OUT_MD = os.path.join(BUILD, 'quickref.md')
-OUT_DOCX = os.path.join(BUILD, 'B737机型理论知识笔记速查版.docx')
-MAXC = 4          # 每块最多取几句
-MAXLEN = 70       # 单句过长（视觉宽度，汉字算 2）的不进要点，避免整段搬运
+SINGLE_MD = os.path.join(BUILD, 'qr_single.md')
+DIMS_JSON = os.path.join(BUILD, 'qr_dims.json')
+OUT_DOCX = os.path.join(BUILD, 'B737机型理论知识速查.docx')
 
-plain = lambda s: html.unescape(re.sub(r'<[^>]+>', '', s)).strip()
-def vis(s): return sum(2 if ord(ch) > 0x2E80 else 1 for ch in plain(s))
+def parse_src():
+    """→ [(主题, [ {t, body:[行], binds:[(节, 块)]} ])]"""
+    groups, cur_g, cur_e = [], None, None
+    for l in open(SRC, encoding='utf-8').read().split('\n'):
+        if l.startswith('# ') or (l.startswith('<!--') and cur_e is None): continue
+        m = re.match(r'^## (.+)$', l)
+        if m:
+            cur_g = (m.group(1).strip(), []); groups.append(cur_g); cur_e = None; continue
+        m = re.match(r'^### (.+)$', l)
+        if m and cur_g is not None:
+            cur_e = {'t': m.group(1).strip(), 'body': [], 'binds': []}; cur_g[1].append(cur_e); continue
+        if cur_e is not None:
+            if l.startswith('<!-- 详见'):
+                for a in re.findall(r'\[\[([^\]|]*)\|?([^\]]*)\]\]', l):
+                    lab = re.sub(r'第\s*(\d+)\s*条', r'\1', (a[1] or a[0]).strip())
+                    mm = re.match(r'(\d+\.\d+)(?:\s+([A-H]-\d+|\d+))?', lab)
+                    if mm: cur_e['binds'].append((mm.group(1), mm.group(2)))
+            cur_e['body'].append(l)
+    return [g for g in groups if g[1]]
 
-def split_top(s, seps='；。'):
-    """在标签外、括号外按 ；。<br> 切句；切点落在 <em>/<b>/<strong> 或（）内部的不切。"""
-    out, buf, depth, par, i = [], '', 0, 0, 0
-    while i < len(s):
-        if s.startswith('<br', i):
-            j = s.find('>', i) + 1
-            if depth == 0: out.append(buf); buf = ''
-            else: buf += s[i:j]
-            i = j; continue
-        if s[i] == '<':
-            j = s.find('>', i) + 1; tag = s[i:j]
-            if re.match(r'</(em|b|strong)\b', tag): depth = max(0, depth - 1)
-            elif re.match(r'<(em|b|strong)\b', tag): depth += 1
-            buf += tag; i = j; continue
-        ch = s[i]; buf += ch
-        if ch in '（(': par += 1
-        elif ch in '）)': par = max(0, par - 1)
-        elif ch in seps and depth == 0 and par == 0: out.append(buf); buf = ''
-        i += 1
-    out.append(buf)
-    return [x.strip() for x in out if plain(x).strip('；。 ')]
-
-def balanced(s):
-    for t in ('em', 'b', 'strong'):
-        if len(re.findall(r'<%s\b' % t, s)) != len(re.findall(r'</%s>' % t, s)): return False
-    return True
-
-def clean(s):
-    s = re.sub(r'[-]', '', s)
-    s = re.sub(r'<(?!/?(em|b|strong)\b)[^>]+>', '', s)          # 只保留颜色 / 加粗标记
-    s = re.sub(r'^\s*[-–—•]\s*', '', s).strip().rstrip('；。;')
-    if not balanced(s): s = html.escape(plain(s), quote=False)
-    return s
-
-SERIAL = re.compile(r'^\s*([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])\s*$')
-
-def block_points(lines):
-    """一块的原文行 → 要点短句列表：红蓝标记句优先，其次黑粗句，最后取第一整句。"""
-    marked, bold, first = [], [], None
-    rows_hdr = None
-    for l in lines:
-        if not l.strip() or l.startswith('%%') or l.startswith('<!--'): continue
-        if '<table' in l or '</table>' in l and not l.startswith('<tr'): continue
-        if l.startswith('<tr'):
-            if 'class="hdr"' in l: continue
-            cells = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', l, re.S)
-            if not cells: continue
-            label = plain(cells[0]); rest = cells[1:] if len(cells) > 1 else cells
-            for c in rest:
-                for seg in split_top(c):
-                    p = plain(seg)
-                    if not p or p in ('—', '-'): continue
-                    lab = label if (label and len(label) <= 14 and label not in p and len(cells) > 1 and not SERIAL.match(label)) else ''
-                    item = (lab + '：' if lab else '') + clean(seg)
-                    if vis(item) > MAXLEN * 2: continue
-                    if re.search(r'<(em|b)\b', seg): marked.append(item)
-                    elif '<strong>' in seg: bold.append(item)
-            if first is None:   # 第一整句：首个数据行，行名＋第一个内容格（只按「。」和 <br> 切）
-                for c in rest:
-                    segs = split_top(c, seps='。')
-                    if segs:
-                        lab = label if (label and len(label) <= 14 and len(cells) > 1 and not SERIAL.match(label)) else ''
-                        cand = (lab + '：' if lab else '') + clean(segs[0])
-                        if vis(cand) <= MAXLEN * 2: first = cand
-                        break
-            continue
-        txt = re.sub(r'^#+\s*', '', l)
-        for seg in split_top(txt):
-            item = clean(seg)
-            if not plain(item) or vis(item) > MAXLEN * 2: continue
-            if re.search(r'<(em|b)\b', seg): marked.append(item)
-            elif '<strong>' in seg: bold.append(item)
-        if first is None:
-            segs = split_top(txt, seps='。')
-            if segs:
-                cand = clean(segs[0])
-                if plain(cand) and vis(cand) <= MAXLEN * 2: first = cand
-    seen, uniq = set(), []
-    if not marked: marked = bold        # 没有红蓝标记：用黑粗的关键句
-    for m in marked:
-        k = plain(m)
-        if k not in seen: seen.add(k); uniq.append(m)
-    if uniq:
-        pts = uniq[:MAXC]
-        while len(pts) > 1 and plain(pts[-1]).endswith(('：', ':')): pts.pop()   # 末条是引导句（下文被截掉）就不要
-        return pts   # 速查版独立成册（用户 2026-10-05）：不写「另 N 项」、正文页等指向完整版的内容
-    return [first] if first else []
-
-def build_md():
-    src = open(BOOK_MD, encoding='utf-8').read().split('\n')
-    out = ['# 机型理论知识速查', '', '%%PAGEBREAK%%', '']
-    chap = sec = None; blocks = []; cur = None
-    def flush_sec():
-        if sec is None or not blocks: return
-        out.append('<table class="ftn split-ok">')
-        out.append('<tr class="hdr"><th class="col-left">条目</th><th class="col-left">要点</th></tr>')
-        for bid, title, body in blocks:
-            pts = block_points(body)
-            cell = '<br>'.join(pts) if pts else '—'
-            out.append('<tr><td><strong>%s</strong>　%s</td><td>%s</td></tr>' % (bid, html.escape(title, quote=False), cell))
-        out.append('</table>'); out.append('')
-    for l in src:
-        m2 = re.match(r'^## (第[一二三四五六七八九十]+章.*)$', l)
-        m3 = re.match(r'^### (\d+\.\d+)[\s　]+(.*)$', l)
-        m4 = re.match(r'^#### ([A-H]-\d+|\d+)[\s　.．]+(.*)$', l)
-        if m2:
-            if cur: blocks.append(cur); cur = None
-            flush_sec(); blocks = []; sec = None
-            chap = m2.group(1); out += ['', '## ' + chap, '']; continue
-        if m3:
-            if cur: blocks.append(cur); cur = None
-            flush_sec(); blocks = []
-            sec = (m3.group(1), m3.group(2)); out += ['### %s　%s' % sec, '']; continue
-        if l.startswith('#### '):
-            if cur: blocks.append(cur); cur = None
-            if m4 and sec: cur = (m4.group(1), re.sub(r'（单位：[^）]*）', '', m4.group(2)).strip(), [])
-            continue
-        if cur is not None: cur[2].append(l)
-    if cur: blocks.append(cur)
-    flush_sec()
-    open(OUT_MD, 'w', encoding='utf-8').write('\n'.join(out) + '\n')
-    return sum(1 for l in out if l.startswith('<tr><td>'))
-
-def to_docx_pdf():
+def main():
+    groups = parse_src()
+    # 1) 组装单册源：全书连续编号；「## 主题」→「### 主题」（单册目录列主题），「### 标题」→「#### N. 标题」
+    out = ['# 机型理论知识速查', '', '## 第零章　速查', '', '%%COMPACT%%', '']   # 单册模式只认「第X章」触发目录页；章名本身不印（页脚用册名 DOC_HEADER）
+    n = 0; ents = []
+    for g, es in groups:
+        out += ['### ' + g, '']
+        for e in es:
+            n += 1; e['n'] = n; e['g'] = g; ents.append(e)
+            out += ['#### %d. %s' % (n, e['t'])] + [x for x in e['body'] if not x.startswith('<!--')] + ['', '']
+    out += ['%%ENDCOMPACT%%', '']
+    os.makedirs(BUILD, exist_ok=True)
+    open(SINGLE_MD, 'w', encoding='utf-8').write('\n'.join(out))
+    # 2) 五维目录：条目绑定的正文块落在哪个主题，就挂到哪个主题下（一条可挂多处）；正文分组主题本身也挂
+    idx = json.load(open(IDX, encoding='utf-8'))
+    clean = lambda t: re.sub(r'（单位：[^）]*）|【[^】]*】', '', t).strip()
+    dims = []
+    for d in idx:
+        themes = []
+        for tp in d['themes']:
+            keys = {x.split('|')[0].strip() for x in tp['items']}
+            hit = [e for e in ents if any(('%s %s' % (s, b)) in keys for s, b in e['binds'] if b) or e['g'] == tp['theme']]
+            if hit: themes.append({'theme': tp['theme'], 'items': ['%d|%s' % (e['n'], clean(e['t'])) for e in sorted(hit, key=lambda x: x['n'])]})
+        if themes: dims.append({'dim': d['dim'], 'themes': themes})
+    json.dump(dims, open(DIMS_JSON, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    # 3) 排版：与完整版同一套生成器与 fit_fix（整表同页、列宽实测、孤字），单册模式
     env = dict(os.environ)
-    for k in ('DOC_TOPICS', 'DOC_PREFACE', 'DOC_QRTOPICS', 'DOC_TOPICINDEX'): env.pop(k, None)
-    env['DOC_SUBTITLE'] = '速查版 · 全书知识点要点'
-    env['NO_SEC_BREAK'] = '1'   # 速查版每节表格都短：节与节连排，不另起一页
-    env['KEEP_FORCE'] = os.path.join(BUILD, 'keep_force_B737机型理论知识笔记速查版.txt')
-    r = subprocess.run(['node', os.path.join(T, 'build_docx.js'), OUT_MD, OUT_DOCX], env=env, cwd=REPO)
-    if r.returncode: sys.exit('速查版 docx 生成失败')
+    for k in ('DOC_TOPICS', 'DOC_PREFACE', 'DOC_QRTOPICS', 'DOC_TOPICINDEX', 'NO_SEC_BREAK'): env.pop(k, None)
+    env.setdefault('NODE_PATH', os.path.join(REPO, 'node_modules'))
+    git_cfg = lambda k: subprocess.run(['git', '-C', REPO, 'config', '--get', k], capture_output=True, text=True).stdout.strip()
+    for k, g in (('DOC_EDITION', 'notes.docEdition'), ('DOC_NOTICE', 'notes.docNotice')):   # 封面版本号、特别提示与全书同（sync 已导出；单独跑时从 git config 取）
+        if not env.get(k): env[k] = git_cfg(g)
+    env.update({'DOC_SINGLE': '1', 'DOC_QRDIMS': DIMS_JSON, 'DOC_SINGLE_TOC_TITLE': '目录', 'DOC_SUBTITLE': '数据 · 限制 · 概念', 'DOC_HEADER': 'B737机型理论知识速查'})
+    r = subprocess.run([sys.executable, os.path.join(T, 'fit_fix.py'), SINGLE_MD, OUT_DOCX], env=env, cwd=REPO, capture_output=True, text=True)
+    if r.returncode: sys.exit('速查版排版失败：' + (r.stderr or r.stdout)[-600:])
     sof = shutil.which('soffice') or '/Applications/LibreOffice.app/Contents/MacOS/soffice'
     prof = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'lo-sync-profile')
     subprocess.run([sof, '-env:UserInstallation=file://' + prof, '--headless', '--convert-to', 'pdf', '--outdir', BUILD, OUT_DOCX], capture_output=True)
-
-if __name__ == '__main__':
-    n = build_md()
-    to_docx_pdf()
     pdf = OUT_DOCX[:-5] + '.pdf'
-    try:
-        import pymupdf; np = len(pymupdf.open(pdf))
+    try:   # 与 sync.sh 全书同：打开即展开书签栏；书签去掉「（单位：…）」，正文标题保留
+        import pymupdf
+        d = pymupdf.open(pdf); d.set_pagemode('UseOutlines'); toc = d.get_toc(simple=False)
+        for e in toc: e[1] = re.sub(r'\s*（单位：(?:[^（）]|（[^（）]*）)*）', '', e[1])
+        d.set_toc(toc); np = len(d)
+        d.save(pdf + '.tmp', garbage=3, deflate=True); d.close(); os.replace(pdf + '.tmp', pdf)
     except Exception: np = '?'
-    print('速查版：%d 个知识点块，%s 页 → %s' % (n, np, pdf))
+    print('速查版：%d 个主题、%d 条知识点，%s 页 → %s' % (len(groups), n, np, pdf))
+
+if __name__ == '__main__': main()

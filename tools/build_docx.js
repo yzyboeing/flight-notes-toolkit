@@ -1887,7 +1887,7 @@ function singleToc(ch, brk) {
   out.push(new Paragraph({
     heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, keepNext: true,
     spacing: { before: 0, after: 120 },
-    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: '按章节查', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()]
+    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: process.env.DOC_SINGLE_TOC_TITLE || '按章节查', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()]
   }));
   const hr = (sz, col, after) => new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after, line: 20 },
     children: [new TextRun({ text: '', size: 2 })],
@@ -1927,7 +1927,10 @@ function blkId(sec, title) {
    主题表 DOC_TOPICS（JSON）：[{dim, themes:[{theme, items:["1.2 A-2", "4.17 3", "x.y 块号|简称"]}]}]，找不到的块报错。 */
 let TOPICS_DONE = false;
 function bodyTopicPage() {
-  const fp = process.env.DOC_TOPICS;
+  if (TOPICS_DONE) return [];
+  /* 速查模式（SD-146，DOC_SINGLE=1 且 DOC_QRDIMS）：同一套五维网格，条目写「编号|标题」，跳到速查条目书签 QRI_编号 */
+  const qrMode = SINGLE && !!process.env.DOC_QRDIMS;
+  const fp = qrMode ? process.env.DOC_QRDIMS : process.env.DOC_TOPICS;
   if (!fp || !fs.existsSync(fp)) return [];
   let dims;
   try { dims = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (e) { console.error('按主题查索引读取失败：' + e.message); return []; }
@@ -1951,7 +1954,7 @@ function bodyTopicPage() {
   out.push(new Paragraph({ alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 0, line: 20 }, children: [new TextRun({ text: '', size: 2 })],
     border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
   let bad = 0, firstDim = true;
-  const NC = PORTRAIT ? 2 : 3, GAP = 300, colW = Math.floor((TOTAL - GAP * (NC - 1)) / NC), NUMW = 820;
+  const NC = PORTRAIT ? 2 : 3, GAP = 300, colW = Math.floor((TOTAL - GAP * (NC - 1)) / NC), NUMW = qrMode ? 460 : 820;
   const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const themeCell = (tp, w) => {
     if (!tp) return new TableCell({ width: { size: w, type: WidthType.DXA }, borders: { top: NB, bottom: NB, left: NB, right: NB }, children: [new Paragraph({ children: [] })] });
@@ -1973,7 +1976,9 @@ function bodyTopicPage() {
     for (const tp of d.themes) {
       const got = [];
       for (const ent of tp.items) {
-        const [key, short] = String(ent).split('|'); const b = blocks[key.trim()];
+        const [key, short] = String(ent).split('|');
+        if (qrMode) { got.push({ id: 'QRI_' + key.trim(), num: key.trim(), text: clean(short || '') }); continue; }
+        const b = blocks[key.trim()];
         if (!b) { console.error('按主题查索引：找不到块「' + key + '」（主题：' + tp.theme + '）'); bad++; continue; }
         got.push({ id: b.id, num: key.trim(), text: clean(short || b.t) });
       }
@@ -2000,6 +2005,7 @@ function bodyTopicPage() {
   return out;
 }
 function qrTopicPage() {
+  if (SINGLE && process.env.DOC_QRDIMS) return bodyTopicPage();   // SD-146：速查版用五维网格
   const fp = process.env.DOC_QRTOPICS;
   if (!fp || !fs.existsSync(fp)) return [];
   let topics;
@@ -2422,6 +2428,7 @@ const cover = SINGLE ? coverSingle : coverFull;
 function buildToc() {
   if (process.env.DOC_NOTOC === '1') return [];   /* 单章成册：章首页自带本章目录，不再出总目录页 */
   if (!BOOK) return [new TableOfContents('目录', { hyperlink: true, headingStyleRange: '1-2' })];
+  if (SINGLE && process.env.DOC_QRDIMS) return [];   /* SD-146 速查版：主题目录与按主题查都由 singleToc 出，不再出通用目录页 */
   const PER = PORTRAIT ? 1 : 2, CAP = PORTRAIT ? 44 : 27, GAP = 800;
   const colW = PORTRAIT ? Math.min(TOTAL, 9000) : Math.floor((TOTAL - GAP) / 2);
   const blocks = OUTLINE.map(ch => {

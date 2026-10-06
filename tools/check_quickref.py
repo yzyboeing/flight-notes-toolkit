@@ -127,10 +127,11 @@ def row_issues(item_html, src_html):
     return out
 
 def main():
-    qf = glob.glob(os.path.join(SRC, '0 *', '0 *.md'))
-    if not qf: sys.exit('找不到速查区源文件')
-    q = io.open(qf[0], encoding='utf-8').read()
-    items = re.findall(r'(?ms)^### (\d+)\. ([^\n]*)\n(.*?)(?=^### |^## |\Z)', q)
+    # SD-146：速查版独立成册，源在 <私有库>/速查/速查源.md（与 notes_src 同级）；条目不写编号，按出现顺序连续编号
+    qf = _arg('--qr', os.path.join(os.path.dirname(SRC), '速查', '速查源.md'))
+    if not os.path.exists(qf): sys.exit('找不到速查源：' + qf)
+    q = io.open(qf, encoding='utf-8').read()
+    items = [(str(k), t, b) for k, (t, b) in enumerate(re.findall(r'(?ms)^### ([^\n]*)\n(.*?)(?=^### |^## |\Z)', q), 1)]
     secs, blocks = {}, {}
     for f in glob.glob(os.path.join(SRC, '[1-5]*', '*.md')):
         t = io.open(f, encoding='utf-8').read(); sid = os.path.basename(f).split(' ')[0]
@@ -142,14 +143,15 @@ def main():
                 blocks[(sid, '第 %s 条' % m.group(1))] = m.group(2)
     errs, warns, n_ptr, n_own = [], [], 0, 0
     for n, title, body in items:
-        mp = re.search(r'详见 \[\[[^\]|]+\|(\d+\.\d+) ([A-Z]-\d+|第 \d+ 条)\]\]', body)
+        mp = re.search(r'详见 \[\[[^\]|]+\|(\d+\.\d+) ([A-Z]-\d+|第 ?\d+ ?条)\]\]', body)
         if not mp: n_own += 1; continue
         n_ptr += 1
         key = (mp.group(1), mp.group(2))
         if key not in blocks:
             errs.append('第 %s 条：详见 %s %s 在正文里不存在' % (n, *key)); continue
         mine = tokens(re.sub(r'<small>.*?</small>', ' ', re.sub(r'(?m)^\s*<!--[\s\S]*?-->\s*\n', '', re.sub(r'(?m)^(来源|详见|出处：|解释：|公司差异：)[^\n]*\n', '', body)), flags=re.S))
-        blk, whole = tokens(blocks[key]), tokens(secs[key[0]])
+        blk = tokens(blocks[key])
+        whole = set().union(*[tokens(secs[x]) for x in set(re.findall(r'\|(\d+\.\d+)[ \]]', body)) | {key[0]} if x in secs])   # 一条可绑定多节，数值在任一绑定节里即算有
         bare_whole = {v for v, _ in whole}
         miss = sorted({'%s%s' % x for x in mine if x not in blk and x not in whole and x[0] not in bare_whole})
         if miss: warns.append('第 %s 条（%s）↔ %s %s：正文里找不到 %s' % (n, title[:16], *key, '、'.join(miss[:8])))
