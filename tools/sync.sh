@@ -222,6 +222,10 @@ PYEOF
       python3 "$TOOLKIT/verify.py" "$pdf" || exit 1
     done || die "排版校验未通过，已中止（未提交）"
     ok "排版校验通过"
+    # 速查版（SD-146）：速查/速查源.md 生成单册；放在总检查之前，让 check_layout 查到的是本次生成的速查版（2026-10-06）
+    if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/quickref.py" ]; then
+      python3 "$TOOLKIT/quickref.py" --repo "$ROOT" 2>/dev/null | tail -1 | sed 's/^/  /' || warn "速查版生成失败（不影响完整版）"
+    fi
     # SD-79 总检查器：规则见 pub/prompt/layout-checklist.md。报告写 build/排版检查报告.md；
     # 有「错误」只警告不中止（成品仍要交给用户看），但收工前必须改到 0。
     if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/check_layout.py" ]; then
@@ -271,11 +275,6 @@ PYEOF
         [ -f "$HAND/噜噜收件箱/README.md" ] && cp "$HAND/噜噜收件箱/README.md" "$ROOT/协作/噜噜/噜噜收件箱_README.md"
       fi
       ok "规则 / 结构索引 / 交接快照 / 噜噜指令 已同步进私有库"
-    fi
-    # 速查版（2026-10-05 用户：「保留一个速查版的手册……随着完整版更新，我需要的时候你再给我」）：
-    # 每次全量重建后从完整版自动生成，每块一条要点＋正文页；不进 git、不进交接包，用户要时再发（SD-143 按需交付）
-    if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/quickref.py" ]; then
-      python3 "$TOOLKIT/quickref.py" --repo "$ROOT" 2>/dev/null | tail -1 | sed 's/^/  /' || warn "速查版生成失败（不影响完整版）"
     fi
   else
     warn "未装 LibreOffice，跳过排版校验（空白页 / 表格跨页查不了）"
