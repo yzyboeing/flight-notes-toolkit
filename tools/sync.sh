@@ -271,6 +271,11 @@ PYEOF
       fi
       ok "规则 / 结构索引 / 交接快照 / 噜噜指令 已同步进私有库"
     fi
+    # 速查版（2026-10-05 用户：「保留一个速查版的手册……随着完整版更新，我需要的时候你再给我」）：
+    # 每次全量重建后从完整版自动生成，每块一条要点＋正文页；不进 git、不进交接包，用户要时再发（SD-143 按需交付）
+    if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/quickref.py" ]; then
+      python3 "$TOOLKIT/quickref.py" --repo "$ROOT" 2>/dev/null | tail -1 | sed 's/^/  /' || warn "速查版生成失败（不影响完整版）"
+    fi
   else
     warn "未装 LibreOffice，跳过排版校验（空白页 / 表格跨页查不了）"
     warn "补装：brew install --cask libreoffice"
