@@ -59,32 +59,117 @@ def measure(pdf, srcmd=None):
         lines = lines_of(p)
         for t in tabs:
             if t.bbox[3] - t.bbox[1] < 8: continue   # 2026-10-05：不再跳过页顶的表——SD-97 后顶端没有页眉，页顶的表都是跨页续段，跳过它们曾让续段测不到、否决票发不出（C-3 教训）
-            ttext = norm(p.get_text(clip=t.bbox))
+            # 表后紧贴的「注：/公司差异/警告」会被识别成表格末几行：取表文字时去掉，否则与源表签名对不上，fit_fix 的加宽 / 收窄 / 去孤字都落不了账（2026-10-06）
+            try:
+                _rows = t.extract()
+                _keep = [r0 for r0 in _rows if not re.match(r'\s*(注[：:]|公司差异|警告[：:])', (r0[0] or ''))]
+                ttext = norm(''.join(c0 or '' for r0 in _keep for c0 in r0)) or norm(p.get_text(clip=t.bbox))
+            except Exception:
+                ttext = norm(p.get_text(clip=t.bbox))
+            # 量列边界、表宽也不算表后注行：注行比表宽、铺满版心，会让 PyMuPDF 把表右侧空白当成一列（余量 0，否决真列），表宽也被算成满版心（拉满从不触发）（2026-10-06）
+            try:
+                _ex = t.extract()
+                _note = {k for k, r0 in enumerate(_ex) if re.match(r'\s*(注[：:]|公司差异|警告[：:])', (r0[0] or ''))}
+            except Exception:
+                _note = set()
+            _cells = [c0 for k, r0 in enumerate(t.rows) if k not in _note for c0 in r0.cells if c0]
+            _txt = [c0 for c0 in _cells if cell_lines(lines, c0)]
+            TX2 = max([c0[2] for c0 in _txt] + [t.bbox[0] + 10])   # 表宽取有文字格子的最右边界
+            _cells = [c0 for c0 in _cells if c0[0] < TX2 - 1]       # 表右侧 PyMuPDF 虚构的空格子（注行比表宽时出现）丢掉
             # 实测收窄（nw）：列里每一行距两边的空白都 ≥ 24pt（按行宽算，居中列同样适用）→ 收到最长行 + 6pt，
             # 不会增加任何行。有跨列 / 跨行合并格的表整表跳过（收窄会挤到合并格里的长句）。
             # 每一段都必须表态（跨页的表一页一段）：空白不足或本段有合并格 / 折行列的，发 0 当否决票，
             # 否则只看到空白大的那一段就会把另一段的长行挤折（C-3 首列的教训，2026-10-05）
-            _spanfree = all(c is not None for r0 in t.rows for c in r0.cells)
-            if not _spanfree or t.col_count < 2:
+            # 2026-10-06（用户，第 10 页再循环风扇、第 62 页 EEC 备用方式）：有合并格的表也收窄——按格子横向位置还原列边界，
+            # 单列格定每列的空白；跨列格的余量按所跨列数均分，作为这些列的上限（跨列格本身折行则这些列都不收）
+            NEWIT = r'\s*([●•▪·–\-\u2460-\u2473【]|[A-H]-\d|\d{1,2}[.、)）]|注[：:])'
+            def _measure_cell(c0):
+                ls0 = cell_lines(lines, c0); wr = False; mx0 = 0
+                for q0 in range(len(ls0) - 1):
+                    if (c0[2] - c0[0]) - (ls0[q0][1] - ls0[q0][0]) < PAD + 14 and not re.match(NEWIT, ls0[q0 + 1][2]) and not ebr(ls0[q0][2]): wr = True   # 按整行宽度判：居中列的短行左右各空一点，只看右侧会误判成排满（2026-10-06）   # 真折行：排到右缘、下一行不是新的一条
+                for l0 in ls0: mx0 = max(mx0, l0[1] - l0[0])
+                return ls0, wr, mx0
+            xs = []
+            for c0 in sorted({round(c[0], 1) for c in _cells}):
+                if not xs or c0 - xs[-1] > 2: xs.append(c0)
+            xs.append(TX2)
+            ncol_t = len(xs) - 1
+            if ncol_t < 2:
                 found.append({'page': i + 1, 'col': -1, 'extra_pt': 0, 'cell': '', 'first': '', 'prev': '',
                               'orphan': False, 'nw': True, 'cx': 0,
-                              'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext})
+                              'tw': round(TX2 - t.bbox[0], 1), 'table': ttext})
             else:
-                for k0 in range(t.col_count):
-                    cols = [r0.cells[k0] for r0 in t.rows if k0 < len(r0.cells) and r0.cells[k0]]
-                    cw0 = max(c0[2] - c0[0] for c0 in cols); mx = 0; n_l = 0; wrapped = False
-                    for c0 in cols:
-                        ls0 = cell_lines(lines, c0)
-                        if len(ls0) > 1: wrapped = True
-                        for l0 in ls0:
-                            mx = max(mx, l0[1] - l0[0]); n_l += 1
-                    slack = 0 if (not n_l or wrapped) else max(0, cw0 - PAD - mx - 6)   # 有折行的列不收（宽度由加宽通道管）
-                    found.append({'page': i + 1, 'col': k0, 'extra_pt': round(slack, 1),
-                                  'cell': ''.join(l0[2] for l0 in cell_lines(lines, cols[0]))[:24] if cols else '', 'first': '', 'prev': '',
+                cover = lambda c0: [q for q in range(ncol_t) if xs[q] >= c0[0] - 2 and xs[q + 1] <= c0[2] + 2]
+                # SD-151 按行高收窄（2026-10-06 用户，第 31 / 41 / 103 / 239 页：「在不增加行数的情况下尽量让这一列窄一点」）：
+                # 单元格可容纳的行数按它自己的格高算（含跨行格），只要重排后不超过这个行数，这一列就能收窄——同一行别的格更高时，这格多折几行也不增加行高
+                gaps = []   # 行距只在同一格内取（不同列的文字上下错开，混在一起会把行距算小）
+                for c0 in _cells:
+                    if not c0: continue
+                    yy = sorted((l[1] + l[3]) / 2 for l in lines if c0[0] - 1 <= (l[0] + l[2]) / 2 <= c0[2] + 1 and c0[1] - 1 <= (l[1] + l[3]) / 2 <= c0[3] + 1)
+                    gaps += [b2 - a2 for a2, b2 in zip(yy, yy[1:]) if 9 <= b2 - a2 <= 30]
+                pitch = sorted(gaps)[len(gaps) // 2] if gaps else 17.0
+                def _minw(c0, ls0, rowmode=True):
+                    paras, cur = [], []
+                    for l0 in ls0:
+                        if cur and (re.match(NEWIT, l0[2]) or ebr(cur[-1][2]) or ((c0[2] - c0[0]) - (cur[-1][1] - cur[-1][0])) >= PAD + 14): paras.append(cur); cur = []   # 源文件 <br> 处另起一段
+                        cur.append(l0)
+                    if cur: paras.append(cur)
+                    cap = min(max(len(ls0), int((c0[3] - c0[1] - 4) / pitch + 0.35)), len(ls0) + 1) if (rowcap_ok and rowmode) else len(ls0)   # 表不挤时仍按「本格行数不增」；借行高时每格最多多折一行（「适当收窄」，不把短格挤成一列碎字）
+                    tok = max([len(m0) * 5.2 for l0 in ls0 for m0 in re.findall(r'[A-Za-z0-9][A-Za-z0-9./\-:+%°]*', l0[2])] + [0])
+                    widest = max((l0[1] - l0[0]) for l0 in ls0)
+                    lo, hi = max(tok, 24) + PAD + 2, widest + PAD + 6
+                    def need(w):
+                        n = 0
+                        for pg in paras:
+                            L = sum(l0[1] - l0[0] for l0 in pg) * (1.10 if len(pg) > 1 else 1.0); av = w - PAD - 2
+                            k = -(-L // av); n += k
+                            if k > 1 and L - (k - 1) * av < 55: n += 9   # 末行不足约 6 个字：视为不行（不制造末行孤字）
+                        return n
+                    if need(hi) > cap: return hi
+                    while hi - lo > 2:
+                        mid = (lo + hi) / 2
+                        if need(mid) <= cap: hi = mid
+                        else: lo = mid
+                    return hi
+                # 按行高收窄的前提：表已占满版心（右侧空余 < 20pt）且有格真折行——确有列需要宽度，挪出来的宽度才有去处
+                rowcap_ok = (CW - (TX2 - t.bbox[0]) < 20) and any(_measure_cell(c0)[1] for c0 in _cells if len(cover(c0)) == 1)
+                mxk, nlk, wrk, capk, mxs, anyw = [0] * ncol_t, [0] * ncol_t, [False] * ncol_t, [10 ** 9] * ncol_t, [0] * ncol_t, [False] * ncol_t
+                for c0 in _cells:
+                    if not c0: continue
+                    cv = cover(c0)
+                    if not cv: continue
+                    ls0, wr, mx0 = _measure_cell(c0)
+                    if len(cv) == 1:
+                        k0 = cv[0]; nlk[k0] += len(ls0); anyw[k0] = anyw[k0] or wr
+                        if ls0:
+                            mw = _minw(c0, ls0); mxk[k0] = max(mxk[k0], mw - PAD - 6)   # 以「行高不增」的最小宽度代替最长行
+                            mxs[k0] = max(mxs[k0], _minw(c0, ls0, False) - PAD - 6)   # 严格口径：本格行数不增（已收窄过的列只用这个，防一遍遍往下收）
+                            if wr and len(ls0) >= int((c0[3] - c0[1] - 4) / pitch + 0.35): wrk[k0] = True   # 真折行且这格就是撑起行高的那格：收窄过头的信号
+                    elif len(cv) < ncol_t:   # 整行通栏的格（注、提示、前提行）不约束单列宽度：挪出的宽度由拉满补回，总宽不变
+                        sl = 0 if (wr or not ls0) else max(0, (c0[2] - c0[0]) - PAD - mx0 - 6)
+                        for q in cv: capk[q] = min(capk[q], sl / len(cv))
+                rows_sl = []; f0 = len(found)
+                for k0 in range(ncol_t):
+                    cw0 = xs[k0 + 1] - xs[k0]
+                    slack = 0 if (not nlk[k0] or wrk[k0]) else max(0, cw0 - PAD - mxk[k0] - 6)   # 撑起行高的格已折行到满：不收
+                    slack = min(slack, capk[k0])
+                    slack_s = 0 if (not nlk[k0] or wrk[k0] or anyw[k0]) else min(capk[k0], max(0, cw0 - PAD - mxs[k0] - 6))   # 有真折行的列不按严格口径收（只在「让给更挤的列」那一次收），防收窄 / 拉满来回拉锯
+                    rows_sl.append((slack, slack_s))
+                    found.append({'page': i + 1, 'col': k0, 'extra_pt': round(slack, 1), 'extra_strict': round(slack_s, 1), 'wrapped': wrk[k0],
+                                  'anywrap': anyw[k0], 'nl': nlk[k0], 'tb': round(t.bbox[1], 1), 'bb': round(t.bbox[3], 1), 'ph': round(p.rect.height, 1), 'nc': ncol_t, 'head': (t.extract()[0][k0] or '')[:10] if t.extract() and k0 < len(t.extract()[0]) else '',
+                                  'cell': '', 'first': '', 'prev': '',
                                   'orphan': False, 'nw': True,
-                                  'cx': round((cols[0][0] + cols[0][2]) / 2 - t.bbox[0], 1) if cols else 0,
-                                  'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext})
-            for r in t.rows:
+                                  'cx': round((xs[k0] + xs[k0 + 1]) / 2 - t.bbox[0], 1),
+                                  'tw': round(TX2 - t.bbox[0], 1), 'table': ttext})
+                # 每张表一次只让一列借行高收窄（多借的那列）；其余列按「本格行数不增」——几列同时借同一行的行高会把行撑高（2026-10-06 页数来回跳的教训）
+                gain = [a2 - b2 for a2, b2 in rows_sl]
+                kb = max(range(len(gain)), key=lambda q: gain[q]) if gain and max(gain) > 0 else -1
+                for q, e in enumerate(found[f0:f0 + len(rows_sl)]):
+                    if q != kb: e['extra_pt'] = e['extra_strict']
+            fillc = {}   # SD-148 实测拉满：给哪列都省不出行时，本表真折行最多的列（每表每遍一列）
+            grew = False
+            for _ri, r in enumerate(t.rows):
+                if _ri in _note: continue   # 表后注行不当表格格子查（注段落的孤字由 SD-130 另管）
                 for k, c in enumerate(r.cells):
                     if not c: continue
                     span = k + 1 < len(r.cells) and r.cells[k + 1] is None   # 跨列格：不能单独加宽一列，fit_fix 直接收紧字距（2026-10-05，原来整格跳过，检查器却照查）
@@ -108,10 +193,10 @@ def measure(pdf, srcmd=None):
                         elif len(ls) == 2 and len(re.sub(r'\s', '', txt)) <= 20 and not ebr(ls[0][2]):   # 短格折两行：给够一行（原文 <br> 的不算）
                             extra = sum(l[1] - l[0] for l in ls) + PAD + 3 - cw
                         if extra > 0:
-                            found.append({'page': i + 1, 'col': k, 'extra_pt': round(extra, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'prev': norm(prev[2]), 'orphan': 0 < len(last) <= 2, 'cx': round((c[0] + c[2]) / 2 - t.bbox[0], 1), 'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext, 'span': span})
+                            found.append({'page': i + 1, 'col': k, 'extra_pt': round(extra, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'prev': norm(prev[2]), 'orphan': 0 < len(last) <= 2, 'cx': round((c[0] + c[2]) / 2 - t.bbox[0], 1), 'tw': round(TX2 - t.bbox[0], 1), 'table': ttext, 'span': span})
                     # SD-144（2026-10-05 用户）：「在页面右侧空间足够的情况下，尽量增加文字多的表格宽度，以减少行数」——
                     # 表格右侧有空余时，按实测行宽算出加宽多少能让某一条少折一行；空余放得下就交给 fit_fix 加宽这一列（只用空余，不从邻列匀）
-                    free = CW - (t.bbox[2] - t.bbox[0])
+                    free = CW - (TX2 - t.bbox[0])
                     if free > 20 and not span:
                         segs, cur_s = [], []
                         for l in ls:
@@ -124,7 +209,19 @@ def measure(pdf, srcmd=None):
                             need = sum(l[1] - l[0] for l in sg) * 1.03 / (len(sg) - 1) + PAD + 2 - cw
                             if 0 < need <= free - 2 and (best is None or need < best): best, bsg = need, sg
                         if best is not None:
-                            found.append({'page': i + 1, 'col': k, 'extra_pt': round(best, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'prev': norm(bsg[-2][2]), 'brs': [norm(l[2]) for l in bsg[:-1]], 'orphan': False, 'grow': True, 'cx': round((c[0] + c[2]) / 2 - t.bbox[0], 1), 'tw': round(t.bbox[2] - t.bbox[0], 1), 'table': ttext, 'span': False})
+                            found.append({'page': i + 1, 'col': k, 'extra_pt': round(best, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'prev': norm(bsg[-2][2]), 'brs': [norm(l[2]) for l in bsg[:-1]], 'orphan': False, 'grow': True, 'cx': round((c[0] + c[2]) / 2 - t.bbox[0], 1), 'tw': round(TX2 - t.bbox[0], 1), 'table': ttext, 'span': False})
+                            grew = True
+                        else:
+                            _, wr_c, _ = _measure_cell(c)   # 与收窄同一口径判真折行（整行排满、下一行不是新条目、不止于原文 <br>）
+                            nwr = sum(len(sg) - 1 for sg in segs if len(sg) >= 2) if wr_c else 0
+                            if nwr: fillc[k] = (fillc.get(k, (0, 0))[0] + nwr, round((c[0] + c[2]) / 2 - t.bbox[0], 1))
+            # SD-148 / 151（2026-10-06 用户：「哪怕减少不了行数，也可以把空白区域利用起来」）：这一遍没有能省行的加宽项、表格右侧仍有空余时，
+            # 空余整块给本表真折行最多的列（最挤的列），每表每遍只给一列；fit_fix 记 W:（fill 不受加宽上限与次数限制）
+            free_t = CW - (TX2 - t.bbox[0])
+            if fillc and free_t > 20:   # 有省行加宽项时也报：省行项可能是原文 <br> 被 fit_fix 跳过，由 fit_fix 判断本表这遍是否已加宽
+                kf = max(fillc, key=lambda q: fillc[q][0])
+                found.append({'page': i + 1, 'col': kf, 'extra_pt': round(free_t - 4, 1), 'cell': '', 'first': '', 'prev': '', 'brs': [],
+                              'orphan': False, 'grow': True, 'fill': True, 'cx': fillc[kf][1], 'tw': round(TX2 - t.bbox[0], 1), 'table': ttext, 'span': False})
     return found
 
 if __name__ == '__main__':

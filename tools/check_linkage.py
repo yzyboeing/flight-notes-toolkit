@@ -156,6 +156,8 @@ def frags(a, b):
             # 只有数字和标点的片段（条目重编号、页码）不算写法变化
             if not re.search(r'[\u4e00-\u9fffA-Za-z]', vis):
                 continue
+            if re.search(r'["=]|\bcol-|class|span', seg) and len(re.sub(r'[\u4e00-\u9fff]', '', vis)) == len(vis):   # 只改了 HTML 属性（col-bullet、colspan 等排版标记）的片段不算写法（2026-10-06）
+                continue
             if len(vis) >= 3 and seg not in b:
                 out.append(seg)
     return out

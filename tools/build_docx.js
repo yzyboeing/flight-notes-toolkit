@@ -379,6 +379,7 @@ function tableGap(src, i) {
 let PROBE = false, TBL_IDX = -1, KEEP_LAST = false;
 /* KEEP_FORCE 文件（fit_fix.py 维护）：一行一个表签名＝强制整表同页；「~N:签名」＝整表同页并按第 N 级压缩（SD-80）；「!签名」＝已放弃（fit_fix 自用） */
 const NCOND = new Map();   // SD-130 表外注段落收紧字距（fit_fix 写入 N:）
+const FFIX = new Map();   // SD-148 实测拉满（fit_fix 写入 F:）
 const KEEP_FORCE = new Set(), SHRINK = new Map(), WFIX = new Map(), NWFIX = new Map(), SPLITOK = new Set(), PBREAK = new Set(), CONDENSE = new Map();   // CONDENSE：签名 → [[首行前 10 字, 级]]（末行孤字收紧字距，fit_fix 写入 C:）
 if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
   for (const l0 of fs.readFileSync(process.env.KEEP_FORCE, 'utf8').split('\n')) {
@@ -387,6 +388,8 @@ if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
     if (w) { if (!WFIX.has(w[3])) WFIX.set(w[3], []); WFIX.get(w[3]).push([+w[1], +w[2]]); continue; }
     const nw = l.match(/^NW:(\d+):(\d+):(.+)$/);   // SD-144 实测收窄：NW:列号:收窄DXA:签名（layout_measure 保证不增行）
     if (nw) { if (!NWFIX.has(nw[3])) NWFIX.set(nw[3], []); NWFIX.get(nw[3]).push([+nw[1], +nw[2]]); continue; }
+    const ff = l.match(/^F:(\d+):(\d+):(.+)$/);
+    if (ff) { if (!FFIX.has(ff[3])) FFIX.set(ff[3], []); FFIX.get(ff[3]).push([+ff[1], +ff[2]]); continue; }
     if (l.startsWith('S:')) { SPLITOK.add(l.slice(2)); continue; }   // SD-87 允许按块分页的块索引表
     if (l.startsWith('P:')) { PBREAK.add(l.slice(2)); continue; }
     { const nn = l.match(/^N:(\d):(.+)$/); if (nn) { NCOND.set(nn[2], +nn[1]); continue; } }
@@ -628,11 +631,13 @@ function htmlTableCore(html) {
     const itemsOf = (t) => { const s1 = String(t).split(/<br\s*\/?>/).filter(x => plainOf(x));
       if (s1.length !== 1) return s1.length;
       const pp = splitOut(s1[0], /[；;]/); return pp && pp.length >= 2 && pp.every(y => pv(String(y).replace(/[；;，,。]/g, '')) >= 12) ? pp.length : 1; };
-    if (process.env.DOC_SINGLE_NODOT) { const hr = parsed.find(r => r.cls.includes('hdr')), hri = hr ? parsed.indexOf(hr) : -1;
+    /* SD-150（2026-10-06 用户，第 31 页「触发条件」：「去掉前面的小圆点，内容整体居中」）：整列每格都只有一条的加点列，整列去点、居中。
+       只开「整列」这一种；混合列里的单句仍随整列加点（SD-127 不变）。DOC_KEEP_SINGLEDOT=1 可关 */
+    if (process.env.DOC_SINGLE_NODOT) {   // SD-150 撤回为按表指定（2026-10-06：1.2 B-1 要去点居中、1.3 B-3 要加点靠左，同类列两种要求，改在源文件表头标 col-center） const hr = parsed.find(r => r.cls.includes('hdr')), hri = hr ? parsed.indexOf(hr) : -1;
       for (const col of [...bulletCols]) {
         const cs = []; parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
           r.cells.forEach((c, k) => { if (startCol[ri][k] === col && c.colspan === 1 && !c.head && plainOf(c.text) && !/^[—－\-–\/／无空]$/.test(plainOf(c.text))) cs.push(c); }); });
-        if (cs.length && cs.every(c => itemsOf(c.text) <= 1)) {
+        if (cs.length && cs.every(c => itemsOf(c.text) <= 1 && (process.env.DOC_SINGLE_NODOT || pv(plainOf(c.text)) <= 80))) {   // SD-150：全书只对每格约 40 字以内的短单条列生效（长句单条居中读起来不顺，第 7 页工作逻辑）
           bulletCols.delete(col); noSemCols.add(col);
           if (hr) hr.cells.forEach((hc, hk) => { if (startCol[hri][hk] === col) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(bullet|plain|left)(?=\s|$)/g, ' ') + ' col-center').trim(); });
         } } }
@@ -1151,6 +1156,7 @@ function htmlTableCore(html) {
        取 94，拉丁字母占比越高加得越多（最多 100）；收窄时再加 3（约九成八分位），估小了会把一行挤成两行，宁可少收。原 96 × 1.03（粗体 × 1.08）对中文高估约 10%～16%，收窄时把一行挤成两行、加宽时以为放不下而不加 */
     const UNIT_W = (sg) => { const t = unesc(String(sg).replace(/<[^>]+>/g, '')).replace(/\s/g, ''); if (!t) return 94;
       const lat = [...t].filter(ch => ch.charCodeAt(0) < 128).length / [...t].length; return 94 + 6 * lat; };
+    const SHRUNK = new Set();   // SD-151：不增行收窄过的列，后面拉满版心时不再分回宽度
     { const LN = (L, w) => Math.ceil(L / Math.max(1, w - 300));
       const spanned = new Set(); const cellsByCol = Array.from({ length: nCols }, () => []);
       parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
@@ -1175,7 +1181,7 @@ function htmlTableCore(html) {
         if (lo >= hi) continue;
         while (hi - lo > 30) { const mid = (lo + hi) >> 1; if (ok(mid)) hi = mid; else lo = mid; }
         const nw = Math.min(W[k], hi + 60);
-        if (W[k] - nw >= 200) { if (process.env.W_LOG) console.error('SHRINK', k, W[k], '→', nw); W[k] = nw; }
+        if (W[k] - nw >= 200) { if (process.env.W_LOG) console.error('SHRINK', k, W[k], '→', nw); W[k] = nw; SHRUNK.add(k); }
       }
       const tot1 = W.reduce((a2, b2) => a2 + b2, 0);
       const minTot = Math.max(0, ...wide0.map((L, q) => Math.ceil(L / wl0[q]) + 340 + 60));
@@ -1184,7 +1190,7 @@ function htmlTableCore(html) {
        逐格算：每一轮在各列里找「加宽多少能让某一格少折一行」，按「每加 1 DXA 省几行」取最划算的一项加上，
        直到空余用完或再也省不出行（原来只在「该列行数最多的格全都能少一行」时才加宽，长格排不进一行时整列不动）。
        字宽口径与上面的「不增行收窄」一致（UNIT_W：94～100 DXA / 单位，左右留白 300）。跨列格不参与。 */
-    { let free = TOTAL - W.reduce((a2, b2) => a2 + b2, 0);
+    if (process.env.DOC_FREEGROW_EST) { let free = TOTAL - W.reduce((a2, b2) => a2 + b2, 0);   // 2026-10-06：估算加宽默认关——实测通道（layout_measure grow / fill）已覆盖；估算把带括注的长标签当成多折一行，一次给太宽（5.5 鸟击「情形」列空 175pt）
       const LN2 = (L, w) => Math.ceil(L / Math.max(1, w - 300));
       const segsByCol = Array.from({ length: nCols }, () => []);
       parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
@@ -1245,11 +1251,65 @@ function htmlTableCore(html) {
         if (d0 > 0) { W[k] += d0; W[j] -= d0; } }
       /* SD-144 实测收窄（fit_fix 写入 NW:）：这一列按成品实测收到最长行 + 6pt，表格整体变窄；下限 FLOOR，防御性再留 tokMin */
       for (const [k, dd] of (NWFIX.get(sig0) || [])) { if (k >= nCols) continue;
-        const lo = Math.max(FLOOR, (typeof tokMin !== 'undefined' && tokMin[k]) ? tokMin[k] + 300 : 0);
+        const lo = FLOOR;   // 2026-10-06：实测收窄已保证不增行，不再用估算的「不可断词宽」做下限（把「【737-NG】37000ft」当整体估宽过大，实测还能收也收不下去）
         const nv = Math.max(lo, W[k] - dd);
         if (process.env.W_LOG && nv < W[k]) console.error('NARROW', k, W[k], '→', nv);
         W[k] = nv; } }
+    /* SD-148（2026-10-06 用户选方案 A）：有折行长句格的表拉满版心宽——剩余页宽全给折行的文字列（按最长一段从长到短），
+       每列只补到「最长一段排成一行」为止；补完仍有剩余说明已无折行，表格保持按内容的宽度。全是短格的表不动（仍守 SD-144 收窄）。
+       放在实测加宽 / 收窄之后，最后一步决定总宽。 */
+    /* SD-148 / 151 实测拉满（fit_fix 写入 F:）：右侧实测空余给实测折行最多的列；该列做过不增行收窄（SHRUNK）的，转给同表估算折行最多的其余列（第 31 页：宽度让给旁边挤的列） */
+    { const sigX = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+      for (const [k0, dd] of (FFIX.get(sigX) || [])) { if (k0 >= nCols) continue;
+        let k = k0;
+        const nwF = new Set((NWFIX.get(sigX) || []).map(x => x[0]));   // 正在实测收窄的列不接收拉满宽度
+        if (SHRUNK.has(k0) || nwF.has(k0)) {
+          const est = (q) => { let n = 0; parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return; r.cells.forEach((c, ck) => { if (startCol[ri][ck] !== q || c.colspan !== 1) return;
+            String(c.text).split(/<br\s*\/?>/).forEach(sg => { const L = fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * UNIT_W(sg); if (L > 0) n += Math.ceil(L / Math.max(1, W[q] - 300)) - 1; }); }); }); return n; };
+          let best = -1, bn = 0; for (let q = 0; q < nCols; q++) { if (q === k0 || SHRUNK.has(q) || nwF.has(q)) continue; const n = est(q); if (n > bn) { bn = n; best = q; } }
+          if (best >= 0) k = best; else if (nwF.has(k0)) continue; }
+        const add = Math.min(dd, Math.max(0, TOTAL - W.reduce((a2, b2) => a2 + b2, 0)));
+        if (add > 0) { W[k] += add; if (process.env.W_LOG) console.error('FILL', k0, '→', k, add); } } }
+    if (process.env.DOC_FILLWRAP_EST) {   // 2026-10-06：估算拉满默认关——估算会把宽度分给并不折行的列（第 12 页 C-4），改由 layout_measure 实测拉满（fill）
+      const segsF = Array.from({ length: nCols }, () => []), spannedF = new Set();
+      parsed.forEach((r, ri) => { if (/note|premise|warn/.test(r.cls)) return;
+        r.cells.forEach((c, ck) => { const k = startCol[ri][ck];
+          if (c.colspan !== 1) { for (let q = 0; q < c.colspan; q++) spannedF.add(k + q); return; }
+          String(c.text).split(/<br\s*\/?>/).forEach(sg => { if (!sg.replace(/<[^>]+>|[\uE001-\uE006\s]/g, '')) return;
+            const mk0 = (sg.match(/^[\uE001-\uE006]+/) || [''])[0];
+            segsF[k].push(fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * UNIT_W(sg) + (mk0 ? 200 : 0)); }); }); });
+      const longest = segsF.map(ss => Math.max(0, ...ss));
+      const sigF = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+      const nwSet = new Set((NWFIX.get(sigF) || []).map(x => x[0]));   // 实测已确认不折行（fit_fix 写了 NW: 收窄）的列不拉宽，免得与收窄来回拉锯
+      /* SD-151（2026-10-06 用户，第 31 页：「在不增加行数的情况下，尽量让这一列窄一点，同时给旁边的一列留点空间」）：
+         收窄过（不增行）的列不再分回宽度；剩余页宽一小步一小步地给「当前折行最多」的列（最挤的先得），直到用完或都排成一行 */
+      const LNF = (L, w) => Math.ceil(L / Math.max(1, w - 300));
+      const linesF = (k) => segsF[k].reduce((a2, L) => a2 + LNF(L, W[k]), 0) - segsF[k].length;   // 该列因折行多出来的行数
+      const cand = [...Array(nCols).keys()].filter(k => !spannedF.has(k) && !nwSet.has(k) && longest[k] > W[k] - 300);
+      const pool = cand.some(k => !SHRUNK.has(k)) ? cand.filter(k => !SHRUNK.has(k)) : cand;
+      let freeF = TOTAL - W.reduce((a2, b2) => a2 + b2, 0);
+      for (let it = 0; it < 400 && freeF > 0; it++) {
+        const open = pool.filter(k => longest[k] > W[k] - 300);
+        if (!open.length) break;
+        open.sort((x, y) => (linesF(y) - linesF(x)) || (W[x] - W[y]));
+        const k = open[0], add = Math.min(freeF, 120, Math.ceil(longest[k]) + 300 + 60 - W[k]);
+        if (add <= 0) break;
+        W[k] += add; freeF -= add;
+        if (process.env.W_LOG && it < 3) console.error('FILLWRAP', k, add); }
+    }
   }
+  /* w-NN（2026-10-06 用户，1.4 D-2 三种复飞方式按截图版式）：表头标 w-NN 的表按指定百分比分列宽（总宽＝版心），跨列表头按 w-NN-MM 写两小列；不参与实测加宽 / 收窄 */
+  { const hrW = parsed.find(r => r.cls.includes('hdr'));
+    if (hrW) { const hriW = parsed.indexOf(hrW), pct = new Array(nCols).fill(0);
+      hrW.cells.forEach((hc, hk) => { const m = String(hc.cls || '').match(/(?:^|\s)w-(\d+)(?:-(\d+))?(?=\s|$)/); if (!m) return;
+        const c0 = startCol[hriW][hk]; pct[c0] = +m[1]; if (m[2] && hc.colspan >= 2) pct[c0 + 1] = +m[2]; });
+      const tot = pct.reduce((a2, b2) => a2 + b2, 0);
+      if (tot > 0 && pct.every(v => v > 0)) for (let k = 0; k < nCols; k++) W[k] = Math.floor(TOTAL * pct[k] / Math.max(tot, 100)); } }   // 合计不足 100 时按版心宽的百分比（窄表不硬撑满）
+  /* col-eq（2026-10-06 用户，1.3 B-1 发动机防冰「737-NG」「737-8」两列单独调成宽度一致）：表头标 col-eq 的几列，总宽不变、平分 */
+  { const hrE = parsed.find(r => r.cls.includes('hdr'));
+    if (hrE) { const hriE = parsed.indexOf(hrE), eq = [];
+      hrE.cells.forEach((hc, hk) => { if (hc.colspan === 1 && /(^|\s)col-eq(\s|$)/.test(hc.cls || '')) eq.push(startCol[hriE][hk]); });
+      if (eq.length >= 2) { const tot = eq.reduce((a2, k) => a2 + W[k], 0), each = Math.floor(tot / eq.length); eq.forEach(k => { W[k] = each; }); } } }
   if (process.env.W_LOG && (COMPACT || FIT_ALL)) console.error('W', nCols, JSON.stringify(W), String(parsed[0].cells.map(c => c.text).join('/')).slice(0, 40));
 
   /* 续表（表头 ghost）沿用上一段的列宽，竖线对齐，看起来是同一张表（用户 2026-10-03） */
@@ -1291,8 +1351,11 @@ function htmlTableCore(html) {
   const tblText = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '');
   const tblSig = tblText.slice(0, 80);
   const splitRow = /^\s*<table[^>]*\bsplit-ok\b/.test(String(html));   // split-ok：不压字号、允许行间分页，防孤行照常（与块索引表的 SPLITOK 分开）   // 源文件 <table class="ftn split-ok">：长清单行间正常分页、不压字号（用户 2026-10-03 大表方案，2.3 B-1）
-  const shrinkLv = SPLITOK.has(tblSig) ? 0 : splitRow ? Math.min(2, SHRINK.get(tblSig) || 0) : (SHRINK.get(tblSig) || 0);   // split-ok 最多 2 级（8.5pt），避免孤页；不压到 8pt
-  if (shrinkLv) { FS = [18, 18, 17, 16][shrinkLv]; LN = shrinkLv === 3 ? 240 : 250; CM = 30; }
+  let shrinkLv = SPLITOK.has(tblSig) ? 0 : splitRow ? Math.min(2, SHRINK.get(tblSig) || 0) : (SHRINK.get(tblSig) || 0);   // split-ok 最多 2 级（8.5pt），避免孤页；不压到 8pt
+  const smallTbl = /^\s*<table[^>]*\bsmall\b/.test(String(html));   // 源文件标 small：整表缩小一档（2026-10-06 用户，2.7 落地程序职责交接矩阵「可以适当缩小，包括字体」）
+  if (smallTbl && shrinkLv < 2) shrinkLv = 2;
+  if (/^\s*<table[^>]*\bone-page\b/.test(String(html))) shrinkLv = 5;   // one-page（用户点名整页的超大表）直接用 5 级 7pt，不等 fit_fix 逐级试
+  if (shrinkLv) { FS = [18, 18, 17, 16, 15, 15][shrinkLv]; LN = shrinkLv >= 5 ? 185 : shrinkLv >= 4 ? 210 : shrinkLv === 3 ? 240 : 250; CM = shrinkLv >= 5 ? 10 : shrinkLv >= 4 ? 20 : 30; }   // 5 级＝7pt：one-page 表 4 级仍放不下时（1.4 D-2）   // 4 级＝7.5pt：只给源文件标 one-page 的超大表（2026-10-06 用户，1.4 D-2 三种复飞方式：「不要拆分到不同的页……把所有字体和行间距都调到合适的大小」）
   else if (process.env.ALLOW_SHRINK && estimate(FS) > BUDGET) {   // 旧开关，仅手动调试用
     const fit = [17, 16].find(c => estimate(c) <= BUDGET);
     if (fit) { FS = fit; LN = 250; CM = 40; }
@@ -1421,9 +1484,10 @@ function htmlTableCore(html) {
      绑定后放不下时排版软件会在末行前硬断、留下孤行（2026-09-30 Songti SC 实测：3.8 分类表估 9325 / 预算 9566，实际放不下） */
   /* SD-79 两遍排版：第一遍按估算（留 12% 余量）；成品 PDF 里「断开但两截加起来放得进一页」的表，由 fit_fix.py 记下签名，
      第二遍强制整表同页（KEEP_FORCE 文件，一行一个签名）。签名＝表内文字只留字母数字后的前 80 字。 */
-  if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3), W: W.slice(),
+  if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, onepage: /\bone-page\b/.test(String(html).slice(0, 80)), text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3), W: W.slice(),
     br: parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<br\s*\/?>/g, '\u0001').replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}\u0001]/gu, '').replace(/\u0001/g, '|')).join('')).join('') });
-  const keepTogether = splitRow ? estimate(FS) <= BUDGET * 0.95 : ((estimate(FS) <= BUDGET * 0.88 || KEEP_FORCE.has(tblSig)) && !SPLITOK.has(tblSig));   // split-ok：正常字号放得下一页就整表同页，放不下才行间分页   // SD-78 实测：Songti SC 下个别表实际比估算高约 12%（4.20 A/P 可用性表 估 8575 / 实 ≈ 9640），留 15% 余量
+  const onePage = /^\s*<table[^>]*\bone-page\b/.test(String(html));
+  const keepTogether = onePage ? true : splitRow ? estimate(FS) <= BUDGET * 0.95 : ((estimate(FS) <= BUDGET * 0.88 || KEEP_FORCE.has(tblSig)) && !SPLITOK.has(tblSig));   // split-ok：正常字号放得下一页就整表同页，放不下才行间分页   // SD-78 实测：Songti SC 下个别表实际比估算高约 12%（4.20 A/P 可用性表 估 8575 / 实 ≈ 9640），留 15% 余量
   if (process.env.FIT_LOG) console.error('TBL rows=%d est=%d fs=%d keep=%s', parsed.length, estimate(FS), FS, keepTogether);
 
   /* 顶部连续的通栏前提行 + 表头行一起作「重复标题行」（Word 要求标题行从第一行起连续） */
@@ -1472,6 +1536,7 @@ function htmlTableCore(html) {
   const blkLeft = new Set();
   if (hdrRow && hdrRow.cells.map(hc => unesc(String(hc.text).replace(/<[^>]+>/g, '')).replace(/\s+/g, '')).join('|') === '块|主题|条目') { blkLeft.add(2); forcedLeftCols.add(2); }
   const serialLeft = new Set(); let SERIAL_T = false;
+  const CENTER_HDR = new Set(); if (hdrRow) hdrRow.cells.forEach((hc, ci4) => { if (/^(时机|宣布时机|总则|类别)$/.test(unesc(String(hc.text).replace(/<[^>]+>/g, '')).replace(/\s+/g, ''))) CENTER_HDR.add(ci4); });
   /* SD-90 序号表左对齐（2026-09-30 用户，速查第 33 条：「前面有序号的，第二列就不用再居中了……对齐的话更美观」）：
      首列每个数据格都是序号（①～⑳ 或 1～99）的表，其余列一律左对齐（SD-140 起不论长短、不论 col-center）；「—」占位仍居中（SD-35④） */
   {
@@ -1479,6 +1544,7 @@ function htmlTableCore(html) {
     const firstIsSerial = rowsD.length >= 2 && serialTable(parsed, startCol);
     if (firstIsSerial) {
       for (let k = 1; k < nCols; k++) {
+        if (forcedCenterCols.has(k) && CENTER_HDR.has(k)) continue;   // 2026-10-06 用户（1.2 C-1「类别」）：表头为 时机 / 宣布时机 / 总则 / 类别 且显式居中的列，序号表里照样居中
         forcedLeftCols.add(k); serialLeft.add(k); forcedCenterCols.delete(k);   // SD-140（2026-10-05 用户）：「第一列是序号的时候，后面的一列都是靠左」——不再要求有长格，显式 col-center 也让位
       }
       SERIAL_T = true;
@@ -1604,7 +1670,7 @@ function htmlTableCore(html) {
       if (process.env.NUM_LOG && numList && !semMarked && !hierarchy) console.error('NUMLIST', TBL_IDX, ci + 1, contentParas.length, Math.max(...contentParas.map(vis)), contentParas[0].slice(0, 30));
       const plainCenter = !isHdr && !c.head && ci > 0 && !semMarked && !hierarchy && !forceLeft && !(numList && !process.env.DOC_NUM_CENTER) && !(c.colspan === 1 && serialLeft.has(ci)) && !process.env.DOC_F12_LEFT;
       if (process.env.TXT_LOG && plainCenter && !placeholder && !isNote && !isPre && !isWarn && ci === nCols - 1 && c.colspan === 1) console.error('TXTCOL\t' + TBL_IDX + '\t' + (hdrRow ? unesc(String((hdrRow.cells[hdrRow.cells.length - 1] || {}).text || '').replace(/<[^>]+>/g, '')) : '') + '\t' + (hdrRow ? unesc(hdrRow.cells.map(x => String(x.text).replace(/<[^>]+>/g, '')).join(' / ')) : '') + '\t' + unesc(String(c.text).replace(/<br\s*\/?>/g, ' ¦ ').replace(/<[^>]+>|[\uE001-\uE006]/g, '')));
-      const center = !(blkLeft.has(ci) && !isHdr && !c.head) && !(SERIAL_T && ci > 0 && !isHdr && !c.head && !placeholder && !isNote && !isPre && !isWarn) && !(numList && ci > 0 && !process.env.DOC_NUM_CENTER) && (plainCenter || !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
+      const center = !(blkLeft.has(ci) && !isHdr && !c.head) && !(SERIAL_T && ci > 0 && !isHdr && !c.head && !placeholder && !isNote && !isPre && !isWarn && !(CENTER_HDR.has(ci) && forcedCenterCols.has(ci))) && !(numList && ci > 0 && !process.env.DOC_NUM_CENTER) && (plainCenter || !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
         || (!forceLeft && !hierarchy && ((labelShort && (!longCols.has(ci) || firstAllLabel)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
           || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
           ? (!isNote && !isPre && !isWarn &&
@@ -1646,7 +1712,7 @@ function htmlTableCore(html) {
       /* 末行孤字兜底（fit_fix 写入 C:）：这一格收紧字距，1 级 -0.3pt、2 级 -0.5pt */
       const cellCS = (() => { const lst = CONDENSE.get(tblSig); if (!lst) return 0;
         const nt = unesc(String(c.text).replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}]/gu, '');
-        const hit = lst.find(([fk]) => fk && nt.startsWith(fk)); return hit ? (hit[1] >= 2 ? -10 : -6) : 0; })();
+        const hit = lst.find(([fk]) => fk && nt.startsWith(fk)); return hit ? ([0, -6, -10, -14, -18][Math.min(4, hit[1])]) : 0; })();   // 2026-10-06：末行孤字收紧字距 2 级 → 4 级（占满版心、没法加宽的表）
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
         const mk = (seg.match(/^[\uE001-\uE006]+/) || [''])[0]; seg = seg.slice(mk.length);
@@ -1660,7 +1726,7 @@ function htmlTableCore(html) {
         return new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
           children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS }),
-          spacing: { before: 20, after: 20, line: LN },
+          spacing: shrinkLv >= 4 ? { before: 0, after: 0, line: LN } : { before: 20, after: 20, line: LN },   // 4 级（one-page 超大表）：格内段间距取 0（1.4 D-2 约 70 段，段间距合计约 140pt）
           indent: hierarchy ? { left: 0, hanging: 120 } : (mk === '\uE001' || mk.startsWith('\uE002')) ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : undefined,   // 用户 2026-10-04 样本：子项「–」与圆点对齐（都悬挂在左留白），子项文字与父项文字对齐；编号子项、单句同一起点   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
           /* 单格居中（<td class="center">，2026-10-01 用户，速查 120「条件」跨列格）优先于列规则 */
@@ -1927,7 +1993,9 @@ function blkId(sec, title) {
 }
 /* SD-139 目录后「按主题查」（2026-10-05 用户：删除第零章，保留并扩充按主题查，点击跳到相应章节的知识点）。
    主题表 DOC_TOPICS（JSON）：[{dim, themes:[{theme, items:["1.2 A-2", "4.17 3", "x.y 块号|简称"]}]}]，找不到的块报错。 */
-let TOPICS_DONE = false;
+let TOPICS_DONE = false, DIM_I = 0;
+/* SD-149（2026-10-06 用户）：全书的「按主题查」五种查法移到第五章之后，作为速查入口（单独一节，从右页开始） */
+const TOPICS_AT_END = !SINGLE && !process.env.DOC_TOPICS_FRONT;
 function bodyTopicPage() {
   if (TOPICS_DONE) return [];
   /* 速查模式（SD-146，DOC_SINGLE=1 且 DOC_QRDIMS）：同一套五维网格，条目写「编号|标题」，跳到速查条目书签 QRI_编号 */
@@ -1951,7 +2019,7 @@ function bodyTopicPage() {
   /* 2026-10-05 用户：「按主题查这些知识点怎么样排列……能不能做到更加整齐，一目了然」——
      每个维度一张网格表：一行 3 个主题，同一行的主题标题对齐；一个主题一格、整格不跨页（cantSplit）；
      条目「编号 + 标题 …… 页码」，编号栏等宽对齐，标题折行时悬挂在编号之后。书签里排在「目录」之后（outlineLevel 0）。 */
-  const out = [new Paragraph({ pageBreakBefore: true, alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 120 }, outlineLevel: 0,
+  const out = [new Paragraph({ pageBreakBefore: !(TOPICS_AT_END && DUPLEX && !qrMode), alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 120 }, outlineLevel: 0,   // SD-149：单独一节时由分节换页，不再段前分页
     children: [new Bookmark({ id: 'TOPICS', children: [new TextRun({ text: '按主题查', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()] })];
   out.push(new Paragraph({ alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 0, line: 20 }, children: [new TextRun({ text: '', size: 2 })],
     border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
@@ -1987,7 +2055,8 @@ function bodyTopicPage() {
       if (got.length) themes.push({ name: clean(tp.theme), items: got });
     }
     if (!themes.length) continue;
-    out.push(new Paragraph({ keepNext: true, spacing: { before: firstDim ? 120 : 200, after: 80 }, children: [new TextRun({ text: d.dim, font: FF, size: 24, bold: true, color: H2_C })],
+    const dimRun = new TextRun({ text: d.dim, font: FF, size: 24, bold: true, color: H2_C });
+    out.push(new Paragraph({ keepNext: true, outlineLevel: qrMode ? undefined : 1, spacing: { before: firstDim ? 120 : 200, after: 80 }, children: [qrMode ? dimRun : new Bookmark({ id: 'TOPICS_D' + (DIM_I++), children: [dimRun] })],   // SD-149：每种查法一个书签，目录 / PDF 书签直达
       border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: H1_LINE, space: 2 } } }));
     firstDim = false;
     const widths = []; for (let k = 0; k < NC; k++) { if (k) widths.push(GAP); widths.push(colW); }
@@ -2441,6 +2510,10 @@ function buildToc() {
     else ch.secs.filter(s => !s.part).forEach(s => { const [num, text] = splitSec(s.text); ls.push({ id: s.id, num, text }); });
     return ls;
   });
+  if (TOPICS_AT_END && process.env.DOC_TOPICS && fs.existsSync(process.env.DOC_TOPICS)) {   // SD-149：目录末尾的速查入口
+    try { const dims = JSON.parse(fs.readFileSync(process.env.DOC_TOPICS, 'utf8'));
+      blocks.push([{ chap: true, id: 'TOPICS', cn: '', ct: '按主题查（速查入口）' }].concat(dims.map((d, i) => ({ id: 'TOPICS_D' + i, num: '', text: d.dim })))); } catch (e) {}
+  }
   const wt = ls => ls.reduce((a, l) => a + (l.chap ? 1.8 : 1), 0);
   const cols = []; let cur = [], cw = 0;
   blocks.forEach(b => { const w = wt(b); if (cur.length && cw + w > CAP) { cols.push(cur); cur = []; cw = 0; } cur = cur.concat(b); cw += w; });
@@ -2459,7 +2532,7 @@ function buildToc() {
     const pc = pgCols.map(c => c.map((l, k) => tocLine(l, colW, { first: k === 0, tight })));
     out.push(pc.length === 1 && PORTRAIT ? colsTable(pc, colW, GAP) : colsTable(pc.length < PER ? pc.concat([[]]) : pc, colW, GAP));
   }
-  out.push(...bodyTopicPage());   // SD-139：目录后接「按主题查」
+  if (!TOPICS_AT_END) out.push(...bodyTopicPage());   // SD-139：目录后接「按主题查」（SD-149 起移到第五章后）
   return out;
 }
 /* 主题线索引（SD-61）：总目录之后、正文之前一页。文件由 DOC_TOPICINDEX 指定（gh-private/主题线索引.md）。
@@ -2576,7 +2649,7 @@ if (!DUPLEX) {
     /* SD-97：顶端不放页眉；章名 / 节名与页码同在页脚一行（封面不显示） */
     headers: { first: emptyHF().header, default: emptyHF().header },
     footers: { first: emptyHF().footer, default: new Footer({ children: [footNav()] }) },
-    children: front.concat(body)
+    children: front.concat(body, TOPICS_AT_END ? bodyTopicPage() : [])   // SD-149：第五章之后的速查入口
   }];
 } else {
   const HF = {
@@ -2604,7 +2677,10 @@ if (!DUPLEX) {
     ...starts.map((st, k) => { const f = emptyHF();
       return { properties: { page: PAGE, type: SectionType.ODD_PAGE, titlePage: true },
                headers: { ...HF.headers, first: f.header }, footers: { ...HF.footers, first: f.footer },
-               children: body.slice(st, k + 1 < starts.length ? starts[k + 1] : body.length) }; })
+               children: body.slice(st, k + 1 < starts.length ? starts[k + 1] : body.length) }; }),
+    /* SD-149（2026-10-06 用户）：第五章之后的速查入口「按主题查」（五种查法），从右页开始 */
+    ...(() => { if (!TOPICS_AT_END) return []; const tp = bodyTopicPage(); return tp.length ? [{ properties: { page: PAGE, type: SectionType.ODD_PAGE },
+      headers: { default: emptyHF().header, even: emptyHF().header }, footers: HF.footers, children: tp }] : []; })()
   ];
 }
 

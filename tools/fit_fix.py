@@ -48,6 +48,9 @@ def to_pdf():
 
 # 状态：lv[sig] = 0（强制整表）/ 1～3（压缩级）；block＝放弃
 lv, block, wfix, wblock, splitok, pbreak, nwfix = {}, set(), {}, set(), set(), set(), {}
+ffix = {}   # SD-148 实测拉满：F:列号:加宽DXA:签名（生成器落实，目标列做过不增行收窄时转给同表最挤的列）
+nlbase = {}   # (表, 列) → 收窄前的总行数
+nwlock = set()   # 收窄后又折行的 (表, 列)：本次运行不再收窄（2026-10-06 防拉锯）
 ncond = {}   # SD-130 表外「注：」段落末行孤字：ncond[注文前 12 字] = 1（-0.3pt）/ 2（-0.5pt）
 condense = {}   # 2026-10-03 末行孤字兜底：加宽无效的格收紧字距，condense[(sig, 首行前 10 字)] = 1（-0.3pt）/ 2（-0.5pt）   # pbreak＝另起一页的条目标题（P:，SD-97 孤行兜底）   # splitok＝标题被留下的块索引表：允许按块分页（S:）     # wfix[(sig, 列)] = 加宽 DXA；wblock＝加宽也没用的格，不再试
 for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
@@ -63,6 +66,10 @@ for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
         _, k, sg = l.split(':', 2); wblock.add((sg, int(k)))
     elif l.startswith('NW:'):
         _, k, dd, sg = l.split(':', 3); nwfix[(sg, int(k))] = int(dd)
+    elif l.startswith('NWL:'):
+        _, k, sg = l.split(':', 2); nwlock.add((sg, int(k)))   # 已证明收到极限的列（再收就多行），跨运行保留
+    elif l.startswith('F:'):
+        _, k, dd, sg = l.split(':', 3); ffix[(sg, int(k))] = int(dd)
     elif l.startswith('C:'):
         _, cl, rest = l.split(':', 2); sg, fk = rest.rsplit('|', 1); condense[(sg, fk)] = int(cl)
     elif l.startswith('N:'):
@@ -77,6 +84,8 @@ def save():
         for (sg, k), dd in sorted(wfix.items()): f.write('W:%d:%d:%s\n' % (k, dd, sg))
         for (sg, k) in sorted(wblock): f.write('WB:%d:%s\n' % (k, sg))
         for (sg, k), dd in sorted(nwfix.items()): f.write('NW:%d:%d:%s\n' % (k, dd, sg))
+        for (sg, k), dd in sorted(ffix.items()): f.write('F:%d:%d:%s\n' % (k, dd, sg))
+        for (sg, k) in sorted(nwlock): f.write('NWL:%d:%s\n' % (k, sg))
         for sg in sorted(splitok): f.write('S:' + sg + '\n')
         for h in sorted(pbreak): f.write('P:' + h + '\n')
         for (sg, fk), cl in sorted(condense.items()): f.write('C:%d:%s|%s\n' % (cl, sg, fk))
@@ -97,24 +106,27 @@ def match(text, tbls):
 
 dump = os.path.join(tempfile.mkdtemp(), 'dump.jsonl')
 tried = {}
-for n in range(1, 8):
+for n in range(1, 11):   # 2026-10-06：7 → 10 遍（列宽规则多了，收敛要多几遍）
     save()
     build(dump)
     tbls = [json.loads(l) for l in open(dump, encoding='utf-8') if l.strip()]
     for t in tbls: t['bg'] = bg(t['text'])
     sigs = {t['sig'] for t in tbls}
+    onep = {t['sig'] for t in tbls if t.get('onepage')}
     changed = [s for s in list(lv) if s not in sigs]            # 表已改动：撤出
     for s in changed: del lv[s]
     block &= sigs
     for key in [k2 for k2 in wfix if k2[0] not in sigs]: del wfix[key]
     for key in [k2 for k2 in nwfix if k2[0] not in sigs]: del nwfix[key]
+    for key in [k2 for k2 in ffix if k2[0] not in sigs]: del ffix[key]
+    nwlock = {k2 for k2 in nwlock if k2[0] in sigs}
     wblock = {k2 for k2 in wblock if k2[0] in sigs}
     pdf = to_pdf()
     res = json.loads(subprocess.run([sys.executable, os.path.join(T, 'check_splits.py'), pdf, '--json'],
                                     capture_output=True, text=True).stdout)
     # SD-85 实测加宽：末行孤字、短格折行 → 这张表这一列加宽，下一遍重排（原文 <br> 主动换行的不算）
     sys.path.insert(0, T); from layout_measure import measure
-    wadd, wgive, now, cadd, nwcand = 0, 0, set(), 0, {}
+    wadd, wgive, now, cadd, nwcand, nwwrap, grown_sg, nlnow = 0, 0, set(), 0, {}, set(), set(), {}
     for x in measure(pdf, srcmd=MD):
         for sg in match(x['table'], tbls):           # 速查区与正文同文的表一并加宽
             tb = next(t for t in tbls if t['sig'] == sg)
@@ -130,24 +142,48 @@ for n in range(1, 8):
                 if x['col'] < 0:
                     for q in range(len(Wt)): nwcand[(sg, q)] = 0
                 else:
-                    nwcand[key] = min(nwcand.get(key, 10 ** 9), int(x['extra_pt'] * 20))
+                    ex = x['extra_pt'] if key not in nwfix else x.get('extra_strict', x['extra_pt'])   # 借行高收窄只给一次：已有收窄记录的列只按「本格行数不增」继续收（防一遍遍往下收）
+                    nwcand[key] = min(nwcand.get(key, 10 ** 9), int(ex * 20))
+                    nlnow[key] = nlnow.get(key, 0) + x.get('nl', 0)   # 本遍这一列的总行数（跨页各段相加）
                 continue
             if key in nwfix and (x.get('orphan') or x.get('grow')): del nwfix[key]   # 同一列又需要加宽：撤销收窄，省行优先
             if key in now or (x.get('prev') and x['prev'] + '|' in tb.get('br', '')) or any(l and l + '|' in tb.get('br', '') for l in x.get('brs', [])): continue   # brs：SD-144 加宽项里各行，任一行止于原文 <br> 就不是折行
             if x.get('span') and not x.get('orphan'): continue   # 跨列格的短格折行不处理
+            if x.get('fill'):   # SD-148 实测拉满：本表这遍没有落实的省行加宽时，右侧实测空余整块给最挤的列（不受加宽上限、次数与放弃名单限制）
+                if sg not in grown_sg: ffix[key] = ffix.get(key, 0) + int(x['extra_pt'] * 20); wadd += 1
+                continue
             # 跨列格的孤字也先试加宽（加宽所跨的那一列即加宽整格，捐出列可能在格外）；加宽无效再收紧字距（2026-10-05）
             if key in wblock:   # 加宽无效（表已占满版面、邻列太窄）（表已占满版面、邻列太窄）：只在末行孤字时收紧这一格的字距，最多两级
                 fk = (x.get('first') or '')[:10]
-                if fk and x.get('orphan') and condense.get((sg, fk), 0) < 2: condense[(sg, fk)] = condense.get((sg, fk), 0) + 1; cadd += 1
+                if fk and x.get('orphan') and condense.get((sg, fk), 0) < 4: condense[(sg, fk)] = condense.get((sg, fk), 0) + 1; cadd += 1
                 now.add(key); continue   # 2026-10-03：与 check_layout T8 同口径——只有倒数第二行止于原文 <br> 才算主动换行（原来看第一行，带 <br> 的格一律跳过）
             now.add(key)
             new = wfix.get(key, 0) + int(x['extra_pt'] * 20) + 20
             cap = int(x['extra_pt'] * 20) + 400 if x.get('grow') else 1500   # SD-144 加宽项只用右侧空余（实测已保证放得下），不受 75pt 上限
             if new > cap or tried.get(key, 0) >= 3: wblock.add(key); wfix.pop(key, None); wgive += 1; continue   # 加宽 3 次或超过 75pt 仍不行：放弃
             wfix[key] = new; tried[key] = tried.get(key, 0) + 1; wadd += 1
-    for key, dd in nwcand.items():   # 实测收窄入账：加宽过的列不收；每遍按当前成品的实测空白累加，收到位后空白 < 24pt 自然停
-        if key in wfix or dd < 360: continue   # 不到 18pt 的空白不折腾
-        if nwfix.get(key, 0) < 6000: nwfix[key] = min(nwfix.get(key, 0) + dd, 6000); wadd += 1
+            if x.get('grow'): grown_sg.add(sg)   # 本表这遍已实测加宽，拉满留到下一遍
+    # 过时记录按本遍实测撤销（2026-10-06，第 12 页 C-4：早期记下的「加宽」「收窄」互相卡住，宽度分错了列）：
+    #   收窄过的列现在折行了 → 撤掉收窄；加宽过的列现在没折行且右侧空 ≥ 10pt → 加宽减回去
+    # 有阻尼，防来回拉锯：收窄后又折行的列退回 15pt 并锁定（本次运行不再收窄）；加宽过的列只有空白超过加宽余量（≥ 30pt）时才减，且只减多出余量的部分
+    # 收窄过头 ＝ 收窄后这一列行数变多了（2026-10-06：原来看「某行排满且下面还有一行」，收窄到正好放下最长行时最长行必然排满，误判后锁住、收到一半停下）
+    for key, nl_ in nlnow.items():
+        if key in nwfix and key in nlbase and nl_ > nlbase[key]:
+            nwfix[key] -= 300; nwlock.add(key); wadd += 1
+            if nwfix[key] <= 0: del nwfix[key]
+        if key not in nwfix or key not in nlbase: nlbase[key] = nl_   # 收窄前的行数作基准（还没收窄、或撤销干净时更新）
+    for key in nwwrap: pass
+    for key, dd in nwcand.items():
+        if key in ffix and key not in nwwrap and dd >= 200:   # 2026-10-06：空白 ≥ 10pt 就撤，撤到只留约 6pt（与 T13 的 10pt 同口径）
+            ffix[key] -= dd - 120; wadd += 1
+            if ffix[key] <= 0: del ffix[key]
+    for key, dd in nwcand.items():
+        if key in wfix and key not in nwwrap and dd >= 200:   # 2026-10-06：空白 ≥ 10pt 就撤，撤到只留约 6pt（与 T13 的 10pt 同口径）
+            wfix[key] -= dd - 120; wadd += 1
+            if wfix[key] <= 0: del wfix[key]
+    for key, dd in nwcand.items():   # 实测收窄入账：加宽过的列不收；每遍按当前成品的实测空白累加，收到位后空白 < 10pt 自然停
+        if key in wfix or key in ffix or key in nwlock or dd < 200: continue   # 不到 10pt 的空白不折腾（2026-10-06 用户：表宽以文字成行为标准，原 18pt）
+        if nwfix.get(key, 0) < 30000: nwfix[key] = min(nwfix.get(key, 0) + dd, 30000); wadd += 1   # 2026-10-06：上限由 6000 放开（初始分宽过大的列收不到位，第 12、60 页）
     # SD-130 表外「注：」段落末行只剩一两个字：这一段收紧字距，最多两级
     import fitz
     nseen = set()
@@ -198,11 +234,13 @@ for n in range(1, 8):
             if sp['fits']: miss.append('第 %d 页（%s…）' % (sp['page'], sp['text'][:16]))
             continue
         for s in cand - block - splitok:   # 允许按块分页的块索引表不再强制 / 压缩
+            one = s in onep   # 源文件标 one-page 的超大表：可压到 4 级（7.5pt），不论超出多少都先试
             if s not in lv:
                 if sp['fits']: lv[s] = 0; add += 1
+                elif one: lv[s] = 3 if sp['over'] <= 1.2 else 4 if sp['over'] <= 1.35 else 5; up += 1
                 elif sp['over'] <= 1.2 and not sp['multi']:
                     lv[s] = 1 if sp['over'] <= 1.04 else 2 if sp['over'] <= 1.10 else 3; up += 1
-            elif lv[s] < MAXLV:
+            elif lv[s] < (5 if one else MAXLV):
                 lv[s] = max(lv[s] + 1, 1); up += 1                 # 强制 / 压缩后仍断开：升一级
             else:
                 del lv[s]; block.add(s); gave += 1                  # 8pt 仍放不下：放弃，照常分页
