@@ -90,6 +90,8 @@ const SINGLE = process.env.DOC_SINGLE === '1';
 const PAGE_W = PORTRAIT ? 11906 : 16838, PAGE_HT = PORTRAIT ? 16838 : 11906;
 /* 序号表的首列（SD-90 / SD-102 / SD-140）：①～⑳、1～99（可带「.」「、」）、条款号 (a) /（1）/ a. / a)（2026-10-05 用户，3.6 B-3 / B-4「条款」列） */
 const SERIAL_RE = /^\s*([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])\s*$/;
+/* 首列「① 加标签文字」（如「① 防止低压灯亮引发中断起飞」）也按序号表处理：其余列去点、靠左（2026-10-06 用户） */
+const SERIAL_LABEL_RE = /^\s*[\u2460-\u2473]\s*\S/;
 /* 首列是从 1 开始的连续编号（①②③ / 1 2 3 / (a)(b)(c)）才算序号表——「10、15、25」这类襟翼位置、数值不算（2026-10-05，1.8 A-7） */
 const serialVal = (t) => { t = String(t).replace(/[\s（()）.、]/g, '');
   if (/^[\u2460-\u2473]$/.test(t)) return t.charCodeAt(0) - 0x245F;
@@ -101,7 +103,7 @@ function serialTable(parsed, startCol) {
   for (let ri = 0; ri < parsed.length; ri++) { const r = parsed[ri]; if (/hdr|note|premise|warn/.test(r.cls)) continue;
     const c0 = r.cells.find((c, k) => startCol[ri][k] === 0); if (!c0) continue;
     const t = unesc(String(c0.text).replace(/<[^>]+>/g, '')).trim();
-    vals.push(SERIAL_RE.test(t) ? serialVal(t) : NaN); }
+    vals.push(SERIAL_RE.test(t) ? serialVal(t) : SERIAL_LABEL_RE.test(t) ? t.trim().charCodeAt(0) - 0x245F : NaN); }
   /* 末尾允许 1～2 行非编号的补充行（如 4.6 「①～⑦ + 特殊情况」，2026-10-05），前面须是从 1 开始、至少 3 行的连续编号 */
   let n = vals.length; while (n > 0 && Number.isNaN(vals[n - 1]) && vals.length - n < 2) n--;
   const head = vals.slice(0, n), tailN = vals.length - n;

@@ -323,6 +323,7 @@ def scan(pdf, name, header):
             try:
                 ctext = lambda x: ''.join(l[2] for l in x[1]).strip() if x else ''
                 firsts = [ctext(r[0]) for r in info[1:] if r and r[0]]
+                firsts = [f[0] if re.match(r'[\u2460-\u2473]\s*\S', f) else f for f in firsts]   # 「① 加标签文字」首列按序号表（2026-10-06 用户）
                 serial = len(firsts) >= 2 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in firsts)
                 def _sv(t):
                     t = re.sub(r'[\s（()）.、]', '', t)
