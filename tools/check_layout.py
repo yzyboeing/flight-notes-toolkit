@@ -20,7 +20,7 @@ def arg(flag, default=None):
 REPO = os.path.abspath(os.path.expanduser(arg('--repo', '~/flight-repos/gh-private')))
 T = os.path.dirname(os.path.abspath(__file__))
 BOOK = arg('--book') or os.path.join(REPO, 'build', 'B737机型理论知识笔记.pdf')
-QREF = arg('--qref') or os.path.join(REPO, 'build', 'B737理论基础知识速查.pdf')
+QREF = arg('--qref') or os.path.join(REPO, 'build', 'B737机型理论知识速查.pdf')
 def git_cfg(k):
     return subprocess.run(['git', '-C', REPO, 'config', '--get', k], capture_output=True, text=True).stdout.strip()
 EDITION, NOTICE, SIGN = git_cfg('notes.docEdition'), git_cfg('notes.docNotice'), git_cfg('notes.docPrefaceSignature')
@@ -34,7 +34,7 @@ def vis(s):   # 视觉宽度：汉字 2，西文 1
 
 # ---------- S 源头校验（沿用三件套） ----------
 if '--no-src' not in sys.argv:
-    for rule, tool, extra in (('S1', 'check_src.py', ['--quiet']), ('S2', 'check_blocks.py', [])) + ((('S3', 'check_quickref.py', []),) if os.path.isdir(os.path.join(REPO, 'notes_src', '0 基础知识速查区')) else ()):   # SD-139 第零章已删：没有速查区就不跑 S3
+    for rule, tool, extra in (('S1', 'check_src.py', ['--quiet']), ('S2', 'check_blocks.py', [])) + ((('S3', 'check_quickref.py', []),) if os.path.exists(os.path.join(REPO, '速查', '速查源.md')) else ()):   # SD-146 速查版独立成册：源在 速查/速查源.md
         r = subprocess.run([sys.executable, os.path.join(T, tool), '--src', 'notes_src'] + extra, cwd=REPO, capture_output=True, text=True)
         if r.returncode:
             tail = [l for l in (r.stdout + r.stderr).strip().splitlines() if l.strip()][-6:]
@@ -366,7 +366,7 @@ def scan(pdf, name, header):
     return d
 
 book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录|目录|按主题查)')   # SD-96 页眉左侧为章名
-if QON: scan(QREF, '单册', 'B737理论基础知识速查')   # SD-139 单册停出：只有新近生成的单册才检查   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
+if QON: scan(QREF, '单册', 'B737机型理论知识速查')   # SD-146 册名   # SD-139 单册停出：只有新近生成的单册才检查   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
 # T8 末行孤字（SD-84 / SD-85，错误级）：用 layout_measure.measure() 实测——与 fit_fix 的自动修复看同一批格子，
 # 检查器不再维护第二套测量（2026-10-05，APU 火警「1s」教训：两套眼睛必然漏）
 try:
