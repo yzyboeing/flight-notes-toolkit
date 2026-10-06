@@ -345,6 +345,18 @@ def scan(pdf, name, header):
                     multi_b = any(c.count('•') >= 2 for c in cs)   # 2026-10-03 用户：一列要加点就整列都加——序号表这一列有多条加点时，单句加点是对的
                     if serial and any('•' in c or '●' in c for c in cs):   # SD-140（2026-10-05 用户）：「有了序号就不要加小圆点」，无例外，报错
                         err('T12', '%s 第 %d 页：序号表的「%s」列有小圆点——序号表其余列不加「•」（SD-140）' % (name, i + 1, h))
+                    if serial:   # SD-140「后面的一列都是靠左」：居中的格（左右留白相等且明显大于内边距）报错（M18-L015，2026-10-06）
+                        ctr = 0
+                        pad = (collections.Counter(round(l[0] - x[0][0]) for r in info[1:] for x in r if x for l in x[1] if l[2].strip()).most_common(1) or [(6, 0)])[0][0]   # 本表实际左内边距：取众数（悬挂缩进的「–」子项会更靠左，不能取最小）
+                        for r in info[1:]:
+                            x = r[k] if k < len(r) else None
+                            if not x or (k + 1 < len(r) and r[k + 1] is None): continue
+                            c, ls = x
+                            for l in ls:
+                                if re.fullmatch(r'[—\-–/无\s]+', l[2].strip()): continue
+                                lg, rg = l[0] - c[0], c[2] - l[1]
+                                if lg > pad + 2.5 and abs(lg - rg) < 3: ctr += 1
+                        if ctr: err('T12', '%s 第 %d 页：序号表的「%s」列有 %d 行居中——序号表其余列一律靠左（SD-140）' % (name, i + 1, h, ctr))
                     if any(re.match(r'([\u2460-\u2473]|\d+[.、])', c) for c in cs): continue   # 格内本身是 ①② / 1. 编号条目的列不报
                     sent = ([c for c in cs if vis(c) >= 12 or re.search(r'[，。；、]', c)] if re.search(r'说明$', h)
                             else [c for c in cs if vis(c) >= 36 or re.search(r'[，。；]', c)])   # 与生成器同口径，门槛略放宽避免临界误报
