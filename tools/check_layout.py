@@ -138,7 +138,7 @@ def explicit_br(first_line):
 ONEPAGE_SIGS = []
 try:
     _bm = open(os.path.join(REPO, 'build', 'book.md'), encoding='utf-8').read()
-    for _m in re.finditer(r'<table class="[^"]*\bone-page\b[^"]*">\s*<tr class="hdr">(.*?)</tr>', _bm, re.S):
+    for _m in re.finditer(r'<table class="[^"]*\bone-page\b[^"]*">(?:(?!</table>).)*?<tr class="hdr">(.*?)</tr>', _bm, re.S):
         ONEPAGE_SIGS.append(nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12])
     FIXW_SIGS = [nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12] for _m in re.finditer(r'<tr class="hdr">((?:(?!</tr>).)*\bw-\d+(?:(?!</tr>).)*)</tr>', _bm, re.S)]
 except Exception:
