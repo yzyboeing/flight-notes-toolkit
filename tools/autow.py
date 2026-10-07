@@ -8,6 +8,7 @@
 输出各列百分比。--apply 时把 w-NN 写进源文件里表头文字相同的那张表的 <th>（表头有跨列格的不处理）。
 口径同 layout_measure：折行＝某行排满（左右空白合计 < 内边距 + 14pt）且下一行不是新的一条。"""
 import sys, re, pymupdf
+from layout_measure import forced_wrap   # 2026-10-07 被迫折行同口径
 
 PAD, CW = 13, 770.0
 NEWIT = r'\s*([●•▪·–\-①-⑳【]|[A-H]-\d|\d{1,2}[.、)）]|注[：:])'
@@ -35,7 +36,7 @@ def measure_tb(p, tb):
             k = cov[0]; ls = lines_in(p, c)
             for q, l in enumerate(ls):
                 longest[k] = max(longest[k], l[1] - l[0]); text[k] += l[1] - l[0]
-                if q + 1 < len(ls) and (c[2] - c[0]) - (l[1] - l[0]) < PAD + 14 and not re.match(NEWIT, ls[q + 1][2]): wrapped[k] = True
+                if q + 1 < len(ls) and ((c[2] - c[0]) - (l[1] - l[0]) < PAD + 14 or forced_wrap(c[2] - c[0], l[1] - l[0], l[2], ls[q + 1][2], PAD)) and not re.match(NEWIT, ls[q + 1][2]): wrapped[k] = True
     for k in range(n):   # 表头也要放得下
         longest[k] = max(longest[k], max((l[1] - l[0] for l in lines_in(p, hdr[k])), default=0))
     want = [0.0] * n
