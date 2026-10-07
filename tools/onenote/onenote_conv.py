@@ -123,6 +123,28 @@ def note_blocks(h):
     flush(); out.append(h[last:])
     return ''.join(out)
 
+# 2026-10-06 用户：「OneNote 所有排版规则和要求都跟目前的最新规则一致」——
+# w-NN 定宽表（SD-153）按成品列宽比例（docx 宽度 × K，与 PDF 同占比）；col-eq 列（SD-152）等宽
+import glob as _glob, os as _os
+_NS = _os.path.expanduser('~/flight-repos/gh-private/notes_src/')
+def _hkey(cells): return ''.join(re.sub(r'[\s\u200b\u2060\u00ad]+', '', html.unescape(re.sub(r'<[^>]+>', '', c))) for c in cells)
+def load_specs():
+    fixed, eq = set(), {}
+    for f in _glob.glob(_NS + '*/*.md'):
+        for m in re.finditer(r'<tr class="hdr">(.*?)</tr>', open(f, encoding='utf-8').read(), re.S):
+            ths = re.findall(r'<th([^>]*)>(.*?)</th>', m.group(1), re.S)
+            k = _hkey([t[1] for t in ths]); cls = [(re.search(r'class="([^"]*)"', a) or [0, ''])[1] for a, _ in ths]
+            if any(re.search(r'\bw-\d', c) for c in cls): fixed.add(k)
+            if any('col-eq' in c for c in cls):
+                col, idx = 0, []
+                for (a, _), c in zip(ths, cls):
+                    cs = int((re.search(r'colspan="(\d+)"', a) or [0, 1])[1])
+                    if 'col-eq' in c: idx += list(range(col, col + cs))
+                    col += cs
+                eq[k] = idx
+    return fixed, eq
+FIXED, EQ = load_specs()
+
 CJK_W, ASC_W, PAD = 13.5, 7.0, 18      # 9pt 宋体-简在 OneNote 中的近似字宽（px）与格子左右内边距
 SHORT_MAX, LONG_MIN = 240, 140
 ORPHAN = 4 * CJK_W                     # 尾行不超过 4 个汉字宽视为短字，要消除         # SD-35③：短列一行排下；长句列不少于约 10 个汉字
@@ -148,6 +170,8 @@ def fit_widths(h):
                 c += cs
         n = max((c + cs for _, c, cs, _, _ in cells), default=0)
         if n < 2: return t
+        hkey = ''.join(''.join(segs) for r, c, cs, segs, w0 in cells if r == 0).replace(' ', '')
+        hkey = re.sub(r'[\s\u200b\u2060\u00ad]+', '', hkey)
         need, orig = [0] * n, [0] * n
         for r, c, cs, segs, w0 in cells:
             if cs == 1:
@@ -181,6 +205,47 @@ def fit_widths(h):
         def nlines(V):
             return sum(max(1, -(-int(_seg_w(x)) // max(int(sum(V[c:c + cs]) - PAD), 1)))
                        for r, c, cs, segs, w0 in cells for x in segs if x)
+        def wraps(W):
+            return any(_seg_w(x) > sum(W[c:c + cs]) - PAD for r, c, cs, segs, w0 in cells for x in segs if x)
+        def balance(W):
+            """SD-151：表宽不超 TABW；超了就从加行最少的列收；有折行且有空位时，把空位给最省行的列。"""
+            W = list(W)
+            while sum(W) > TABW:
+                ex = sum(W) - TABW
+                best = None
+                for i in range(n):
+                    if W[i] <= 40: continue
+                    d = min(ex, 4); V = list(W); V[i] -= d
+                    cost = (nlines(V), -W[i])
+                    if best is None or cost < best[0]: best = (cost, i, d)
+                if not best: break
+                W[best[1]] -= best[2]
+            while True:
+                room = TABW - sum(W); best = None
+                if room <= 0: break
+                for r, c, cs, segs, w0 in cells:
+                    cw = sum(W[c:c + cs]) - PAD
+                    for x in segs:
+                        if not x: continue
+                        L = max(1, -(-int(_seg_w(x)) // max(int(cw), 1)))
+                        if L < 2: continue
+                        d = -(-int(_seg_w(x)) // (L - 1)) - cw
+                        if 0 < d <= room:
+                            V = list(W); V[c + cs - 1] += d
+                            gain = nlines(W) - nlines(V)
+                            if gain > 0 and (best is None or d / gain < best[0]): best = (d / gain, c + cs - 1, d)
+                if not best: break
+                W[best[1]] += best[2]
+            # SD-151：「哪怕减少不了行数，也可以把空白区域利用起来」——仍有折行就把余下空位给折行最多的列
+            room = TABW - sum(W)
+            if room > 0 and wraps(W):
+                cnt = [0] * n
+                for r, c, cs, segs, w0 in cells:
+                    cw = sum(W[c:c + cs]) - PAD
+                    for x in segs:
+                        if x: cnt[c + cs - 1] += max(1, -(-int(_seg_w(x)) // max(int(cw), 1))) - 1
+                W[max(range(n), key=lambda i: cnt[i])] += room
+            return W
         done = []
         for W in cands:
             # 跨列格（colspan）里的长句：所跨各列之和不够一行排下时，把差额匀给这几列，表宽以 TABW 为限
@@ -225,6 +290,22 @@ def fit_widths(h):
                 if not changed: break
             done.append(W)
         W = min(done, key=nlines)
+        if hkey in FIXED and all(orig):
+            # SD-153 定宽表：列间比例照成品（orig 已是 docx 宽度 × K）；OneNote 字相对更大，
+            # 表宽从成品占比起按同一比例放大，取行数降到最少的最小表宽（SD-151 表宽以文字成行为准），以 TABW 为限
+            base = [max(30, o) for o in orig]; fmax = TABW / sum(base)
+            fs = [1 + k * 0.02 for k in range(int((fmax - 1) / 0.02) + 1)] + [fmax] if fmax > 1 else [fmax]
+            sc = lambda f: [max(30, int(o * f)) for o in base]
+            best = min(nlines(sc(f)) for f in fs)
+            W = sc(next(f for f in fs if nlines(sc(f)) == best))
+            if wraps(W): W = sc(fmax)                           # 仍有折行：照比例拉满（「有空位就别折行」）
+        else:
+            W = balance(W)
+        if hkey in EQ:                                         # SD-152 col-eq：这几列等宽
+            ix = [i for i in EQ[hkey] if i < n]
+            if ix:
+                v = sum(W[i] for i in ix) // len(ix)
+                for i in ix: W[i] = v
         # 写回：每格宽度 = 所跨各列之和
         k = [0]
         def td(cm):
@@ -247,6 +328,50 @@ def unshrink(h):
         k = 9.0 / base
         return re.sub(r'font-size:([\d.]+)pt', lambda q: 'font-size:%gpt' % (round(float(q.group(1)) * k * 2) / 2), t)
     return re.sub(r'<table border="1".*?</table>', one, h, flags=re.S)
+def unmerge(h):
+    """OneNote 不支持合并格：自己拆开时会把整格宽度记到第一列，表被撑宽（2026-10-06 读回发现，三种复飞方式 668 → 1456px）。
+    这里先拆成单格：内容放在左上格，其余补空格；每格写本列宽度，底色沿用。合并由用户按《OneNote合并单元格清单》手动做。"""
+    def one(m):
+        t = m.group(0)
+        if 'colspan=' not in t and 'rowspan=' not in t: return t
+        rows = re.findall(r'<tr>(.*?)</tr>', t, re.S)
+        grid, cells = {}, []
+        for r, row in enumerate(rows):
+            c = 0
+            for cm in re.finditer(r'<td\b([^>]*)>(.*?)</td>', row, re.S):
+                while (r, c) in grid: c += 1
+                a = cm.group(1)
+                cs = int((re.search(r'colspan="(\d+)"', a) or [0, 1])[1]); rs = int((re.search(r'rowspan="(\d+)"', a) or [0, 1])[1])
+                w = int((re.search(r'width:(\d+)px', a) or [0, 0])[1])
+                cells.append((r, c, cs, rs, a, cm.group(2), w))
+                for dr in range(rs):
+                    for dc in range(cs): grid[(r + dr, c + dc)] = (r, c)
+                c += cs
+        n = max(c + cs for r, c, cs, rs, a, x, w in cells)
+        W = [0] * n
+        for r, c, cs, rs, a, x, w in cells:
+            if cs == 1: W[c] = max(W[c], w)
+        for r, c, cs, rs, a, x, w in sorted(cells, key=lambda z: z[2]):      # 没有单列格的列：均分跨列格的余量
+            miss = [k for k in range(c, c + cs) if not W[k]]
+            if miss:
+                left = max(w - sum(W[c:c + cs]), 30 * len(miss))
+                for k in miss: W[k] = left // len(miss)
+        out = []
+        for r in range(len(rows)):
+            tds = []
+            for c in range(n):
+                o = grid.get((r, c))
+                if not o: continue
+                cell = next(z for z in cells if z[0] == o[0] and z[1] == o[1])
+                a = re.sub(r'\s(rowspan|colspan)="\d+"', '', cell[4])
+                a = re.sub(r'width:\d+px', 'width:%dpx' % W[c], a)
+                tds.append('<td%s>%s</td>' % (a, cell[5] if (r, c) == o else ''))
+            out.append('<tr>%s</tr>' % ''.join(tds))
+        head = re.match(r'<table[^>]*>', t).group(0)
+        head = re.sub(r'width:\d+px', 'width:%dpx' % sum(W), head)
+        return head + ''.join(out) + '</table>'
+    return re.sub(r'<table border="1".*?</table>', one, h, flags=re.S)
+
 def convert(src):
     p=C(); p.feed(src); h=''.join(p.out)
     h=re.sub(r'<p style="[^"]*">(\s|<br/>)*<br/>(\s|<br/>)*</p>','<p style="margin-top:0;margin-bottom:0"><span style="font-size:4pt">&#160;</span></p>',h)  # 表间分隔段
@@ -255,6 +380,7 @@ def convert(src):
     h=drop_xref(h)
     h=unshrink(h)
     h=fit_widths(h)
+    h=unmerge(h)
     h=note_blocks(h)
     return h
 def strip_index(s):

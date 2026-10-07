@@ -39,6 +39,7 @@ def split(docx):
         if tag == 'h1': chap = t[:3]; continue
         end = marks[k + 1][0] if k + 1 < len(marks) else s.find('</body>')
         body = s[s.find('>', pos) + 1:end]
+        body = re.split(r'<p\b[^>]*>\s*<a name="TOPICS', body)[0]                   # SD-149「按主题查」排在第五章后，属索引，OneNote 不要
         body = re.sub(r'^.*?</h2>', '', body, count=1, flags=re.S)                  # 去掉与页标题重复的节标题
         body = re.sub(r'<p[^>]*page-break-before: always[^>]*>\s*(<br/>\s*)*</p>\s*<p[^>]*>\s*<font color="#c9d8e8">.*?</p>\s*$', '', body, flags=re.S)   # 章封面大号章号残留
         pages.append({'chap': chap, 'title': t, 'html': head + '<body>' + body + '</body></html>'})
@@ -107,7 +108,7 @@ def main():
         pid = create_page(sid, p['title'], page(p['title'], convert(src), '%s ｜ %s' % (name, p['title'])))
         L('写', p['title'], 'OK' if pid else '!! 失败')
         if pid: add_figs(pid, p['title'])
-        time.sleep(1.5)
+        time.sleep(6)                     # 2026-10-06：1.5 秒会触发 429 限流
     # 只读核查
     bad = 0
     for name, sid in secs.items():
