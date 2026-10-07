@@ -115,13 +115,14 @@ def main():
         for ln_no, line in enumerate(body.split('\n'), 1):
             if '详见' in line and not line.lstrip().startswith('<!--'):
                 errors.append('SD-140 详见 %s:%d' % (rel(f), ln_no))
+        # 2026-10-07 P1-L023/L036：补「见 A 块」「见下方 / 上方」「按上述」
         # SD-137（2026-10-04 用户）：表格内不出现交叉引用（见 x.y / 第 N 条 / 见 A-1 / 见上表 等），需要的写进表后「注：……——详见 x.y」；节首不写「本节为……」导语
         intbl = False
         for ln_no, ln in enumerate(t.split('\n'), 1):
             if '<table' in ln: intbl = True
             if intbl and not ln.startswith('<!--') and 'class="note"' not in ln:
                 plain = re.sub(r'<[^>]+>', '', ln)
-                m = re.search(r'(?:详见|参见|另见|(?<![可显明预少罕所常意])见)\s*(?:\[\[|\d\.\d{1,2}|第\s*\d+\s*条|[A-H]-\d+|上表|下表|上行|下行|本节)', plain) or re.search(r'(?:按|同)\s*第\s*\d+\s*条', plain)
+                m = re.search(r'(?:详见|参见|另见|(?<![可显明预少罕所常意])见)\s*(?:\[\[|\d\.\d{1,2}|第\s*\d+\s*条|[A-H]-\d+|[A-H]\s*块|上表|下表|上行|下行|上方|下方|本节)', plain) or re.search(r'(?:按|同)\s*第\s*\d+\s*条|按上述|同上述', plain)
                 if m:
                     errors.append('SD-137 表格内交叉引用 %s:%d 「%s」' % (rel(f), ln_no, plain[max(0, m.start() - 15):m.end() + 10].strip()))
             if '</table>' in ln: intbl = False
