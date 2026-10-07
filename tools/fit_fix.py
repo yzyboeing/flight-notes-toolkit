@@ -106,8 +106,20 @@ def match(text, tbls):
 
 dump = os.path.join(tempfile.mkdtemp(), 'dump.jsonl')
 tried = {}
-for n in range(1, 11):   # 2026-10-06：7 → 10 遍（列宽规则多了，收敛要多几遍）
+import time, hashlib
+MAXPASS = int(os.environ.get('FITFIX_MAXPASS', '10'))   # 预览（preview.py）用 4 遍
+seen_state = {}   # 2026-10-07 提前停止：记录每遍开工前的状态，状态重复＝来回拉锯，再跑也只是循环（用户：「为什么每次都这么久」）
+last_pdf = None
+prev_calm = False
+hist = []
+snap = {}
+for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多了，收敛要多几遍）
     save()
+    st = hashlib.md5(open(KF, 'rb').read()).hexdigest()
+    if st in seen_state:
+        print('fit_fix：第 %d 遍开工前的状态与第 %d 遍相同（列宽来回拉锯），停止，成品取上一遍' % (n, seen_state[st])); break
+    seen_state[st] = n
+    t0 = time.time()
     build(dump)
     tbls = [json.loads(l) for l in open(dump, encoding='utf-8') if l.strip()]
     for t in tbls: t['bg'] = bg(t['text'])
@@ -121,7 +133,7 @@ for n in range(1, 11):   # 2026-10-06：7 → 10 遍（列宽规则多了，收�
     for key in [k2 for k2 in ffix if k2[0] not in sigs]: del ffix[key]
     nwlock = {k2 for k2 in nwlock if k2[0] in sigs}
     wblock = {k2 for k2 in wblock if k2[0] in sigs}
-    pdf = to_pdf()
+    pdf = to_pdf(); last_pdf = os.path.splitext(OUT)[0] + '.fitfix.pdf'; shutil.copy2(pdf, last_pdf)   # 测量后临时目录会删，先留一份
     res = json.loads(subprocess.run([sys.executable, os.path.join(T, 'check_splits.py'), pdf, '--json'],
                                     capture_output=True, text=True).stdout)
     # SD-85 实测加宽：末行孤字、短格折行 → 这张表这一列加宽，下一遍重排（原文 <br> 主动换行的不算）
@@ -248,6 +260,23 @@ for n in range(1, 11):   # 2026-10-06：7 → 10 遍（列宽规则多了，收�
         n, res['pages'], len(res['splits']), sum(s['fits'] for s in res['splits']), add, up, gave, len(changed),
         sum(1 for v in lv.values() if v), wadd, wgive, ladd, ('；匹配不到：' + '、'.join(miss)) if miss else ''))
     if cadd: print('fit_fix 第 %d 遍：末行孤字收紧字距 %d 格' % (n, cadd))
+    print('fit_fix 第 %d 遍用时 %ds' % (n, time.time() - t0))
     if not (add or up or gave or changed or wadd or wgive or ladd or cadd): break
+    hist.append((res['pages'], len(res['splits']), wadd + wgive, add or up or gave or changed or ladd or cadd))
+    _sd = os.path.join(os.path.dirname(dump), 'p%d' % n); os.makedirs(_sd, exist_ok=True)   # 每遍留一份 docx / PDF，循环时挑好的那遍
+    snap[n] = (wadd + wgive + cadd, shutil.copy2(OUT, os.path.join(_sd, 'o.docx')), shutil.copy2(last_pdf, os.path.join(_sd, 'o.pdf')))
+    if len(hist) >= 3 and not hist[-1][3] and hist[-1][:2] == hist[-3][:2] and abs(hist[-1][2] - hist[-3][2]) <= max(3, hist[-3][2] // 10):
+        best = min((n - 1, n), key=lambda q: snap[q][0])   # 两种状态取待调整更少的一遍作成品
+        if best != n:
+            shutil.copy2(snap[best][1], OUT); shutil.copy2(snap[best][2], last_pdf)
+        print('fit_fix：第 %d 遍与第 %d 遍结果相同（页数、断表、列宽调整量），列宽在两种状态间来回跳，提前停止；成品取第 %d 遍（待调整 %d 处）' % (n, n - 2, best, snap[best][0])); break   # 2026-10-07 实测：±60 / ±25 两遍一循环，跑满 10 遍也一样
+    calm = not (add or up or gave or changed or ladd or cadd) and wadd + wgive <= 3   # 只剩零星列宽微调
+    if calm and prev_calm:
+        print('fit_fix：连续两遍只有零星列宽微调（≤ 3 处），提前停止'); break
+    prev_calm = calm
     if n == 7: print('fit_fix：7 遍仍未稳定，docx 保持本遍结果，交 check_layout 报告')
 save()
+# 交出最后一遍的 PDF（与 docx 同一遍生成），sync.sh / quickref.py 见到标记就不再重转一次（2026-10-07，省一次整本转换）
+if last_pdf and os.path.exists(last_pdf):
+    os.replace(last_pdf, os.path.splitext(OUT)[0] + '.pdf')
+    open(OUT + '.pdf-ok', 'w').write(str(int(os.path.getmtime(OUT))))

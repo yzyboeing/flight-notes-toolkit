@@ -21,6 +21,9 @@ REPO = os.path.abspath(os.path.expanduser(arg('--repo', '~/flight-repos/gh-priva
 T = os.path.dirname(os.path.abspath(__file__))
 BOOK = arg('--book') or os.path.join(REPO, 'build', 'B737机型理论知识笔记.pdf')
 QREF = arg('--qref') or os.path.join(REPO, 'build', 'B737机型理论知识速查.pdf')
+SECTION = '--section' in sys.argv   # 2026-10-07 单节预览（preview.py）：只查表格与版面，跳过成品文件、前言 / 目录、速查等整书检查
+MDP = arg('--md') or os.path.join(REPO, 'build', 'book.md')   # 生成这本 PDF 的源（取源文件 <br>、one-page、w-NN 标记）
+if SECTION and '--qref' not in sys.argv: QREF = '/nonexistent'
 def git_cfg(k):
     return subprocess.run(['git', '-C', REPO, 'config', '--get', k], capture_output=True, text=True).stdout.strip()
 EDITION, NOTICE, SIGN = git_cfg('notes.docEdition'), git_cfg('notes.docNotice'), git_cfg('notes.docPrefaceSignature')
@@ -78,12 +81,12 @@ except Exception as _e:
 
 # ---------- F 成品文件 ----------
 QON = os.path.exists(QREF)   # SD-139：速查单册停出，有单册文件时才检查
-for p in (BOOK, BOOK[:-4] + '.docx') + ((QREF, QREF[:-4] + '.docx') if QON else ()):
+for p in (() if SECTION else (BOOK, BOOK[:-4] + '.docx')) + ((QREF, QREF[:-4] + '.docx') if QON else ()):
     if not os.path.exists(p): err('F1', '缺成品：' + os.path.relpath(p, REPO))
 for p in glob.glob(os.path.join(REPO, 'build', '*竖版*')):
     err('F2', '不应再有竖版成品（SD-71）：' + os.path.relpath(p, REPO))
 src_m = max((os.path.getmtime(f) for f in glob.glob(os.path.join(REPO, 'notes_src', '*', '*.md'))), default=0)
-for p in (BOOK,) + ((QREF,) if QON else ()):
+for p in (() if SECTION else (BOOK,)) + ((QREF,) if QON else ()):
     if os.path.exists(p) and os.path.getmtime(p) < src_m:
         err('F3', '%s 比 notes_src 旧，先重新 sync 再检查' % os.path.basename(p))
 if not os.path.exists(BOOK):
@@ -94,7 +97,7 @@ DESC_H = re.compile(r'^(说明|具体说明|条件|触发条件|限制|限值|�
 def _explicit(cls_re):
     out = set()
     try:
-        bk = open(os.path.join(REPO, 'build', 'book.md'), encoding='utf-8').read()
+        bk = open(MDP, encoding='utf-8').read()
         for m in re.finditer(r'<th class="([^"]*)">(.*?)</th>', bk):
             if re.search(cls_re, m.group(1)): out.add(re.sub(r'<[^>]+>', '', m.group(2)).strip())
     except Exception: pass
@@ -125,7 +128,7 @@ def cell_lines(lines, bb):
 
 PAD = 13   # 单元格左右内边距合计（pt）：左 170 + 右 90 DXA ≈ 13pt（2026-10-03 悬挂圆点后）
 # 源文件里 <br> 主动换行的位置（T2 / T8 不把作者有意的换行当成问题）：build/book.md 去标签后只留字母数字，<br> 记为「|」
-_bk = os.path.join(REPO, 'build', 'book.md')
+_bk = MDP
 BRTEXT = ''
 if os.path.exists(_bk):
     _t = re.sub(r'<br\s*/?>', '\x01', open(_bk, encoding='utf-8').read())
@@ -137,7 +140,7 @@ def explicit_br(first_line):
 # R6（SD-152）：源文件标 one-page 的表（允许 7.5pt）——取表头文字作识别签名
 ONEPAGE_SIGS = []
 try:
-    _bm = open(os.path.join(REPO, 'build', 'book.md'), encoding='utf-8').read()
+    _bm = open(MDP, encoding='utf-8').read()
     for _m in re.finditer(r'<table class="[^"]*\bone-page\b[^"]*">(?:(?!</table>).)*?<tr class="hdr">(.*?)</tr>', _bm, re.S):
         ONEPAGE_SIGS.append(nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12])
     FIXW_SIGS = [nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12] for _m in re.finditer(r'<tr class="hdr">((?:(?!</tr>).)*\bw-\d+(?:(?!</tr>).)*)</tr>', _bm, re.S)]
@@ -455,20 +458,22 @@ for nm, pdf in (('全书', BOOK),) + ((('单册', QREF),) if QON else ()):
         if 0 < len(ln) <= 2:
             err('B4', '%s 第 %d 页只有 %d 行（「%s」）——调整上一页间距或内容，避免孤页' % (nm, i + 1, len(ln), ln[0][4].strip()[:20]))
 
-# P 前言（SD-73 / SD-74）与总目录
-pre = next((i for i in range(1, 5) if nosp(book[i].get_text()).find('前言') >= 0), None)
-if pre is None: err('P1', '全书第 2～5 页找不到前言')
+# P 前言（SD-73 / SD-74）与总目录（单节预览不查）
+pre = 0 if SECTION else next((i for i in range(1, 5) if nosp(book[i].get_text()).find('前言') >= 0), None)
+if SECTION: pass
+elif pre is None: err('P1', '全书第 2～5 页找不到前言')
 else:
     t = book[pre].get_text()
     if SIGN and SIGN not in t: err('P1', '前言缺署名 %s（SD-74）' % SIGN)
     if re.search(r'以\s*(SOP|FCOM)[^。]{0,6}为准', t): err('P1', '前言不应再有「以 SOP / FCOM 为准」一句（SD-73）')
-toc = ''.join(book[i].get_text() for i in range(1, 6))
+toc = '按主题查' if SECTION else ''.join(book[i].get_text() for i in range(1, min(6, len(book))))
 if '运行规范' in re.sub(r'运行规范\s*C\d+', '', toc): err('P2', '总目录仍出现「运行规范」，第三章名应为「运行手册」（SD-73）')
 if '按主题查' not in toc: err('P2', '目录里缺「按主题查（速查入口）」（SD-139 / SD-149）')
 # SD-149（2026-10-06 用户）：五种查法放在第五章之后——第五章最后一页之后才出现「按主题查」页
 _tp = [i for i in range(6, len(book)) if nosp(book[i].get_text()).startswith('按主题查') or '按主题查按系统' in nosp(book[i].get_text())[:40]]
 _c5 = max((i for i in range(len(book)) if '第五章' in book[i].get_text()[:60]), default=-1)
-if not _tp: err('P2', '找不到「按主题查」页（SD-149）')
+if SECTION: pass
+elif not _tp: err('P2', '找不到「按主题查」页（SD-149）')
 elif _tp[0] < _c5: err('P2', '「按主题查」在第 %d 页，应放在第五章之后（SD-149）' % (_tp[0] + 1))
 
 # R5（SD-154，2026-10-06 用户）：同一条目下同表头的几张表、中间只隔着注——应合成一张（标 one-page）。
