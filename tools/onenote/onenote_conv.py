@@ -128,10 +128,19 @@ def note_blocks(h):
 import glob as _glob, os as _os
 _NS = _os.path.expanduser('~/flight-repos/gh-private/notes_src/')
 def _hkey(cells): return ''.join(re.sub(r'[\s\u200b\u2060\u00ad]+', '', html.unescape(re.sub(r'<[^>]+>', '', c))) for c in cells)
+def _sources():
+    """定宽 / 等宽标记的来源：环境变量 ONENOTE_SRC_REF（如 baseline/20261006-3）给了就读该基线，避免混进别的会话正在改的源文件"""
+    ref = _os.environ.get('ONENOTE_SRC_REF')
+    if not ref:
+        return [open(f, encoding='utf-8').read() for f in _glob.glob(_NS + '*/*.md')]
+    import subprocess
+    repo = _os.path.dirname(_NS.rstrip('/'))
+    names = subprocess.run(['git', '-C', repo, '-c', 'core.quotepath=off', 'ls-tree', '-r', '--name-only', ref, 'notes_src'], capture_output=True, text=True, check=True).stdout.split('\n')
+    return [subprocess.run(['git', '-C', repo, 'show', '%s:%s' % (ref, n)], capture_output=True, text=True).stdout for n in names if n.endswith('.md')]
 def load_specs():
     fixed, eq = set(), {}
-    for f in _glob.glob(_NS + '*/*.md'):
-        for m in re.finditer(r'<tr class="hdr">(.*?)</tr>', open(f, encoding='utf-8').read(), re.S):
+    for text in _sources():
+        for m in re.finditer(r'<tr class="hdr">(.*?)</tr>', text, re.S):
             ths = re.findall(r'<th([^>]*)>(.*?)</th>', m.group(1), re.S)
             k = _hkey([t[1] for t in ths]); cls = [(re.search(r'class="([^"]*)"', a) or [0, ''])[1] for a, _ in ths]
             if any(re.search(r'\bw-\d', c) for c in cls): fixed.add(k)
