@@ -1702,7 +1702,7 @@ function htmlTableCore(html) {
       /* 括注整句另起一行（用户 2026-10-03，1.6 慢车表「空中结冰环境（发动机防冰开且无进近形态时）」）：
          居中格里「名称（括注）」一行排不下时，括注不在中间断开，整句另起一行、同样居中；名称本身排得下才拆 */
       if (center && !hierarchy && !semMarked && !isNote && !isPre && !isWarn) {
-        const fvw = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 + 260; };
+        const fvw = (t) => { let n = 0; for (const ch of unesc(String(t).replace(/<[^>]+>/g, '')).trim()) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n * 96 * FS / 18 * 0.93 + 260; };   // 2026-10-07 实测校准：原估算比实际宽约 9%（速查「座舱高度约机场标高 + 1000ft，压差 ≈ 4psi」排得下却被拆成两段），乘 0.93 仍留余量
         const split = [];
         rawParas.forEach(seg => {
           /* 语义断点（用户 2026-10-03，速查 155）：一行排不下时，依次在「（括注」「 + 」「 → 」「，」处断开，前后两段各自排得下；
@@ -1994,6 +1994,18 @@ function singleToc(ch, brk) {
       ++kk; return { id: sec.id, num: sn || '', text: t };
     });
     /* 2026-10-02：每栏超过 16 行（速查主题 33 组）时不用宽松行距，避免目录挤出第二页 */
+    /* 2026-10-07 速查目录分段（%%PART%%：系统 + 飞行流程各段）：行数多时排三栏，只在分段处换栏，取最高一栏最矮的分法 */
+    const pk = lines.map((l, k) => l.chap ? k : -1).filter(k => k > 0);
+    if (!PORTRAIT && pk.length >= 2 && lines.length > 32) {
+      let best = null;
+      for (let b = 1; b < pk.length; b++) {   // 第一栏只放第一段（系统），后两栏平衡；同高取后者
+        const h = Math.max(pk[0], pk[b] - pk[0], lines.length - pk[b]);
+        if (!best || h <= best.h) best = { h, a: pk[0], b: pk[b] };
+      }
+      const W3 = Math.floor((TOTAL - GAP * 2) / 3), G3 = [lines.slice(0, best.a), lines.slice(best.a, best.b), lines.slice(best.b)];
+      out.push(colsTable(G3.map(g => g.map((l, k) => tocLine(l, W3, { numW: 560, tight: true, first: k === 0 }))), W3, GAP));
+      return out.concat(qrTopicPage());
+    }
     for (let c = 0; c < nc; c++) cols.push(lines.slice(c * per, (c + 1) * per).map((l, k) => tocLine(l, colW, { numW: 560, loose: per <= 16, tight: per > 16, first: k === 0 })));
     out.push(colsTable(cols, colW, GAP));
   }
@@ -2040,20 +2052,23 @@ function bodyTopicPage() {
     children: [new Bookmark({ id: 'TOPICS', children: [new TextRun({ text: '按主题查', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()] })];
   out.push(new Paragraph({ alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 0, line: 20 }, children: [new TextRun({ text: '', size: 2 })],
     border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
+  if (qrMode) out.push(new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 40, after: 0 }, children: [   // 2026-10-07：交叉条目图例
+    new TextRun({ text: '↗ 灰字', font: FF, size: 16, color: '808080' }), new TextRun({ text: '：其他主题的条目，在此也可查', font: FF, size: 16, color: '808080' })] }));
   let bad = 0, firstDim = true;
   const NC = PORTRAIT ? 2 : 3, GAP = 300, colW = Math.floor((TOTAL - GAP * (NC - 1)) / NC), NUMW = qrMode ? 460 : 820;
   const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const themeCell = (tp, w) => {
     if (!tp) return new TableCell({ width: { size: w, type: WidthType.DXA }, borders: { top: NB, bottom: NB, left: NB, right: NB }, children: [new Paragraph({ children: [] })] });
-    const ch = [new Paragraph({ keepLines: true, spacing: { before: 0, after: 40, line: 240 }, indent: { left: 80 },
+    /* 2026-10-07 速查：只有一个主题的段不出主题小标题（nohead）；交叉挂靠的条目编号后加「↗」、标题灰字 */
+    const ch = tp.nohead ? [] : [new Paragraph({ keepLines: true, spacing: { before: 0, after: 40, line: 240 }, indent: { left: 80 },
       shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E6E6E6' },
       children: [new InternalHyperlink({ anchor: tp.items[0].id, children: [new TextRun({ text: tp.name, font: FF, size: 19, bold: true, color: '000000' })] })] })];
     tp.items.forEach((it) => ch.push(new Paragraph({ keepLines: true,
       tabStops: [{ type: TabStopType.LEFT, position: NUMW }, { type: TabStopType.RIGHT, position: w, leader: LeaderType.DOT }],
       indent: { left: NUMW, hanging: NUMW }, spacing: { before: 0, after: 0, line: 220 },
       children: [new InternalHyperlink({ anchor: it.id, children: [
-        new TextRun({ text: it.num + '\t', font: FF, size: 17, color: H2_C }),
-        new TextRun({ text: it.text, font: FF, size: 17, color: '000000' }),
+        new TextRun({ text: it.num + (it.x ? '↗' : '') + '\t', font: FF, size: 17, color: it.x ? '808080' : H2_C }),
+        new TextRun({ text: it.text, font: FF, size: 17, color: it.x ? '808080' : '000000' }),
         new TextRun({ text: '\t', size: 17 }), new PageReference(it.id) ] })] })));
     return new TableCell({ width: { size: w, type: WidthType.DXA }, borders: { top: NB, bottom: NB, left: NB, right: NB },
       margins: { top: 0, bottom: 120, left: 0, right: 0 }, verticalAlign: VerticalAlign.TOP, children: ch });
@@ -2063,13 +2078,13 @@ function bodyTopicPage() {
     for (const tp of d.themes) {
       const got = [];
       for (const ent of tp.items) {
-        const [key, short] = String(ent).split('|');
-        if (qrMode) { got.push({ id: 'QRI_' + key.trim(), num: key.trim(), text: clean(short || '') }); continue; }
+        const [key, short, flag] = String(ent).split('|');
+        if (qrMode) { got.push({ id: 'QRI_' + key.trim(), num: key.trim(), text: clean(short || ''), x: flag === 'x' }); continue; }
         const b = blocks[key.trim()];
         if (!b) { console.error('按主题查索引：找不到块「' + key + '」（主题：' + tp.theme + '）'); bad++; continue; }
         got.push({ id: b.id, num: key.trim(), text: clean(short || b.t) });
       }
-      if (got.length) themes.push({ name: clean(tp.theme), items: got });
+      if (got.length) themes.push({ name: clean(tp.theme), items: got, nohead: !!tp.nohead });
     }
     if (!themes.length) continue;
     const dimRun = new TextRun({ text: d.dim, font: FF, size: 24, bold: true, color: H2_C });

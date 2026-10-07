@@ -19,17 +19,23 @@ import sys, os, re, json, subprocess, shutil
 T = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.expanduser(sys.argv[sys.argv.index('--repo') + 1]) if '--repo' in sys.argv else os.path.expanduser('~/flight-repos/gh-private')
 SRC = os.path.join(REPO, '速查', '速查源.md')
-IDX = os.path.join(REPO, '按主题查索引.json')
+IDX = os.path.join(REPO, '速查', '速查按主题查.json')   # 2026-10-07 用户：速查单独一份索引（按飞行流程，不列系统）；完整版仍用 按主题查索引.json
+if not os.path.exists(IDX): IDX = os.path.join(REPO, '按主题查索引.json')
 BUILD = os.path.join(REPO, 'build')
 SINGLE_MD = os.path.join(BUILD, 'qr_single.md')
 DIMS_JSON = os.path.join(BUILD, 'qr_dims.json')
+NO_XREF = {'737-NG / 737-8 机型差异对照'}   # 汇总性的分组只挂在自己名下，不按绑定块交叉挂到其他主题（2026-10-07）
 OUT_DOCX = os.path.join(BUILD, 'B737机型理论知识速查.docx')
 
 def parse_src():
     """→ [(主题, [ {t, body:[行], binds:[(节, 块)]} ])]"""
-    groups, cur_g, cur_e = [], None, None
+    groups, cur_g, cur_e, part = [], None, None, None
     for l in open(SRC, encoding='utf-8').read().split('\n'):
         if l.startswith('# ') or (l.startswith('<!--') and cur_e is None): continue
+        m = re.match(r'^%%PART%%\s*(.+)$', l)
+        if m: part = m.group(1).strip(); cur_e = None; continue      # 目录分段（2026-10-07）：只进目录
+        if part is not None and l.startswith('## '):
+            groups.append(('%%PART%%', part)); part = None
         m = re.match(r'^## (.+)$', l)
         if m:
             cur_g = (m.group(1).strip(), []); groups.append(cur_g); cur_e = None; continue
@@ -43,7 +49,7 @@ def parse_src():
                     mm = re.match(r'(\d+\.\d+)(?:\s+([A-H]-\d+|\d+))?', lab)
                     if mm: cur_e['binds'].append((mm.group(1), mm.group(2)))
             cur_e['body'].append(l)
-    return [g for g in groups if g[1]]
+    return [g for g in groups if g[0] == '%%PART%%' or g[1]]
 
 def main():
     groups = parse_src()
@@ -51,6 +57,7 @@ def main():
     out = ['# 机型理论知识速查', '', '## 第零章　速查', '', '%%COMPACT%%', '']   # 单册模式只认「第X章」触发目录页；章名本身不印（页脚用册名 DOC_HEADER）
     n = 0; ents = []
     for g, es in groups:
+        if g == '%%PART%%': out += ['%%PART%% ' + es, '']; continue
         out += ['### ' + g, '']
         for e in es:
             n += 1; e['n'] = n; e['g'] = g; ents.append(e)
@@ -60,14 +67,34 @@ def main():
     open(SINGLE_MD, 'w', encoding='utf-8').write('\n'.join(out))
     # 2) 五维目录：条目绑定的正文块落在哪个主题，就挂到哪个主题下（一条可挂多处）；正文分组主题本身也挂
     idx = json.load(open(IDX, encoding='utf-8'))
+    # 2026-10-07 用户（选 A）：按主题查压缩——速查索引可写成 {"dims": [...], "short": {全标题前缀: 短标题}}；
+    # ① 只有一个主题的段不出主题小标题（nohead）；② 同段内重复、本段自有主题已收的交叉条目去掉；theme 可写 exclude（条目标题前缀）去掉牵强的挂靠；
+    # ③ 交叉条目带标记 x（生成器显示「↗」+ 灰字）；④ 索引里用短标题，正文标题不变；⑤ theme 写 collapse 时只列一行入口（附录）
+    short = {}
+    if isinstance(idx, dict): short = idx.get('short', {}); idx = idx['dims']
     clean = lambda t: re.sub(r'（单位：[^）]*）|【[^】]*】', '', t).strip()
+    def label(t):
+        for k, v in short.items():
+            if t.startswith(k): return v
+        return clean(t)
     dims = []
     for d in idx:
-        themes = []
+        themes, own = [], {tp['theme'] for tp in d['themes']}
+        seen = set()
         for tp in d['themes']:
             keys = {x.split('|')[0].strip() for x in tp['items']}
-            hit = [e for e in ents if any(('%s %s' % (s, b)) in keys for s, b in e['binds'] if b) or e['g'] == tp['theme']]
-            if hit: themes.append({'theme': tp['theme'], 'items': ['%d|%s' % (e['n'], clean(e['t'])) for e in sorted(hit, key=lambda x: x['n'])]})
+            exc = tp.get('exclude', [])
+            hit = [e for e in ents if e['g'] == tp['theme'] or (e['g'] not in NO_XREF and e['g'] not in own
+                   and not any(e['t'].startswith(x) for x in exc) and any(('%s %s' % (s, b)) in keys for s, b in e['binds'] if b))]
+            hit = [e for e in sorted(hit, key=lambda x: x['n']) if e['n'] not in seen]
+            seen |= {e['n'] for e in hit}
+            if not hit: continue
+            if tp.get('collapse'):
+                items = ['%d|%s' % (hit[0]['n'], tp['theme'])]
+            else:
+                items = ['%d|%s%s' % (e['n'], label(e['t']), '' if e['g'] == tp['theme'] else '|x') for e in hit]
+            themes.append({'theme': tp['theme'], 'items': items})
+        if len(themes) == 1: themes[0]['nohead'] = True
         if themes: dims.append({'dim': d['dim'], 'themes': themes})
     json.dump(dims, open(DIMS_JSON, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     # 3) 排版：与完整版同一套生成器与 fit_fix（整表同页、列宽实测、孤字），单册模式
@@ -93,6 +120,6 @@ def main():
         d.set_toc(toc); np = len(d)
         d.save(pdf + '.tmp', garbage=3, deflate=True); d.close(); os.replace(pdf + '.tmp', pdf)
     except Exception: np = '?'
-    print('速查版：%d 个主题、%d 条知识点，%s 页 → %s' % (len(groups), n, np, pdf))
+    print('速查版：%d 个主题、%d 条知识点，%s 页 → %s' % (sum(1 for g in groups if g[0] != '%%PART%%'), n, np, pdf))
 
 if __name__ == '__main__': main()

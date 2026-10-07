@@ -38,6 +38,18 @@ def lines_of(pg):
             if t.strip(): out.append((*l['bbox'], t))
     return out
 
+# 2026-10-07（用户，速查第 15 页「座舱高度约机场标高 + 1000ft，压差 ≈ 4psi」）：断点前一行没排满、但下一行开头那个词接不回来，
+# 也是被迫折行（排版器在「+」「（」等前面的断点换行，前一行右侧留一大截）。以前只认「排到右缘」，这种折行漏判、不会加宽。
+_TOK = re.compile(r'\s*([（(【「]?[A-Za-z0-9.,/\-:+%°×±≈≤≥~～·\'’]+[）)】」]?|[（(【「]?.[）)】」，。；、：]?)')
+def _wt(t): return sum(0.55 if ord(ch) < 0x2E80 and ch not in '±×≈≤≥→' else 1.0 for ch in t)
+def forced_wrap(cw, lw, ltext, ntext, pad):
+    """cw 格宽；lw / ltext 本行宽度与文字；ntext 下一行文字。下一行第一个词接到本行后超出可排宽度 → 被迫折行"""
+    m = _TOK.match(ntext or '')
+    if not m or not ltext.strip(): return False
+    u = lw / max(_wt(ltext.strip()), 0.5)                 # 本行每单位字宽（按中文 1、西文 0.55 折算）
+    # 两行合起来超出可排宽度 = 这一处换行是排不下造成的（排版器可能在更早的断点换行，只看下一行第一个词会漏判）
+    return lw + _wt((ntext or '').strip()) * u > (cw - pad) - 1
+
 def cell_lines(lines, bb):
     got = [l for l in lines if bb[0] - 1 <= (l[0] + l[2]) / 2 <= bb[2] + 1 and bb[1] - 1 <= (l[1] + l[3]) / 2 <= bb[3] + 1]
     rows = collections.OrderedDict()
@@ -86,7 +98,7 @@ def measure(pdf, srcmd=None):
             def _measure_cell(c0):
                 ls0 = cell_lines(lines, c0); wr = False; mx0 = 0
                 for q0 in range(len(ls0) - 1):
-                    if (c0[2] - c0[0]) - (ls0[q0][1] - ls0[q0][0]) < PAD + 14 and not re.match(NEWIT, ls0[q0 + 1][2]) and not ebr(ls0[q0][2]): wr = True   # 按整行宽度判：居中列的短行左右各空一点，只看右侧会误判成排满（2026-10-06）   # 真折行：排到右缘、下一行不是新的一条
+                    if ((c0[2] - c0[0]) - (ls0[q0][1] - ls0[q0][0]) < PAD + 14 or forced_wrap(c0[2] - c0[0], ls0[q0][1] - ls0[q0][0], ls0[q0][2], ls0[q0 + 1][2], PAD)) and not re.match(NEWIT, ls0[q0 + 1][2]) and not ebr(ls0[q0][2]): wr = True   # 按整行宽度判：居中列的短行左右各空一点，只看右侧会误判成排满（2026-10-06）   # 真折行：排到右缘、下一行不是新的一条
                 for l0 in ls0: mx0 = max(mx0, l0[1] - l0[0])
                 return ls0, wr, mx0
             xs = []
@@ -111,7 +123,7 @@ def measure(pdf, srcmd=None):
                 def _minw(c0, ls0, rowmode=True):
                     paras, cur = [], []
                     for l0 in ls0:
-                        if cur and (re.match(NEWIT, l0[2]) or ebr(cur[-1][2]) or ((c0[2] - c0[0]) - (cur[-1][1] - cur[-1][0])) >= PAD + 14): paras.append(cur); cur = []   # 源文件 <br> 处另起一段
+                        if cur and (re.match(NEWIT, l0[2]) or ebr(cur[-1][2]) or (((c0[2] - c0[0]) - (cur[-1][1] - cur[-1][0])) >= PAD + 14 and not forced_wrap(c0[2] - c0[0], cur[-1][1] - cur[-1][0], cur[-1][2], l0[2], PAD))): paras.append(cur); cur = []   # 源文件 <br> 处另起一段
                         cur.append(l0)
                     if cur: paras.append(cur)
                     cap = min(max(len(ls0), int((c0[3] - c0[1] - 4) / pitch + 0.35)), len(ls0) + 1) if (rowcap_ok and rowmode) else len(ls0)   # 表不挤时仍按「本格行数不增」；借行高时每格最多多折一行（「适当收窄」，不把短格挤成一列碎字）
