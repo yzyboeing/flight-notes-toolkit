@@ -1371,6 +1371,7 @@ function htmlTableCore(html) {
   const smallTbl = /^\s*<table[^>]*\bsmall\b/.test(String(html));   // 源文件标 small：整表缩小一档（2026-10-06 用户，2.7 落地程序职责交接矩阵「可以适当缩小，包括字体」）
   if (smallTbl && shrinkLv < 2) shrinkLv = 2;
   // one-page（用户点名整页的大表）不再一律压到 5 级：由 fit_fix 按实测超出量直接定级（超 ≤20% 给 3 级、≤35% 给 4 级、更多给 5 级），放得下就不压——字号尽量大（2026-10-06 用户：1.2 B-1 等拆开的大表按三种复飞方式的逻辑合成一张、整页）
+  { const fl = String(html).slice(0, 120).match(/^\s*<table[^>]*\bfit-([1-5])\b/); if (fl) shrinkLv = Math.max(shrinkLv, +fl[1]); }   // 源文件 fit-N：直接用第 N 级（断表检测认不出的特殊结构大表，如 1.4 D-2 三种复飞方式内嵌单发子表，2026-10-06）
   if (shrinkLv) { FS = [18, 18, 17, 16, 15, 15][shrinkLv]; LN = shrinkLv >= 5 ? 185 : shrinkLv >= 4 ? 210 : shrinkLv === 3 ? 240 : 250; CM = shrinkLv >= 5 ? 10 : shrinkLv >= 4 ? 20 : 30; }   // 5 级＝7pt：one-page 表 4 级仍放不下时（1.4 D-2）   // 4 级＝7.5pt：只给源文件标 one-page 的超大表（2026-10-06 用户，1.4 D-2 三种复飞方式：「不要拆分到不同的页……把所有字体和行间距都调到合适的大小」）
   else if (process.env.ALLOW_SHRINK && estimate(FS) > BUDGET) {   // 旧开关，仅手动调试用
     const fit = [17, 16].find(c => estimate(c) <= BUDGET);

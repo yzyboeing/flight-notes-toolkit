@@ -24,8 +24,8 @@ def lines_in(p, bb):
 def main():
     pdf, pg, head = sys.argv[1], int(sys.argv[2]), sys.argv[3]
     d = pymupdf.open(pdf); p = d[pg - 1]
-    tb = next(t for t in p.find_tables().tables if (t.extract()[0][0] or '').replace('\n', '').startswith(head))
-    hdr = [c for c in tb.rows[0].cells if c]
+    tb = next(t for t in p.find_tables().tables if '|'.join((x or '').replace('\n', '') for x in t.extract()[0]).startswith(head))   # head 可写「项目|左再循环风扇」区分同页同首列的表
+    hdr = [c for c, x in zip(tb.rows[0].cells, tb.extract()[0]) if c and (x or '').strip()]   # 去掉表右侧虚构的空列（2026-10-06）
     xs = [c[0] for c in hdr] + [hdr[-1][2]]
     n = len(hdr); longest, text, wrapped = [0.0] * n, [0.0] * n, [False] * n
     for r in tb.rows[1:]:
@@ -47,14 +47,20 @@ def main():
     for k in wk: want[k] = max(longest[k] * 0.45 + PAD, rest * text[k] / tot)
     if not wk: rest = 0
     total = sum(want)
-    pct = [max(4, round(100 * w / total)) for w in want]
+    # 按版心宽度的百分比写（合计不足 100 时生成器按版心百分比取宽，表格不会被拉满）；有折行列时合计拉到 100
+    pct = [max(4, -(-100 * w // CW)) for w in want]
+    if any(wrapped): pct[-1] += 100 - sum(pct)
+    while sum(pct) > 100: pct[pct.index(max(pct))] -= 1
     print('列宽 pt', [round(w) for w in want], '折行', wrapped, '百分比', pct, '表宽', round(total))
     if '--apply' in sys.argv:
         src = sys.argv[sys.argv.index('--apply') + 1]; s = open(src, encoding='utf-8').read()
         heads = [re.sub(r'\s+', '', (h or '')) for h in tb.extract()[0]]
+        anchor = sys.argv[sys.argv.index('--anchor') + 1] if '--anchor' in sys.argv else None   # 表内一段文字，精确定位同表头的多张表中的那一张
+        heads = [h for h in heads if h]
         for m in re.finditer(r'<tr class="hdr">(.*?)</tr>', s, re.S):
             ths = re.findall(r'<th([^>]*)>(.*?)</th>', m.group(1), re.S)
             if [re.sub(r'<[^>]+>|\s+', '', t[1]) for t in ths] != heads or any('colspan' in t[0] for t in ths): continue
+            if anchor and anchor not in s[m.end():s.find('</table>', m.end())]: continue
             new = '<tr class="hdr">'
             for (attr, txt), v in zip(ths, pct):
                 cm = re.search(r'class="([^"]*)"', attr)
