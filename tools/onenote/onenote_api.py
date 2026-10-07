@@ -16,7 +16,7 @@ def _open(method, url, data=None, ctype='application/json', timeout=180):
         except urllib.error.HTTPError as e:
             body = e.read().decode(errors='replace')
             if e.code == 401 and k < 2: refresh(); continue
-            if e.code in (429, 500, 502, 503, 504) and method == 'GET': time.sleep(5 * (k + 1)); continue
+            if e.code in (429, 500, 502, 503, 504) and method == 'GET': time.sleep((30 if e.code == 429 else 5) * (k + 1)); continue
             raise RuntimeError('%s %s' % (e.code, body[:300]))
         except Exception as e:
             if method != 'GET': raise          # 写操作不盲目重发（会产生重复页）
@@ -36,22 +36,23 @@ def list_pages(sid):
     return req('GET', '/sections/%s/pages?$select=id,title&$top=100' % sid)['value']
 def delete_page(pid):
     # 删除可以安全重发：网络超时就重试（第二次返回 404 视为已删）
-    for k in range(5):
+    for k in range(9):
         try: req('DELETE', '/pages/%s' % pid); return
         except RuntimeError as e:
             if '404' in str(e): return
+            if str(e)[:3] in ('429', '500', '502', '503', '504') and k < 8: time.sleep(60 * (k + 1)); continue   # 2026-10-06：删除遇 504 重试
             raise
         except OSError:   # socket.timeout / URLError
-            if k == 4: raise
+            if k == 8: raise
             time.sleep(10 * (k + 1))
 def create_page(sid, title, html):
     """建一页并读回确认；读不到就删掉重建（最多 3 次）。返回 page id 或 None。"""
-    for att in range(3):
+    for att in range(5):
         before = {p['id'] for p in list_pages(sid) if p['title'] == title}
         try:
             pid = json.loads(_open('POST', G + '/sections/%s/pages' % sid, html.encode(), 'text/html')[1])['id']
         except Exception:
-            time.sleep(20)
+            time.sleep(60 * (att + 1))
             new = [p['id'] for p in list_pages(sid) if p['title'] == title and p['id'] not in before]
             if not new: continue
             pid = new[0]
