@@ -343,31 +343,38 @@ def scan(pdf, name, header):
             # SD-102：序号表（首列全是 ①② / 1、2）——T4 不报（序号表不分条）；T12 报自动加点；非序号表的说明类句子列没加点报 T11
             try:
                 ctext = lambda x: ''.join(l[2] for l in x[1]).strip() if x else ''
-                firsts = [ctext(r[0]) for r in info[1:] if r and r[0]]
-                firsts = [f[0] if re.match(r'[\u2460-\u2473]\s*\S', f) else f for f in firsts]   # 「① 加标签文字」首列按序号表（2026-10-06 用户）
-                serial = len(firsts) >= 2 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in firsts)
-                def _sv(t):
-                    t = re.sub(r'[\s（()）.、]', '', t)
-                    return ord(t) - 0x245F if re.fullmatch(r'[\u2460-\u2473]', t) else int(t) if t.isdigit() else ord(t.lower()) - 96 if re.fullmatch(r'[a-zA-Z]', t) else -1
-                if not serial and len(firsts) >= 4:   # 末尾 1～2 行非编号补充行（如「特殊情况」），与生成器同口径
-                    for tn in (1, 2):
-                        hd = firsts[:-tn]
-                        if len(hd) >= 3 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in hd) and [_sv(f) for f in hd] == list(range(1, len(hd) + 1)):
-                            serial = True; firsts = hd; break
-                else:
-                    serial = serial and [_sv(f) for f in firsts] == list(range(1, len(firsts) + 1))   # 从 1 开始的连续编号才算（襟翼位置 10 / 15 / 25 不算）
+                # 序号列不一定在首列（2026-10-06 用户，2.3 B-1「类别｜序号｜条件」）：首列或表头为 序号 / # / 编号 / 步骤 / 条款 的列，与生成器 serialColOf 同口径
+                _hd0 = [ctext(x) for x in info[0]] if info else []
+                serial, sc = False, -1
+                for _sc in range(min(3, len(_hd0))):
+                    if _sc > 0 and not re.fullmatch(r'(序号|#|编号|步骤|条款)', _hd0[_sc].replace(' ', '')): continue
+                    firsts = [ctext(r[_sc]) for r in info[1:] if r and _sc < len(r) and r[_sc]]
+                    firsts = [f[0] if re.match(r'[\u2460-\u2473]\s*\S', f) else f for f in firsts]   # 「① 加标签文字」首列按序号表（2026-10-06 用户）
+                    serial = len(firsts) >= 2 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in firsts)
+                    def _sv(t):
+                        t = re.sub(r'[\s（()）.、]', '', t)
+                        return ord(t) - 0x245F if re.fullmatch(r'[\u2460-\u2473]', t) else int(t) if t.isdigit() else ord(t.lower()) - 96 if re.fullmatch(r'[a-zA-Z]', t) else -1
+                    if not serial and len(firsts) >= 4:   # 末尾 1～2 行非编号补充行（如「特殊情况」），与生成器同口径
+                        for tn in (1, 2):
+                            hd = firsts[:-tn]
+                            if len(hd) >= 3 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in hd) and [_sv(f) for f in hd] == list(range(1, len(hd) + 1)):
+                                serial = True; firsts = hd; break
+                    else:
+                        serial = serial and [_sv(f) for f in firsts] == list(range(1, len(firsts) + 1))   # 从 1 开始的连续编号才算（襟翼位置 10 / 15 / 25 不算）
+                    if serial: sc = _sc; break
                 hdrs = [ctext(x) for x in info[0]] if info else []
                 for k, h in enumerate(hdrs):
                     if k == 0 or not h: continue
+                    ser_k = serial and k > sc   # 序号列右边的列才按序号表查
                     cs = [ctext(r[k]) for r in info[1:] if k < len(r) and r[k]]
                     cs = [c for c in cs if c and not re.fullmatch(r'[—\-–/无\s]+', c)]
                     if len(cs) < 2: continue
                     bul = sum(1 for c in cs if c.startswith('•') and '–' not in c)   # 「• 引语：」+「– 子项」是 F2 层级写法，不算自动加点
                     single_b = sum(1 for c in cs if c.count('•') == 1 and '–' not in c and len(c) < 80)
                     multi_b = any(c.count('•') >= 2 for c in cs)   # 2026-10-03 用户：一列要加点就整列都加——序号表这一列有多条加点时，单句加点是对的
-                    if serial and any('•' in c or '●' in c for c in cs):   # SD-140（2026-10-05 用户）：「有了序号就不要加小圆点」，无例外，报错
+                    if ser_k and any('•' in c or '●' in c for c in cs):   # SD-140（2026-10-05 用户）：「有了序号就不要加小圆点」，无例外，报错
                         err('T12', '%s 第 %d 页：序号表的「%s」列有小圆点——序号表其余列不加「•」（SD-140）' % (name, i + 1, h))
-                    if serial and not re.fullmatch(r'(时机|宣布时机|总则|类别)', h.replace(' ', '')):   # SD-140「后面的一列都是靠左」（类别等居中表头除外，2026-10-06 用户）：居中的格（左右留白相等且明显大于内边距）报错（M18-L015，2026-10-06）
+                    if ser_k and not re.fullmatch(r'(时机|宣布时机|总则|类别)', h.replace(' ', '')):   # SD-140「后面的一列都是靠左」（类别等居中表头除外，2026-10-06 用户）：居中的格（左右留白相等且明显大于内边距）报错（M18-L015，2026-10-06）
                         ctr = 0
                         pad = (collections.Counter(round(l[0] - x[0][0]) for r in info[1:] for x in r if x for l in x[1] if l[2].strip()).most_common(1) or [(6, 0)])[0][0]   # 本表实际左内边距：取众数（悬挂缩进的「–」子项会更靠左，不能取最小）
                         for r in info[1:]:
@@ -463,6 +470,22 @@ _tp = [i for i in range(6, len(book)) if nosp(book[i].get_text()).startswith('�
 _c5 = max((i for i in range(len(book)) if '第五章' in book[i].get_text()[:60]), default=-1)
 if not _tp: err('P2', '找不到「按主题查」页（SD-149）')
 elif _tp[0] < _c5: err('P2', '「按主题查」在第 %d 页，应放在第五章之后（SD-149）' % (_tp[0] + 1))
+
+# R5（SD-154，2026-10-06 用户）：同一条目下同表头的几张表、中间只隔着注——应合成一张（标 one-page）。
+# 例外：压到最小仍放不下一页、用户定为照常跨页的几处（范围 A）
+R5_EXEMPT = {('4.8', '2.'), ('4.9', '2.'), ('5.6', '3.'), ('2.7', 'A-5'), ('3.6', '块索引')}
+import glob as _g
+for _f in sorted(_g.glob(os.path.join(REPO, 'notes_src/[1-5]*/*.md'))):
+    _sec = os.path.basename(_f).split(' ')[0]; _s = open(_f, encoding='utf-8').read()
+    for _m in re.finditer(r'(?ms)^#{3,4} ([^\n]*)\n(.*?)(?=^#{2,4} |\Z)', _s):
+        _id = _m.group(1).split('　')[0].split(' ')[0]
+        if (_sec, _id) in R5_EXEMPT: continue
+        _tb = list(re.finditer(r'(?s)<table[^>]*>.*?</table>', _m.group(2)))
+        _hd = lambda t: re.sub(r'<[^>]+>|\s', '', (re.search(r'<tr class="hdr">(.*?)</tr>', t, re.S) or [0, ''])[1])
+        for _a, _b in zip(_tb, _tb[1:]):
+            _gap = [p.strip() for p in re.split(r'\n\s*\n', _m.group(2)[_a.end():_b.start()]) if p.strip()]
+            if _hd(_a.group(0)) and _hd(_a.group(0)) == _hd(_b.group(0)) and all(p.startswith('注') for p in _gap):
+                err('R5', '%s「%s」有两张同表头的表、中间只隔注——合成一张、注移到表下、标 one-page（SD-154）' % (_sec, _m.group(1).strip()[:24]))
 
 # V 成品通用校验（verify.py：空白页、标签泄漏、异常项目符号、front matter）
 for pdf in (BOOK,) + ((QREF,) if QON else ()):

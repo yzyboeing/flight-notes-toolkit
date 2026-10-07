@@ -98,10 +98,21 @@ const serialVal = (t) => { t = String(t).replace(/[\s（()）.、]/g, '');
   if (/^\d{1,2}$/.test(t)) return +t;
   if (/^[a-zA-Z]$/.test(t)) return t.toLowerCase().charCodeAt(0) - 96;
   return NaN; };
-function serialTable(parsed, startCol) {
+/* 序号列不一定在首列（2026-10-06 用户，2.3 B-1「类别｜序号｜条件」：「前面加了圆圈数字序号的，后面的长句前面不加小圆点」）：
+   从左往右找第一列「从 1 开始的连续编号」，返回列号（没有返回 -1）；序号列右边的列按序号表处理（不加点、靠左），左边的列（如类别）不动 */
+function serialColOf(parsed, startCol) {
+  const nc = Math.max(0, ...startCol.map(r => (r || []).length ? Math.max(...r) + 1 : 0));
+  const hr = parsed.findIndex(r => r.cls.includes('hdr'));
+  const hText = (col) => { if (hr < 0) return ''; const k = startCol[hr].indexOf(col); return k < 0 ? '' : unesc(String(parsed[hr].cells[k].text).replace(/<[^>]+>/g, '')).trim(); };
+  for (let col = 0; col < Math.min(nc, 3); col++)   // 非首列只认表头为「序号 / # / 编号 / 步骤 / 条款」的列（防数值列 1、2、3 误判）
+    if ((col === 0 || /^(序号|#|编号|步骤|条款)$/.test(hText(col))) && serialAt(parsed, startCol, col)) return col;
+  return -1;
+}
+function serialTable(parsed, startCol) { return serialColOf(parsed, startCol) >= 0; }
+function serialAt(parsed, startCol, COL) {
   const vals = [];
   for (let ri = 0; ri < parsed.length; ri++) { const r = parsed[ri]; if (/hdr|note|premise|warn/.test(r.cls)) continue;
-    const c0 = r.cells.find((c, k) => startCol[ri][k] === 0); if (!c0) continue;
+    const c0 = r.cells.find((c, k) => startCol[ri][k] === COL && c.colspan === 1); if (!c0) { if (COL > 0) vals.push(NaN); continue; }
     const t = unesc(String(c0.text).replace(/<[^>]+>/g, '')).trim();
     vals.push(SERIAL_RE.test(t) ? serialVal(t) : SERIAL_LABEL_RE.test(t) ? t.trim().charCodeAt(0) - 0x245F : NaN); }
   /* 末尾允许 1～2 行非编号的补充行（如 4.6 「①～⑦ + 特殊情况」，2026-10-05），前面须是从 1 开始、至少 3 行的连续编号 */
@@ -592,6 +603,11 @@ function htmlTableCore(html) {
           vh.forEach(c => { c.cls = (strip(c.cls) + (longT ? ' col-bullet' : ' col-center')).trim(); });
           body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) { c.cls = ((c.cls || '') + ' center').trim(); c.cmpShared = true; } }));
           if (process.env.CMP_LOG) console.error('CMP', TBL_IDX, longT ? 'long' : 'short', vh.map(c => plainOf(c.text)).join(' | '));
+        } else if (shared && !serialTable(parsed, startCol)) {
+          /* SD-156（2026-10-06 用户，第 170 页减速板警告「抑制条件」）：「两列共有的内容」的表格都按对比原则——跨列的共有格去掉圆点、统一居中。
+             不是机型对照 / 并列方式的表也适用（着陆 | 中断起飞、起飞 | 着陆、快速离机 | 紧急撤离……）；只动共有格，各列自己的加点 / 居中不变。
+             跨列格不是「共有内容」的表（如 3.9 安保搜查、4.9 液压处置），首格标 no-cmp 排除。 */
+          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) { c.cls = ((c.cls || '') + ' center').trim(); c.cmpShared = true; } }));
         } } }
     /* SD-102 句子列自动加点、时机类列居中（2026-10-01 用户，速查第 5、6、7、53、65、74、83、85、93、99、108、124 条等：
        「说明 / 条件 / 限制 / 定义」这类列「统一靠左，前面加小圆点」；「时机 / 总则 / 类别」列「整体居中」）：
@@ -817,10 +833,10 @@ function htmlTableCore(html) {
           marked.forEach(c => { c.text = String(c.text).replace(/[\uE001]/g, ''); }); }); }
     /* B4（Muse M5-141 / 238 / 245 / 254 / 267 / 275，2026-10-01 用户同意）：序号表（首列全是 ①② / 1、2）其余列不加「•」——
        前面「同列统一」「长格按「；」分条」等步骤可能已加了点，这里统一去掉；表头显式 col-bullet 的列（用户点名）保留；「引语 + – 子项」层级不动 */
-    { const serB4 = serialTable(parsed, startCol);
+    { const serC = serialColOf(parsed, startCol), serB4 = serC >= 0;
       const multiCols = new Set(); parsed.forEach((r, ri) => r.cells.forEach((c, k) => { if ((String(c.text).match(/\uE001/g) || []).length >= 2) multiCols.add(startCol[ri][k]); }));   // 2026-10-03 用户：一列要加点就整列都加
       if (serB4) parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
-        r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (col === 0) return;   // SD-140（2026-10-05 用户）：「有了序号就不要加小圆点」——取代原先 col-bullet / 一格多条 / 一列有点整列加的例外
+        r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (col <= serC) return;   // 序号列及其左边的列不动；SD-140（2026-10-05 用户）：「有了序号就不要加小圆点」——取代原先 col-bullet / 一格多条 / 一列有点整列加的例外
           /* 序号表里的父子层级（2026-10-03，4.21 空速不可靠第 ④ 步）：步骤编号已是标记，父项不加「•」（仍加粗），子项「–」照旧 */
           { const ls = String(c.text).split(/<br\s*\/?>/);
             if ((String(c.text).match(/\uE001/g) || []).length === 1 && /[\uE002]/.test(String(c.text))) {
@@ -1354,7 +1370,7 @@ function htmlTableCore(html) {
   let shrinkLv = SPLITOK.has(tblSig) ? 0 : splitRow ? Math.min(2, SHRINK.get(tblSig) || 0) : (SHRINK.get(tblSig) || 0);   // split-ok 最多 2 级（8.5pt），避免孤页；不压到 8pt
   const smallTbl = /^\s*<table[^>]*\bsmall\b/.test(String(html));   // 源文件标 small：整表缩小一档（2026-10-06 用户，2.7 落地程序职责交接矩阵「可以适当缩小，包括字体」）
   if (smallTbl && shrinkLv < 2) shrinkLv = 2;
-  if (/^\s*<table[^>]*\bone-page\b/.test(String(html))) shrinkLv = 5;   // one-page（用户点名整页的超大表）直接用 5 级 7pt，不等 fit_fix 逐级试
+  // one-page（用户点名整页的大表）不再一律压到 5 级：由 fit_fix 按实测超出量直接定级（超 ≤20% 给 3 级、≤35% 给 4 级、更多给 5 级），放得下就不压——字号尽量大（2026-10-06 用户：1.2 B-1 等拆开的大表按三种复飞方式的逻辑合成一张、整页）
   if (shrinkLv) { FS = [18, 18, 17, 16, 15, 15][shrinkLv]; LN = shrinkLv >= 5 ? 185 : shrinkLv >= 4 ? 210 : shrinkLv === 3 ? 240 : 250; CM = shrinkLv >= 5 ? 10 : shrinkLv >= 4 ? 20 : 30; }   // 5 级＝7pt：one-page 表 4 级仍放不下时（1.4 D-2）   // 4 级＝7.5pt：只给源文件标 one-page 的超大表（2026-10-06 用户，1.4 D-2 三种复飞方式：「不要拆分到不同的页……把所有字体和行间距都调到合适的大小」）
   else if (process.env.ALLOW_SHRINK && estimate(FS) > BUDGET) {   // 旧开关，仅手动调试用
     const fit = [17, 16].find(c => estimate(c) <= BUDGET);
@@ -1543,7 +1559,7 @@ function htmlTableCore(html) {
     const rowsD = parsed.filter(r => !/hdr|note|premise|warn/.test(r.cls));
     const firstIsSerial = rowsD.length >= 2 && serialTable(parsed, startCol);
     if (firstIsSerial) {
-      for (let k = 1; k < nCols; k++) {
+      for (let k = serialColOf(parsed, startCol) + 1; k < nCols; k++) {
         if (forcedCenterCols.has(k) && CENTER_HDR.has(k)) continue;   // 2026-10-06 用户（1.2 C-1「类别」）：表头为 时机 / 宣布时机 / 总则 / 类别 且显式居中的列，序号表里照样居中
         forcedLeftCols.add(k); serialLeft.add(k); forcedCenterCols.delete(k);   // SD-140（2026-10-05 用户）：「第一列是序号的时候，后面的一列都是靠左」——不再要求有长格，显式 col-center 也让位
       }

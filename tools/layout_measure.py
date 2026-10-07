@@ -172,7 +172,8 @@ def measure(pdf, srcmd=None):
                 if _ri in _note: continue   # 表后注行不当表格格子查（注段落的孤字由 SD-130 另管）
                 for k, c in enumerate(r.cells):
                     if not c: continue
-                    span = k + 1 < len(r.cells) and r.cells[k + 1] is None   # 跨列格：不能单独加宽一列，fit_fix 直接收紧字距（2026-10-05，原来整格跳过，检查器却照查）
+                    if c[0] >= TX2 - 1: continue   # 表右侧 PyMuPDF 虚构的空格子
+                    span = k + 1 < len(r.cells) and r.cells[k + 1] is None and c[2] < TX2 - 2   # 后面的 None 落在表宽之外（虚构空列）不算跨列（2026-10-06 第 126 页 VNAV 目标速度：误判跨列，加宽 / 拉满全被跳过）   # 跨列格：不能单独加宽一列，fit_fix 直接收紧字距（2026-10-05，原来整格跳过，检查器却照查）
                     ls = cell_lines(lines, c)
                     if len(ls) < 2: continue
                     cw = c[2] - c[0]
