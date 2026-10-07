@@ -192,13 +192,16 @@ def measure(pdf, srcmd=None):
                     txt = ''.join(l[2] for l in ls).strip()
                     # 2026-10-05：逐条查（格内按 <br>、圆点、①② 分成几条；长格、带圆点的格都查），原来只查 2～3 行的短格
                     full = lambda l: (l[1] - l[0]) >= cw - PAD - 20
+                    # 2026-10-07 用户（速查第 81 页 RVSM「适用高度」：「12500m」后「（41100ft）」另起一行，右侧有空间却不加宽）：
+                    # 上一行没排到右缘、但下一行首词接回去放不下，也是被迫折行，与 _measure_cell 同口径；止于原文 <br> 的仍算主动换行
+                    cont = lambda a, b: (full(a) or forced_wrap(cw, a[1] - a[0], a[2], b[2], PAD)) and not ebr(a[2])
                     seg0 = 0
                     for q in range(1, len(ls)):
                         cur, prev = ls[q], ls[q - 1]
-                        if not full(prev) or re.match(r'\s*[•–▪①-⑳]', cur[2]):
+                        if not cont(prev, cur) or re.match(r'\s*[•–▪①-⑳]', cur[2]):
                             seg0 = q; continue                      # 新的一条（上一条主动换行 / 圆点 / 编号开头）
                         nxt = ls[q + 1] if q + 1 < len(ls) else None
-                        if nxt is not None and full(cur) and not re.match(r'\s*[•–▪①-⑳]', nxt[2]): continue   # 这一条还没完
+                        if nxt is not None and cont(cur, nxt) and not re.match(r'\s*[•–▪①-⑳]', nxt[2]): continue   # 这一条还没完
                         last = re.sub(r'[\s，。；：、（）()「」.,;:]', '', cur[2])
                         extra = 0
                         if 0 < len(last) <= 2 and not ebr(prev[2]):   # 末行孤字：把末行摊到这一条前面各行；上一行止于原文 <br> 的是主动换行，不算
@@ -211,13 +214,17 @@ def measure(pdf, srcmd=None):
                     # 表格右侧有空余时，按实测行宽算出加宽多少能让某一条少折一行；空余放得下就交给 fit_fix 加宽这一列（只用空余，不从邻列匀）
                     free = CW - (TX2 - t.bbox[0])
                     if free > 20 and not span:
-                        segs, cur_s = [], []
-                        for l in ls:
-                            if cur_s and (not full(cur_s[-1]) or re.match(r'\s*[•●–▪①-⑳]', l[2])): segs.append(cur_s); cur_s = []
-                            cur_s.append(l)
-                        if cur_s: segs.append(cur_s)
+                        def _segs(f):
+                            out, cur_s = [], []
+                            for l in ls:
+                                if cur_s and (not f(cur_s[-1], l) or re.match(r'\s*[•●–▪①-⑳]', l[2])): out.append(cur_s); cur_s = []
+                                cur_s.append(l)
+                            if cur_s: out.append(cur_s)
+                            return out
+                        segs = _segs(cont)
+                        # 原口径（只认排到右缘的行）分出的短段也试：被迫折行把段并长后需要的加宽更多，不能因此漏掉原来能省行的项
                         best, bsg = None, None
-                        for sg in segs:
+                        for sg in segs + _segs(lambda a, b: full(a)):
                             if len(sg) < 2: continue
                             need = sum(l[1] - l[0] for l in sg) * 1.03 / (len(sg) - 1) + PAD + 2 - cw
                             if 0 < need <= free - 2 and (best is None or need < best): best, bsg = need, sg
