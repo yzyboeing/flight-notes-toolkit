@@ -4,7 +4,7 @@
 对比对象：同一基线的转换结果（onenote_conv.convert）。插图图注只在读回里有，比对时去掉。"""
 import argparse, html, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from onenote_api import content, list_pages
+from onenote_api import content, list_pages, req
 from onenote_build import split, locate, NB_ID, CHN, NUM
 from onenote_conv import convert, strip_index
 Z = r'[\s​⁠­ 　]+'
@@ -28,8 +28,10 @@ lo, hi = a.chapters.split('-'); want = [NUM[str(n)] for n in range(int(lo), int(
 secs, _ = locate(NB_ID); bad = 0
 for p in [p for p in split(a.docx) if p['chap'] in want]:
     exp = convert(strip_index(p['html'])[0])
-    sid = secs[CHN[p['chap']]]; got = [q for q in list_pages(sid) if q['title'] == p['title']]
-    h = content(got[0]['id']) if got else None
+    sid = secs[CHN[p['chap']]]
+    got = sorted([q for q in req('GET', '/sections/%s/pages?$select=id,title,createdDateTime&$top=100' % sid)['value'] if q['title'] == p['title']],
+                 key=lambda q: q['createdDateTime'], reverse=True)          # 同名取最新建的可读页
+    h = next((x for x in (content(q['id']) for q in got) if x), None)
     if not h: print('!! 读不到', p['title']); bad += 1; continue
     body = re.sub(r'<img\b[^>]*>\s*<p\b[^>]*>.*?</p>', '', h, flags=re.S)
     body = body[body.find('<body'):]
