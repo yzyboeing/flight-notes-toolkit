@@ -80,9 +80,11 @@ def main():
     env.update({'DOC_SINGLE': '1', 'DOC_QRDIMS': DIMS_JSON, 'DOC_SINGLE_TOC_TITLE': '目录', 'DOC_SUBTITLE': '数据 · 限制 · 概念', 'DOC_HEADER': 'B737机型理论知识速查'})
     r = subprocess.run([sys.executable, os.path.join(T, 'fit_fix.py'), SINGLE_MD, OUT_DOCX], env=env, cwd=REPO, capture_output=True, text=True)
     if r.returncode: sys.exit('速查版排版失败：' + (r.stderr or r.stdout)[-600:])
-    sof = shutil.which('soffice') or '/Applications/LibreOffice.app/Contents/MacOS/soffice'
-    prof = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'lo-sync-profile')
-    subprocess.run([sof, '-env:UserInstallation=file://' + prof, '--headless', '--convert-to', 'pdf', '--outdir', BUILD, OUT_DOCX], capture_output=True)
+    _ok = OUT_DOCX + '.pdf-ok'   # 2026-10-07：fit_fix 已交出同一份 docx 的 PDF 就不重转
+    if not (os.path.exists(_ok) and open(_ok).read().strip() == str(int(os.path.getmtime(OUT_DOCX))) and os.path.exists(os.path.splitext(OUT_DOCX)[0] + '.pdf')):
+        sof = shutil.which('soffice') or '/Applications/LibreOffice.app/Contents/MacOS/soffice'
+        prof = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'lo-sync-profile')
+        subprocess.run([sof, '-env:UserInstallation=file://' + prof, '--headless', '--convert-to', 'pdf', '--outdir', BUILD, OUT_DOCX], capture_output=True)
     pdf = OUT_DOCX[:-5] + '.pdf'
     try:   # 与 sync.sh 全书同：打开即展开书签栏；书签去掉「（单位：…）」，正文标题保留
         import pymupdf

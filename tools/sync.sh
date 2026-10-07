@@ -189,9 +189,14 @@ if [ "$BUILD" = 1 ]; then
       # SD-107：LibreOffice 不读 ~/Library/Fonts，把思源字体复制进独立 profile 的 user/fonts
       mkdir -p "$LOPROF/user/fonts"
       for ff in "$HOME"/Library/Fonts/SourceHan*.otf; do [ -f "$ff" ] && { cmp -s "$ff" "$LOPROF/user/fonts/$(basename "$ff")" || cp "$ff" "$LOPROF/user/fonts/"; }; done
-      "$SOF" -env:UserInstallation="file://$LOPROF" \
-             --headless --convert-to pdf --outdir "$LOTMP" "$f" >"$LOLOG" 2>&1
       fresh="$LOTMP/$(basename "${f%.docx}").pdf"
+      # 2026-10-07：fit_fix 最后一遍已转好同一份 docx 的 PDF（标记里记着 docx 的修改时间）→ 直接用，省一次整本转换
+      if [ -f "$f.pdf-ok" ] && [ -f "$pdf" ] && [ "$(cat "$f.pdf-ok")" = "$(stat -f %m "$f")" ]; then
+        cp "$pdf" "$fresh"; info "沿用 fit_fix 最后一遍的 PDF（不重转）"
+      else
+        "$SOF" -env:UserInstallation="file://$LOPROF" \
+               --headless --convert-to pdf --outdir "$LOTMP" "$f" >"$LOLOG" 2>&1
+      fi
       if [ ! -f "$fresh" ]; then
         printf '%s✗ %s%s\n' "$RED" "LibreOffice 没能生成 $(basename "$pdf") —— 排版校验未做，不算通过" "$RST" >&2
         printf '%s  LibreOffice 输出：%s\n' "$DIM" "$RST" >&2
@@ -234,6 +239,7 @@ PYEOF
         ok "总检查：$(sed -n '3p' build/排版检查报告.md)"
       else
         warn "总检查：$(sed -n '3p' build/排版检查报告.md) —— 错误必须改到 0，详见 build/排版检查报告.md"
+        grep -q "^- \[T13\]" build/排版检查报告.md && info "有列宽空白收不掉（T13）：python3 $TOOLKIT/autow.py --from-report 按实测定宽，再用 preview.py 单节复查"
       fi
     fi
     # SD-114 联动检查：改动有没有按逻辑同步到全笔记（引用完整性是错误；旧写法残留 / 同值异色 / 联动面是提醒）
