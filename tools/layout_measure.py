@@ -213,7 +213,12 @@ def measure(pdf, srcmd=None):
                     # SD-144（2026-10-05 用户）：「在页面右侧空间足够的情况下，尽量增加文字多的表格宽度，以减少行数」——
                     # 表格右侧有空余时，按实测行宽算出加宽多少能让某一条少折一行；空余放得下就交给 fit_fix 加宽这一列（只用空余，不从邻列匀）
                     free = CW - (TX2 - t.bbox[0])
-                    if free > 20 and not span:
+                    # 2026-10-07 用户（完整版第 11 页 1.1 C-1「输送路径」左右两列合并格折 3 行，右侧大片空白却不加宽）：
+                    # 跨列格（未通栏）也参与加宽 / 拉满——加宽所跨的最右一列即加宽整格；整行通栏的格（前提、注）仍不参与，免得为一段说明把整表撑宽
+                    spc = [q for q in range(len(xs) - 1) if xs[q] >= c[0] - 2 and xs[q + 1] <= c[2] + 2] if span else [k]
+                    full_row = span and len(spc) >= len(xs) - 1
+                    cxg = round(((xs[spc[-1]] + xs[spc[-1] + 1]) / 2 if span and spc else (c[0] + c[2]) / 2) - t.bbox[0], 1)
+                    if free > 20 and not full_row:
                         def _segs(f):
                             out, cur_s = [], []
                             for l in ls:
@@ -229,12 +234,13 @@ def measure(pdf, srcmd=None):
                             need = sum(l[1] - l[0] for l in sg) * 1.03 / (len(sg) - 1) + PAD + 2 - cw
                             if 0 < need <= free - 2 and (best is None or need < best): best, bsg = need, sg
                         if best is not None:
-                            found.append({'page': i + 1, 'col': k, 'extra_pt': round(best, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'prev': norm(bsg[-2][2]), 'brs': [norm(l[2]) for l in bsg[:-1]], 'orphan': False, 'grow': True, 'cx': round((c[0] + c[2]) / 2 - t.bbox[0], 1), 'tw': round(TX2 - t.bbox[0], 1), 'table': ttext, 'span': False})
+                            found.append({'page': i + 1, 'col': k, 'extra_pt': round(best, 1), 'cell': txt[:24], 'first': norm(ls[0][2]), 'prev': norm(bsg[-2][2]), 'brs': [norm(l[2]) for l in bsg[:-1]], 'orphan': False, 'grow': True, 'cx': cxg, 'tw': round(TX2 - t.bbox[0], 1), 'table': ttext, 'span': False})
                             grew = True
                         else:
                             _, wr_c, _ = _measure_cell(c)   # 与收窄同一口径判真折行（整行排满、下一行不是新条目、不止于原文 <br>）
                             nwr = sum(len(sg) - 1 for sg in segs if len(sg) >= 2) if wr_c else 0
-                            if nwr: fillc[k] = (fillc.get(k, (0, 0))[0] + nwr, round((c[0] + c[2]) / 2 - t.bbox[0], 1))
+                            kk = spc[-1] if span and spc else k
+                            if nwr: fillc[kk] = (fillc.get(kk, (0, 0))[0] + nwr, cxg)
             # SD-148 / 151（2026-10-06 用户：「哪怕减少不了行数，也可以把空白区域利用起来」）：这一遍没有能省行的加宽项、表格右侧仍有空余时，
             # 空余整块给本表真折行最多的列（最挤的列），每表每遍只给一列；fit_fix 记 W:（fill 不受加宽上限与次数限制）
             free_t = CW - (TX2 - t.bbox[0])

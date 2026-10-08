@@ -1320,7 +1320,13 @@ function htmlTableCore(html) {
       hrW.cells.forEach((hc, hk) => { const m = String(hc.cls || '').match(/(?:^|\s)w-(\d+)(?:-(\d+))?(?=\s|$)/); if (!m) return;
         const c0 = startCol[hriW][hk]; pct[c0] = +m[1]; if (m[2] && hc.colspan >= 2) pct[c0 + 1] = +m[2]; });
       const tot = pct.reduce((a2, b2) => a2 + b2, 0);
-      if (tot > 0 && pct.every(v => v > 0)) for (let k = 0; k < nCols; k++) W[k] = Math.floor(TOTAL * pct[k] / Math.max(tot, 100)); } }   // 合计不足 100 时按版心宽的百分比（窄表不硬撑满）
+      if (tot > 0 && pct.every(v => v > 0)) {
+        for (let k = 0; k < nCols; k++) W[k] = Math.floor(TOTAL * pct[k] / Math.max(tot, 100));   // 合计不足 100 时按版心宽的百分比（窄表不硬撑满）
+        /* 2026-10-07 用户（完整版第 11 页 1.1 C-1「输送路径」折 3 行、表右侧大片空白却不加宽）：定宽表没占满版心时，
+           fit_fix 的实测加宽（W:，SD-144 加宽省行 / 孤字）照样生效——只用右侧空余，不从别的列匀，各列定宽比例不变 */
+        if (tot < 100) { const sigW = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+          for (const [k, dd] of (WFIX.get(sigW) || [])) { if (k >= nCols) continue;
+            const f = Math.min(dd, Math.max(0, TOTAL - W.reduce((a2, b2) => a2 + b2, 0))); if (f > 0) W[k] += f; } } } } }
   /* col-eq（2026-10-06 用户，1.3 B-1 发动机防冰「737-NG」「737-8」两列单独调成宽度一致）：表头标 col-eq 的几列，总宽不变、平分 */
   { const hrE = parsed.find(r => r.cls.includes('hdr'));
     if (hrE) { const hriE = parsed.indexOf(hrE), eq = [];
