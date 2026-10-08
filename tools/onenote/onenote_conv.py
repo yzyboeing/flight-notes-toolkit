@@ -131,6 +131,11 @@ def _hkey(cells): return ''.join(re.sub(r'[\s\u200b\u2060\u00ad]+', '', html.une
 def _sources():
     """定宽 / 等宽标记的来源：环境变量 ONENOTE_SRC_REF（如 baseline/20261006-3）给了就读该基线，避免混进别的会话正在改的源文件"""
     ref = _os.environ.get('ONENOTE_SRC_REF')
+    if _os.environ.get('ONENOTE_SPEC') == 'quickref':      # 速查版（onenote_qr.py）：定宽 / 等宽标记读 速查/速查源.md
+        repo = _os.path.dirname(_NS.rstrip('/')); f = '速查/速查源.md'
+        if not ref: return [open(_os.path.join(repo, f), encoding='utf-8').read()]
+        import subprocess
+        return [subprocess.run(['git', '-C', repo, 'show', '%s:%s' % (ref, f)], capture_output=True, text=True, check=True).stdout]
     if not ref:
         return [open(f, encoding='utf-8').read() for f in _glob.glob(_NS + '*/*.md')]
     import subprocess
