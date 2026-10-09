@@ -109,6 +109,24 @@ def main():
         L('写', p['title'], 'OK' if pid else '!! 失败')
         if pid: add_figs(pid, p['title'])
         time.sleep(6)                     # 2026-10-06：1.5 秒会触发 429 限流
+    # 2026-10-09：新页有时标题为空（1009R4 写全书 27 页）——按页眉「章名 ｜ 节名」补标题；同名重复只留最新一页
+    for name, sid in secs.items():
+        for q in list_pages(sid):
+            if q['title']: continue
+            m = re.search(re.escape(name) + r' ｜ ([^<]+)', content(q['id']) or '')
+            if not m: continue
+            for k in range(6):
+                try: req('PATCH', '/pages/%s/content' % q['id'], [{'target': 'title', 'action': 'replace', 'content': m.group(1).strip()}]); L('补标题', m.group(1).strip()); break
+                except RuntimeError as e:
+                    if not str(e).startswith('429'): raise
+                    L('   限流，等 5 分钟'); time.sleep(300)
+            time.sleep(5)
+    time.sleep(20)
+    for name, sid in secs.items():
+        allp = req('GET', '/sections/%s/pages?$select=id,title,createdDateTime&$top=100' % sid)['value']
+        for tt in {q['title'] for q in allp if q['title']}:
+            same = sorted([q for q in allp if q['title'] == tt], key=lambda q: q['createdDateTime'], reverse=True)
+            for q in same[1:]: delete_page(q['id']); L('删重复旧页', tt)
     # 只读核查
     bad = 0
     for name, sid in secs.items():
