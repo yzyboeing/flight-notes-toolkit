@@ -104,7 +104,8 @@ def main():
     git_cfg = lambda k: subprocess.run(['git', '-C', REPO, 'config', '--get', k], capture_output=True, text=True).stdout.strip()
     for k, g in (('DOC_EDITION', 'notes.docEdition'), ('DOC_NOTICE', 'notes.docNotice')):   # 封面版本号、特别提示与全书同（sync 已导出；单独跑时从 git config 取）
         if not env.get(k): env[k] = git_cfg(g)
-    env.update({'DOC_SINGLE': '1', 'DOC_QRDIMS': DIMS_JSON, 'DOC_SINGLE_TOC_TITLE': '目录', 'DOC_SUBTITLE': '数据 · 限制 · 概念', 'DOC_HEADER': 'B737机型理论知识速查'})
+    env.update({'DOC_SINGLE': '1', 'DOC_QRDIMS': DIMS_JSON, 'DOC_SINGLE_TOC_TITLE': '目录', 'DOC_SUBTITLE': '数据 · 限制 · 概念', 'DOC_HEADER': 'B737机型理论知识速查',
+                'DOC_FIGS': '1'})   # 2026-10-09 用户：速查版按相关性放系统原理图（全书仍按 SD-136 不排图）
     r = subprocess.run([sys.executable, os.path.join(T, 'fit_fix.py'), SINGLE_MD, OUT_DOCX], env=env, cwd=REPO, capture_output=True, text=True)
     if r.returncode: sys.exit('速查版排版失败：' + (r.stderr or r.stdout)[-600:])
     _ok = OUT_DOCX + '.pdf-ok'   # 2026-10-07：fit_fix 已交出同一份 docx 的 PDF 就不重转
