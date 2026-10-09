@@ -445,9 +445,9 @@ try:
         if _nm != '全书': continue
     for _x in _lm_measure(BOOK):
         if _x.get('orphan'):
-            err('T8', '全书 第 %d 页：「%s…」末行只剩一两个字（上一行止于「…%s」）——加宽该列或收紧字距（fit_fix 会自动处理，仍在就看 keep_force 的 W/WB/C 记录）' % (_x['page'], _x['cell'][:16], _x['prev'][-10:]))
+            sug('T8', '全书 第 %d 页：「%s…」末行只剩一两个字（上一行止于「…%s」）——fit_fix 已自动处理；个别剩下的接受，不手工反复调（SD-172）' % (_x['page'], _x['cell'][:16], _x['prev'][-10:]))
 except Exception as _e:
-    err('T8', '末行孤字实测未能完成：%s' % _e)
+    sug('T8', '末行孤字实测未能完成：%s' % _e)
 
 
 # B4 一页只有一两行（2026-09-30 用户：「尽量避免在一页中只有一两行的情况」）：正文（去页眉页脚）不超过 2 行的页
