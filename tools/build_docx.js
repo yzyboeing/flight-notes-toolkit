@@ -493,15 +493,28 @@ function htmlTable(html) {
     border: { left: { style: BorderStyle.SINGLE, size: 12, color: barOf(r.cls), space: 8 } },
     keepNext: pre.includes(r)
   });
-  const paras = (arr, kn) => arr.flatMap(r => balanceBr(rowText(r)).split(/<br\s*\/?>/).filter(x => x.trim()).map((sg, k, a) => new Paragraph({
-    children: runs(sg.trim(), { size: 19 }),
+  /* SD-171（2026-10-09 用户：「有些知识点涉及到父子项的并没有按照父子项的逻辑使用小圆点和短线」）：
+     移出表格的前提 / 注解 / 警示段同样按 B7 父子层级——以「：」结尾的短引语（≤ 约 70 宽、引语本身无「，。；」）后面紧跟 ≥ 2 段的，
+     引语加粗，后面各段排「– 子项」（悬挂）；子项到下一个引语、粗体「标签：」新项或注 / 警告为止；已编号 ①② 的子项不加短线。 */
+  const pcPlain = (sg) => unesc(String(sg).replace(/<[^>]+>/g, '')).trim();
+  const pcVis = (p) => [...p].reduce((n, ch) => n + (/[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : 1), 0);
+  const pcParent = (p) => /[：:]$/.test(p) && pcVis(p) <= 70 && !/[，。；]/.test(p.replace(/[：:]$/, ''));
+  const pcNewItem = (sg, p) => pcParent(p) || /^(注|警告|公司差异)[：:]/.test(p) || /^\s*<strong>[^<]{1,16}[：:]\s*<\/strong>/.test(sg);
+  const pcRoles = (segs) => { const P0 = segs.map(pcPlain), role = segs.map(() => '');
+    for (let k = 0; k < segs.length; k++) { if (!pcParent(P0[k])) continue;
+      let e = k + 1; while (e < segs.length && !pcNewItem(segs[e], P0[e])) e++;
+      if (e - k - 1 >= 2) { role[k] = 'p'; for (let j = k + 1; j < e; j++) role[j] = /^[①-⑳]/.test(P0[j]) ? 'n' : 'c'; k = e - 1; } }
+    return role; };
+  const paras = (arr, kn) => arr.flatMap(r => { const segsR = balanceBr(rowText(r)).split(/<br\s*\/?>/).filter(x => x.trim()); const roleR = pcRoles(segsR);
+    return segsR.map((sg, k, a) => new Paragraph({
+    children: runs((roleR[k] === 'c' ? '– ' : '') + sg.trim(), { size: 19, ...(roleR[k] === 'p' ? { bold: true } : {}) }),
     spacing: { before: k ? 20 : 100, after: k === a.length - 1 ? 100 : 20, line: 290 },
     /* 警示 / 前提 / 注 行移出表格后保留左侧竖条与淡底色 */
-    indent: /warn|premise|note/.test(r.cls) ? { left: 120, right: 80 } : undefined,
+    indent: /warn|premise|note/.test(r.cls) ? (roleR[k] === 'c' ? { left: 300, right: 80, hanging: 180 } : roleR[k] === 'n' ? { left: 300, right: 80 } : { left: 120, right: 80 }) : undefined,
     shading: /warn|premise|note/.test(r.cls) ? { type: ShadingType.CLEAR, color: 'auto', fill: fillOf(r.cls) } : undefined,
     border: /warn|premise|note/.test(r.cls) ? { left: { style: BorderStyle.SINGLE, size: 14, color: barOf(r.cls), space: 8 } } : undefined,
     keepNext: kn || pre.includes(r)
-  })));
+  })); });
   /* SD-71：表末通栏注解行（移出表格成段落）与表格末行同页 */
   if (!mids.length) { const kl = KEEP_LAST; if (post.length) KEEP_LAST = true; const core = htmlTableCore(kept); KEEP_LAST = kl; return [...paras(pre), core, ...paras(post)]; }
   const rowsHtml = []; html.replace(trRe, (all) => { rowsHtml.push(all); return all; });
