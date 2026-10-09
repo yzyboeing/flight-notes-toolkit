@@ -11,7 +11,10 @@ os.environ['ONENOTE_SPEC'] = 'quickref'
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from onenote_api import req, content, list_pages, create_page, delete_page
 from onenote_conv import convert, page
-from onenote_build import NB_ID, locate
+from onenote_build import NB_ID, locate, find_anchor
+from onenote_api import patch_with_image
+from onenote_conv import TABW, FONT
+import struct, uuid
 SECTION = '基础知识速查区'
 REPO = os.path.expanduser('~/flight-repos/gh-private')
 WORK = os.path.expanduser('~/flight-repos/_work/onenote_qr')
@@ -87,6 +90,26 @@ def verify(pages, sid):
         L(('!! ' if probs else 'OK ') + p['title'], '；'.join(probs)); bad += bool(probs)
     L('核对完：问题页', bad)
     return bad
+def qr_figs():
+    """速查源里的插图行（2026-10-09 只有 DA / MDA 目视参考一张）→ [(条目标题, 文件, 图注, 宽 mm)]"""
+    out, cur = [], None
+    for l in open(os.path.join(REPO, '速查', '速查源.md'), encoding='utf-8').read().split('\n'):
+        if l.startswith('### '): cur = l[4:].strip()
+        elif l.startswith('%%FIG') and cur:
+            fn, cap, wmm = [x.strip() for x in re.sub(r'^%%FIG(SIDE)?%%\s*', '', l).split('|')]
+            out.append((cur, os.path.join(REPO, 'notes_src', fn), cap, float(wmm or 80)))
+    return out
+def add_qr_figs(pid):
+    for title, fn, cap, wmm in qr_figs():
+        h = content(pid, ids=True) or ''
+        if plain(title) not in plain(h) or 'alt="%s"' % html.escape(cap) in h: continue
+        tid = find_anchor(h, title)
+        if not tid: L('   !! 图找不到插入位置', cap[:16]); continue
+        data = open(fn, 'rb').read(); pw, ph = struct.unpack('>II', data[16:24])
+        w = min(TABW, round(wmm / 270 * TABW * 1.6)); name = 'fig' + uuid.uuid4().hex[:8]
+        c = ('<img src="name:%s" width="%d" height="%d" alt="%s"/>' % (name, w, round(w * ph / pw), html.escape(cap)) +
+             '<p style="margin-top:0;margin-bottom:0"><span style="font-family:%s;font-size:9pt;color:#595959">%s</span></p>' % (FONT, html.escape(cap, quote=False)))
+        patch_with_image(pid, [{'target': tid, 'action': 'insert', 'position': 'after', 'content': c}], name, data); L('   补图', cap[:16], w)
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--docx', required=True); ap.add_argument('--only', default='')
@@ -111,6 +134,7 @@ def main():
                 if q['title'] == p['title']: delete_page(q['id'])
             pid = create_page(sid, p['title'], build(p))
             L('写', p['title'], 'OK' if pid else '!! 失败')
+            if pid: time.sleep(8); add_qr_figs(pid)
             time.sleep(10)
     for q in list_pages(sid):          # 新页有时标题为空：按页眉「基础知识速查区 ｜ 页名」补（2026-10-08 系统、七两页）
         if q['title']: continue

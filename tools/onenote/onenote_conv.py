@@ -389,12 +389,33 @@ def unmerge(h):
         return head + ''.join(out) + '</table>'
     return re.sub(r'<table border="1".*?</table>', one, h, flags=re.S)
 
+def unwrap_figside(h):
+    """2026-10-09：Word 版「左图右表」（%%FIGSIDE%%）是一张两格排版表：左格图 + 图注、右格正文表。OneNote 不带图片，
+    外框只剩图注，正文表被挤在右格里（1009R4 速查 06 页读回表宽 1559 / 对齐错）。拆掉外框，只留正文表；图由补图步骤另插。"""
+    out, i = [], 0
+    while True:
+        s = h.find('<table border="1"', i)
+        if s < 0: out.append(h[i:]); break
+        m = re.match(r'<table border="1"[^>]*><tr><td[^>]*>((?:(?!<td|<table).)*?)</td><td[^>]*>(<table border="1")', h[s:], re.S)
+        if not m: out.append(h[i:s + 1]); i = s + 1; continue
+        inner_s = s + m.start(2); depth, k = 0, inner_s
+        while True:
+            a, b = h.find('<table', k), h.find('</table>', k)
+            if a != -1 and a < b: depth += 1; k = a + 6
+            else:
+                depth -= 1; k = b + 8
+                if depth == 0: break
+        inner = h[inner_s:k]
+        end = h.find('</table>', k) + 8          # 外框的 </td></tr></table>
+        out.append(h[i:s]); out.append(inner); i = end
+    return ''.join(out)
 def convert(src):
     p=C(); p.feed(src); h=''.join(p.out)
     h=re.sub(r'<p style="[^"]*">(\s|<br/>)*<br/>(\s|<br/>)*</p>','<p style="margin-top:0;margin-bottom:0"><span style="font-size:4pt">&#160;</span></p>',h)  # 表间分隔段
     h=re.sub(r'<p style="[^"]*">(\s|<span[^>]*>\s*</span>)*</p>','',h)  # 去空段
     h=drop_sources(h)
     h=drop_xref(h)
+    h=unwrap_figside(h)
     h=unshrink(h)
     h=fit_widths(h)
     h=unmerge(h)
