@@ -268,6 +268,7 @@ PYEOF
       if [ -d "$HB" ]; then
         cp "$TOOLKIT/../prompt/layout-checklist.md" "$HB/排版规则总表.md" 2>/dev/null
         cp "$TOOLKIT/../prompt/content-core.md"     "$HB/内容校对核心规则.md" 2>/dev/null
+        cp "$TOOLKIT/../prompt/portable-instruction.md" "$HB/规则总纲.md" 2>/dev/null   # SD-169：噜噜也读总纲
         [ -f "$ROOT/内容裁定台账.json" ] && cp "$ROOT/内容裁定台账.json" "$HB/" 2>/dev/null
       fi
       cp "$TOOLKIT/../prompt/standing-decisions.md"   "$ROOT/规则/长期决策.md" 2>/dev/null
