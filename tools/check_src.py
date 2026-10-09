@@ -52,6 +52,7 @@ def rel(p):
     return os.path.relpath(p, SRC)
 
 
+MIX = []
 def main():
     files = [f for f in glob.glob(os.path.join(SRC, '**', '*.md'), recursive=True)
              if not any(part.startswith('.') for part in os.path.relpath(f, SRC).split(os.sep))]
@@ -141,6 +142,11 @@ def main():
                 errors.append('表格首行列宽 %d，表内最大 %d（nCols 会被算成 %d）: %s:%d'
                               % (w[0], max(w), w[0], rel(f), ln_no))
 
+        # SD-170：两型共有的知识点用对比表，不在格内 / 段落里写「【737-NG】…／【737-8】…」（建议级，只计数；SRC_MIX=1 列出明细）
+        for seg in re.findall(r'<td\b[^>]*>.*?</td>', body, re.S) + [l for l in re.sub(r'<table\b.*?</table>', '', body, flags=re.S).split('\n')]:
+            if '【737-NG' in seg and '【737-8' in seg:
+                MIX.append('%s:%d「%s」' % (rel(f), body[:body.find(seg)].count('\n') + 1 if seg in body else 0, re.sub(r'<[^>]+>|\s+', '', seg)[:24]))
+
         # 双链
         for m2 in WIKI.finditer(body):
             tgt = m2.group(1).strip()
@@ -159,6 +165,10 @@ def main():
     else:
         warns.append('未找到 MANIFEST.txt')
 
+    if MIX:
+        warns.append('两型混写 %d 处（SD-170：两型共有的知识点改成对比表；SRC_MIX=1 列出明细）' % len(MIX))
+        if os.environ.get('SRC_MIX'):
+            warns.extend('  两型混写 ' + x for x in MIX)
     if not QUIET:
         print('笔记 %d 节，文件 %d 个' % (notes, len(files)))
     for w in warns:
