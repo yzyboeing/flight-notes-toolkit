@@ -141,6 +141,8 @@ def explicit_br(first_line):
 ONEPAGE_SIGS = []
 try:
     _bm = open(MDP, encoding='utf-8').read()
+    _qm = os.path.join(REPO, 'build', 'qr_single.md')   # 2026-10-09：速查单册的 one-page / w-NN 表也要认（此前只读全书）
+    if os.path.exists(_qm): _bm += '\n' + open(_qm, encoding='utf-8').read()
     for _m in re.finditer(r'<table class="[^"]*\bone-page\b[^"]*">(?:(?!</table>).)*?<tr class="hdr">(.*?)</tr>', _bm, re.S):
         ONEPAGE_SIGS.append(nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12])
     FIXW_SIGS = [nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12] for _m in re.finditer(r'<tr class="hdr">((?:(?!</tr>).)*\bw-\d+(?:(?!</tr>).)*)</tr>', _bm, re.S)]
