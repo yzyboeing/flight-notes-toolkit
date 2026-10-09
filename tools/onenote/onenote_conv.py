@@ -1,7 +1,10 @@
 # LibreOffice HTML → OneNote Graph 接口 HTML
 import re,sys,html
 from html.parser import HTMLParser
-FONT="Songti SC"; PAGEW=700; SRCW=1020; TABW=670; DOT_PT=6.5; DOT_COLOR="#7f7f7f"
+import os as _os
+# 2026-10-09 用户：「主要排版规则不变的情况下可以适当加宽页面以让表格内容不那么拥挤」——正文框 700 → 860、最宽表格 670 → 830（表 ≈ 正文框 − 30，文字与表格右缘大致对齐）；ONENOTE_PAGEW 可调
+PAGEW=int(_os.environ.get('ONENOTE_PAGEW', '860')); TABW=PAGEW-30
+FONT="Songti SC"; SRCW=1020; DOT_PT=6.5; DOT_COLOR="#7f7f7f"
 K=TABW/SRCW
 def px(v): return max(30,round(int(v)*K))
 class C(HTMLParser):

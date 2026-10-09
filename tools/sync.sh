@@ -136,6 +136,7 @@ if [ "$BUILD" = 1 ]; then
     fi
   fi
   DOC_EDITION="${DOC_EDITION:-$(git config --get notes.docEdition)}"; export DOC_EDITION
+  DOC_FIGS="${DOC_FIGS:-3.2-1_}"; export DOC_FIGS   # SD-136 补充（2026-10-09 用户）：完整版、速查版只排 3.2-1 目视参考图
   # SD-118 速查「按主题查」索引（主题表按条目标题引用）
   DOC_QRTOPICS="${DOC_QRTOPICS:-$ROOT/速查主题索引.json}"; export DOC_QRTOPICS
   # SD-139 目录后「按主题查」索引（主题 → 正文块「节号 块号」）

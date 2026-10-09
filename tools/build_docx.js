@@ -1985,13 +1985,16 @@ function colsTable(cols, colW, gap) {
 }
 /* 单册目录页（DOC_SINGLE=1）：不出章序号与章名，整页就是一张目录——
    「目录」标题 + 双线 → 简介一行 → 主题两栏、点线连页码。 */
+/* 2026-10-09 用户：「点击右下角页码可以跳转到目录页面」——目录标题处放 TOC_MAIN 书签（全书只放一次），页脚「第 X 页」链到它 */
+let TOC_MARKED = false;
+const tocMark = () => { if (TOC_MARKED) return []; TOC_MARKED = true; return [new Bookmark({ id: 'TOC_MAIN', children: [new TextRun({ text: '' })] })]; };
 function singleToc(ch, brk) {
   const n = ch.secs.length;
   const out = [new Paragraph({ pageBreakBefore: true, spacing: { before: PORTRAIT ? 600 : 200, after: 0 }, children: [] })];
   out.push(new Paragraph({
     heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, keepNext: true,
     spacing: { before: 0, after: 120 },
-    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: process.env.DOC_SINGLE_TOC_TITLE || '按章节查', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()]
+    children: [...tocMark(), new Bookmark({ id: ch.id, children: [new TextRun({ text: process.env.DOC_SINGLE_TOC_TITLE || '按章节查', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()]
   }));
   const hr = (sz, col, after) => new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after, line: 20 },
     children: [new TextRun({ text: '', size: 2 })],
@@ -2280,7 +2283,11 @@ while (i < src.length) {
       .map(r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
     body.push(mdTable(rows)); { const g = tableGap(src, i); if (g) body.push(g); } continue;
   }
-  if (/^%%FIG(SIDE)?%%/.test(ln) && !process.env.DOC_FIGS) { i++; continue; }   // SD-136 暂缓（用户 2026-10-04）：默认不排图，DOC_FIGS=1 才启用；源文件插图行保留
+  if (/^%%FIG(SIDE)?%%/.test(ln)) {   // SD-136 暂缓（用户 2026-10-04）：默认不排图，DOC_FIGS=1 全排；2026-10-09 用户「除了 171 条的图，去掉其余所有插图」→ DOC_FIGS=逗号分隔的文件名片段＝白名单；源文件插图行保留（OneNote 用）
+    const fl = process.env.DOC_FIGS || '';
+    const okFig = fl === '1' || (fl && fl.split(',').some(k => k.trim() && ln.includes(k.trim())));
+    if (!okFig) { i++; continue; }
+  }
   if (/^%%FIG%%/.test(ln)) { const f0 = figParts(ln.replace(/^%%FIG%%\s*/, '')); body.push(f0.img); if (f0.capP) body.push(f0.capP); i++; continue; }
   if (/^%%FIGSIDE%%/.test(ln)) {               // 左图右表
     const f0 = figParts(ln.replace(/^%%FIGSIDE%%\s*/, '')); i++;
@@ -2574,7 +2581,7 @@ function buildToc() {
     /* 标题两页都写「总目录」（用户 2026-09-29）；只有第一页进 PDF 书签，避免重复 */
     out.push(new Paragraph({ pageBreakBefore: pg > 0 || (!DUPLEX && pg === 0), alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 },
       outlineLevel: pg ? undefined : 0,
-      children: [new TextRun({ text: '目录', font: FF, size: pg ? 28 : 40, bold: true, characterSpacing: pg ? 20 : 60, color: H1_C, style: 'HdrChap' }), SECMARK()] }));
+      children: [...(pg ? [] : tocMark()), new TextRun({ text: '目录', font: FF, size: pg ? 28 : 40, bold: true, characterSpacing: pg ? 20 : 60, color: H1_C, style: 'HdrChap' }), SECMARK()] }));
     out.push(rule({ size: 12, color: H1_LINE, after: 0 }));
     if (pg === 0) out.push(new Paragraph({ spacing: { before: 0, after: 120 }, children: [] }));
     /* 2026-10-02：某一栏行数多（如第四章 23 节）时整页收紧行距，避免整栏被挤到下一页、留下只有标题的空页 */
@@ -2797,7 +2804,10 @@ Packer.toBuffer(doc).then(async b => {
         return '<w:r>' + rp + '<w:fldChar w:fldCharType="begin"/></w:r><w:r>' + rp + '<w:instrText xml:space="preserve"> ' + instr + ' </w:instrText></w:r>'
           + '<w:r>' + rp + '<w:fldChar w:fldCharType="separate"/></w:r><w:r>' + rp + '<w:t xml:space="preserve"> </w:t></w:r><w:r>' + rp + '<w:fldChar w:fldCharType="end"/></w:r>';
       });
-      if (hx2 !== hx) zh.file(name, hx2);
+      /* 页脚「第 X 页」整段链到目录（TOC_MAIN）；没有目录书签的文档不加 */
+      let hx3 = hx2;
+      if (TOC_MARKED) hx3 = hx2.replace(/(<w:r>(?:(?!<w:r>)[\s\S])*?<w:t[^>]*>第 <\/w:t><\/w:r>[\s\S]*?<w:t[^>]*> 页<\/w:t><\/w:r>)/g, m => (nh++, '<w:hyperlink w:anchor="TOC_MAIN" w:history="1">' + m + '</w:hyperlink>'));
+      if (hx3 !== hx) zh.file(name, hx3);
     }
     if (nh) b = await zh.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
   }
