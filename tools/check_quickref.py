@@ -131,7 +131,7 @@ def main():
     qf = _arg('--qr', os.path.join(os.path.dirname(SRC), '速查', '速查源.md'))
     if not os.path.exists(qf): sys.exit('找不到速查源：' + qf)
     q = io.open(qf, encoding='utf-8').read()
-    items = [(str(k), t, b) for k, (t, b) in enumerate(re.findall(r'(?ms)^### ([^\n]*)\n(.*?)(?=^### |^## |\Z)', q), 1)]
+    items = [(str(k), t, b) for k, (t, b) in enumerate(re.findall(r'(?ms)^### ([^\n]*)\n(.*?)(?=^### |^## |^%%PART%%|\Z)', q), 1)]
     secs, blocks = {}, {}
     for f in glob.glob(os.path.join(SRC, '[1-5]*', '*.md')):
         t = io.open(f, encoding='utf-8').read(); sid = os.path.basename(f).split(' ')[0]
