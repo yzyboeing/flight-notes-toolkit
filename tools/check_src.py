@@ -165,6 +165,12 @@ def main():
     else:
         warns.append('未找到 MANIFEST.txt')
 
+    qsrc = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '速查', '速查源.md')   # 2026-10-09 用户：速查也按 SD-170 查（此前漏查）
+    if os.path.exists(qsrc):
+        qt = io.open(qsrc, encoding='utf-8').read()
+        for seg in re.findall(r'<td\b[^>]*>.*?</td>', qt, re.S) + [l for l in re.sub(r'<table\b.*?</table>', '', qt, flags=re.S).split('\n') if not l.startswith(('<!--', '#'))]:
+            if '【737-NG' in seg and '【737-8' in seg:
+                MIX.append('速查/速查源.md:%d「%s」' % (qt[:qt.find(seg)].count('\n') + 1, re.sub(r'<[^>]+>|\s+', '', seg)[:24]))
     if MIX:
         warns.append('两型混写 %d 处（SD-170：两型共有的知识点改成对比表；SRC_MIX=1 列出明细）' % len(MIX))
         if os.environ.get('SRC_MIX'):
