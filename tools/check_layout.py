@@ -444,6 +444,23 @@ try:
                 if any(nosp(_vals[0].get('table', '')).startswith(sg) and kk == _c for sg, kk in NWL): continue   # 已证明收到极限（再收就多行）
                 if _sl >= 10 and not any(v.get('wrapped') or v.get('anywrap') for v in _vals):   # 只查没折行的列（用户原话「空白太多」）
                     err('T13', '%s 第 %d 页：第 %d 列（「%s」）没有折行，右侧仍空约 %.0fpt——按最长一行收窄（以文字成行为标准）' % (_nm, _ks[0][0], _c + 1, _vals[0].get('head', ''), _sl))
+        # T14 有空位却折行（2026-10-09 用户，速查第 135 页「发动机限制、喘振或失速」：「在右侧还有空白区域空间的情况下……这一列可以适当加宽以减小行数」）：
+        # 同一张表里短格（≤ 20 字）被迫折成两行，而别的列还有「本格行数不增」的空位、合计够它排成一行——定宽表（w-NN）也查（T13 跳过定宽表，fit_fix 不改定宽表，所以要在这里拦）
+        _tcols = collections.defaultdict(dict)
+        for _x in _res:
+            if _x.get('nw') and _x.get('col', -1) >= 0: _tcols[(_x['page'], _x.get('table', ''))][_x['col']] = _x
+        _t14 = set()
+        for _x in _res:
+            if _x.get('nw') or _x.get('grow') or _x.get('orphan') or _x.get('span') or not _x.get('cell'): continue
+            _cols = _tcols.get((_x['page'], _x.get('table', '')))
+            if not _cols or _x['col'] not in _cols: continue
+            _don = [(k, v) for k, v in _cols.items() if k != _x['col'] and not v.get('anywrap') and v.get('extra_strict', 0) >= 6]
+            _have = sum(v['extra_strict'] for k, v in _don)
+            if _don and _have >= _x['extra_pt'] + 2 and (_x['page'], _x.get('table', '')) not in _t14:
+                _t14.add((_x['page'], _x.get('table', '')))
+                _dk, _dv = max(_don, key=lambda kv: kv[1]['extra_strict'])
+                err('T14', '%s 第 %d 页：第 %d 列「%s」折成 2 行，第 %d 列（「%s」）右侧仍空约 %.0fpt——把空位让给折行的列（定宽表用 autow --from-report 重定）' % (
+                    _nm, _x['page'], _x['col'] + 1, _x['cell'][:20], _dk + 1, _dv.get('head', ''), _have))
         if _nm != '全书': continue
     for _x in _lm_measure(BOOK):
         if _x.get('orphan'):

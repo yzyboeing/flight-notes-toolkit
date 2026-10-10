@@ -66,7 +66,7 @@ def from_report():
     import glob, os
     rep = sys.argv[sys.argv.index('--from-report') + 1] if len(sys.argv) > sys.argv.index('--from-report') + 1 else 'build/排版检查报告.md'
     txt = open(rep, encoding='utf-8').read().split('## 新建议')[0]
-    hits = re.findall(r'\[T13\] (全书|单册) 第 (\d+) 页：第 (\d+) 列（「([^」]*)」）[^\n]*?空约 (\d+)pt', txt)
+    hits = re.findall(r'\[T1[34]\] (全书|单册) 第 (\d+) 页：[^\n]*?第 (\d+) 列（「([^」]*)」）[^\n]*?空约 (\d+)pt', txt)
     done = set()
     for book, pg, col, colh, spare in hits:
         pdf = 'build/B737机型理论知识笔记.pdf' if book == '全书' else 'build/B737机型理论知识速查.pdf'

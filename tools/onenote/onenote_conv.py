@@ -5,6 +5,11 @@ import os as _os
 # 2026-10-09 用户：「主要排版规则不变的情况下可以适当加宽页面以让表格内容不那么拥挤」——正文框 700 → 860、最宽表格 670 → 830（表 ≈ 正文框 − 30，文字与表格右缘大致对齐）；ONENOTE_PAGEW 可调
 PAGEW=int(_os.environ.get('ONENOTE_PAGEW', '860')); TABW=PAGEW-30
 FONT="Songti SC"; SRCW=1020; DOT_PT=6.5; DOT_COLOR="#7f7f7f"
+# 2026-10-09 用户：圆点改用 OneNote 自带列表「Small Solid Square」（接口写 list-style-type:square，读回与用户手设的一致）；
+# 短线：接口不支持 OneNote 的「–」列表符号（自定义符号被丢弃，none 会跳出列表），ONENOTE_CHILD 选子项写法——
+#   dash（默认）：保留文字「– 」，作为父项列表项下的缩进段（读回留在 <ul> 内）；circle：OneNote 二级空心圆列表
+LISTS=_os.environ.get('ONENOTE_LISTS','1')!='0'; CHILD=_os.environ.get('ONENOTE_CHILD','dash')
+BUL='\x01B\x01'   # 3 个字符：fit_widths 按约 21px 估列表缩进
 K=TABW/SRCW
 def px(v): return max(30,round(int(v)*K))
 class C(HTMLParser):
@@ -67,7 +72,7 @@ class C(HTMLParser):
         s.lead=False
         c=s.cur()
         if s.sup and '●' in d:
-            s.out.append('<span style="font-family:%s;font-size:%spt;color:%s">•&nbsp;</span>'%(FONT,DOT_PT,DOT_COLOR)); return
+            s.out.append(BUL if LISTS else '<span style="font-family:%s;font-size:%spt;color:%s">•&nbsp;</span>'%(FONT,DOT_PT,DOT_COLOR)); return
         st=['font-family:%s'%FONT,'font-size:%spt'%(c.get('size') or '10')]
         if c.get('color') and c['color'].lower()!='#000000': st.append('color:%s'%c['color'])
         if c.get('bold'): st.append('font-weight:bold')
@@ -420,7 +425,62 @@ def convert(src):
     h=fit_widths(h)
     h=unmerge(h)
     h=note_blocks(h)
+    if LISTS: h=to_lists(h)
     return h
+_PARA=re.compile(r'<p\b([^>]*)>(.*?)</p>',re.S)
+def _is_dash(inner):
+    t=html.unescape(re.sub(r'<[^>]+>','',inner)).lstrip()
+    return t.startswith('– ') or t.startswith('–\u00a0')
+def _undash(inner):
+    return re.sub(r'^((?:<span[^>]*>)?)\s*–[\s\u00a0]','\\1',inner,count=1)
+def to_lists(h):
+    """父项（生成器的「●」）→ <ul><li style="list-style-type:square">；紧跟的「– 」子项挂在该父项下（见 CHILD）。
+    只把相邻（中间只有空白）的段落连成一组；不跟在父项后的「– 」段落保持原样。"""
+    out=[]; i=0; items=list(_PARA.finditer(h)); k=0
+    while k<len(items):
+        m=items[k]
+        if BUL not in m.group(2):
+            if CHILD=='circle' and _is_dash(m.group(2)):          # 跟在引语后的独立短线组 → 一级空心圆列表
+                grp=[m]; j=k+1
+                while j<len(items) and not h[grp[-1].end():items[j].start()].strip() and _is_dash(items[j].group(2)):
+                    grp.append(items[j]); j+=1
+                out.append(h[i:m.start()])
+                out.append('<ul>'+''.join('<li style="list-style-type:circle"><p%s>%s</p></li>'%(g.group(1),_undash(g.group(2))) for g in grp)+'</ul>')
+                i=grp[-1].end(); k=j; continue
+            k+=1; continue
+        grp=[m]; j=k+1
+        while j<len(items) and not h[grp[-1].end():items[j].start()].strip() and (BUL in items[j].group(2) or _is_dash(items[j].group(2))):
+            grp.append(items[j]); j+=1
+        out.append(h[i:m.start()])
+        lis=[]; cur=None
+        for g in grp:
+            a,inner=g.group(1),g.group(2)
+            if BUL in inner:
+                if cur is not None: lis.append(cur)
+                cur=['<p%s>%s</p>'%(a,inner.replace(BUL,'',1)),[]]
+            else:
+                cur[1].append((a,inner))
+        lis.append(cur)
+        u=[]
+        for par,kids in lis:
+            body=par
+            if kids:
+                if CHILD=='circle':
+                    body+='<ul>'+''.join('<li style="list-style-type:circle"><p%s>%s</p></li>'%(a,_undash(x)) for a,x in kids)+'</ul>'
+                else:
+                    body+=''.join('<p%s>%s</p>'%(a,x) for a,x in kids)
+            u.append('<li style="list-style-type:square">%s</li>'%body)
+        out.append('<ul>'+''.join(u)+'</ul>')
+        i=grp[-1].end(); k=j
+    out.append(h[i:])
+    h=''.join(out)
+    return h.replace(BUL,'')
+def flat_lists(h):
+    """核对用：把列表还原成段落（方块 → 段首「•」，空心圆 → 段首「–」），读回与期望同口径比较对齐和圆点。"""
+    mk=lambda a:'•' if 'square' in a else ('–' if 'circle' in a else '')
+    h=re.sub(r'<li\b([^>]*)>\s*<p\b([^>]*)>',lambda m:'<p%s>%s'%(m.group(2),mk(m.group(1))),h)
+    h=re.sub(r'<li\b([^>]*)>(.*?)(?=</li>|<ul\b|<p\b)',lambda m:'<p>%s%s</p>'%(mk(m.group(1)),m.group(2)),h,flags=re.S)
+    return re.sub(r'</?(?:ul|ol|li)\b[^>]*>','',h)
 def strip_index(s):
     m=re.search(r'<h\d[^>]*>(?:(?!</h\d>).)*块索引(?:(?!</h\d>).)*</h\d>\s*',s,re.S)
     if not m: return s,False

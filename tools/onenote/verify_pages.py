@@ -6,10 +6,11 @@ import argparse, html, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from onenote_api import content, list_pages, req
 from onenote_build import split, locate, NB_ID, CHN, NUM
-from onenote_conv import convert, strip_index
+from onenote_conv import convert, strip_index, flat_lists
 Z = r'[\s​⁠­ 　]+'
 def plain(h): return re.sub(Z, '', html.unescape(re.sub(r'<[^>]+>', '', h)))
 def cells(h):
+    h = flat_lists(h)          # 2026-10-09 圆点改 OneNote 自带列表：列表还原成段落再比
     out = []
     for tb in re.findall(r'<table\b.*?</table>', h, re.S):
         for ta, td in re.findall(r'<td\b([^>]*)>(.*?)</td>', tb, re.S):
