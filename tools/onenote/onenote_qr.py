@@ -104,7 +104,10 @@ def add_qr_figs(pid):
     for title, fn, cap, wmm in qr_figs():
         h = content(pid, ids=True) or ''
         if plain(title) not in plain(h) or 'alt="%s"' % html.escape(cap) in h: continue
-        tid = find_anchor(h, title)
+        # 2026-10-10：只认条目标题行（「编号. 标题」），不按前 18 字模糊匹配——表格里出现同名词时会插错位置（改进爬升图曾插进上一条表格的格子）
+        want = plain(title)
+        tid = next((m.group(1) for m in re.finditer(r'<p\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</p>', h, re.S)
+                    if re.sub(r'^\d+[.．]', '', plain(m.group(2))) == want), None) or find_anchor(h, title)
         if not tid: L('   !! 图找不到插入位置', cap[:16]); continue
         data = open(fn, 'rb').read(); pw, ph = struct.unpack('>II', data[16:24])
         w = min(TABW, round(wmm / 270 * TABW * 1.6)); name = 'fig' + uuid.uuid4().hex[:8]
