@@ -474,7 +474,16 @@ def to_lists(h):
         i=grp[-1].end(); k=j
     out.append(h[i:])
     h=''.join(out)
+    # 2026-10-09 实测：同一格 / 同一段里「列表 → 普通段落 → 列表」，OneNote 导入会把后一组并进前一组当子项、中间段挤到最后（内容顺序变了）；
+    # 加 div、空段、改 ol 都不行——这种相邻的几组一律退回文字圆点（与 1009R4 及以前写法相同）
+    SEQ=re.compile(r'<ul>(?:(?!</?ul>).)*</ul>(?:(?:\s*<p\b[^>]*>(?:(?!</p>).)*</p>)+\s*<ul>(?:(?!</?ul>).)*</ul>)+',re.S)
+    h=SEQ.sub(lambda m:_unlist(m.group(0)),h)
     return h.replace(BUL,'')
+DOT='<span style="font-family:%s;font-size:%spt;color:%s">•&nbsp;</span>'%(FONT,DOT_PT,DOT_COLOR)
+def _unlist(x):
+    x=re.sub(r'<li style="list-style-type:circle"><p([^>]*)>(<span[^>]*>)?','\\n<p\\1>\\2– ',x)
+    x=re.sub(r'<li style="list-style-type:square"><p([^>]*)>(<span[^>]*>)?',lambda m:'<p%s>%s%s'%(m.group(1),DOT,m.group(2) or ''),x)
+    return re.sub(r'</?(?:ul|li)\b[^>]*>','',x)
 def flat_lists(h):
     """核对用：把列表还原成段落（方块 → 段首「•」，空心圆 → 段首「–」），读回与期望同口径比较对齐和圆点。"""
     mk=lambda a:'•' if 'square' in a else ('–' if 'circle' in a else '')
