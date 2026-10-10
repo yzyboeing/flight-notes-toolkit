@@ -10,7 +10,7 @@ import argparse, html, os, re, subprocess, sys, time
 os.environ['ONENOTE_SPEC'] = 'quickref'
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from onenote_api import req, content, list_pages, create_page, delete_page
-from onenote_conv import convert, page
+from onenote_conv import convert, page, flat_lists
 from onenote_build import NB_ID, locate, find_anchor
 from onenote_api import patch_with_image
 from onenote_conv import TABW, FONT
@@ -54,6 +54,7 @@ def split(docx):
 def build(p): return page(p['title'], convert(p['html']), '%s ｜ %s' % (SECTION, p['title']))
 # ---------- 读回核对（与 verify_pages.py 同口径）----------
 def cells(h):
+    h = flat_lists(h)          # 2026-10-09 圆点改 OneNote 自带列表：列表还原成段落再比
     out = []
     for tb in re.findall(r'<table\b.*?</table>', h, re.S):
         for ta, td in re.findall(r'<td\b([^>]*)>(.*?)</td>', tb, re.S):

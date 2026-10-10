@@ -18,7 +18,7 @@
 verify.py 查的是排版结果（空白页、跨页、标签泄漏到 PDF），
 本脚本查的是源头。两者互补，不能互相替代。
 """
-import io, os, re, sys, glob, collections
+import json, io, os, re, sys, glob, collections
 
 def _arg(flag, default):
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
@@ -171,10 +171,19 @@ def main():
         for seg in re.findall(r'<td\b[^>]*>.*?</td>', qt, re.S) + [l for l in re.sub(r'<table\b.*?</table>', '', qt, flags=re.S).split('\n') if not l.startswith(('<!--', '#'))]:
             if '【737-NG' in seg and '【737-8' in seg:
                 MIX.append('速查/速查源.md:%d「%s」' % (qt[:qt.find(seg)].count('\n') + 1, re.sub(r'<[^>]+>|\s+', '', seg)[:24]))
+    # 约定保留（私有库根目录《两型混写保留.json》，2026-10-09）：按「文件 + 去标签前 24 字」匹配，只计数不列为待处理
+    keepf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '两型混写保留.json')
+    keep = set()
+    if os.path.exists(keepf):
+        keep = {(x['文件'], x['片段']) for x in json.load(io.open(keepf, encoding='utf-8')).get('条目', [])}
+    kept = [x for x in MIX if (x.split(':')[0], x[x.find('「') + 1:-1]) in keep]
+    MIX[:] = [x for x in MIX if x not in kept]
     if MIX:
         warns.append('两型混写 %d 处（SD-170：两型共有的知识点改成对比表；SRC_MIX=1 列出明细）' % len(MIX))
         if os.environ.get('SRC_MIX'):
             warns.extend('  两型混写 ' + x for x in MIX)
+    if kept:
+        print('  两型混写约定保留 %d 处（两型混写保留.json）' % len(kept))
     if not QUIET:
         print('笔记 %d 节，文件 %d 个' % (notes, len(files)))
     for w in warns:
