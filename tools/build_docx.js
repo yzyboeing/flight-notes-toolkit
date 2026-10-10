@@ -2087,11 +2087,11 @@ function bodyTopicPage() {
       children: [new InternalHyperlink({ anchor: tp.items[0].id, children: [new TextRun({ text: tp.name, font: FF, size: 19, bold: true, color: '000000' })] })] })];
     tp.items.forEach((it) => ch.push(new Paragraph({ keepLines: true,
       tabStops: [{ type: TabStopType.LEFT, position: NUMW }, { type: TabStopType.RIGHT, position: w, leader: LeaderType.DOT }],
-      indent: { left: NUMW, hanging: NUMW }, spacing: { before: 0, after: 0, line: 220 },
+      indent: { left: NUMW, hanging: NUMW }, spacing: { before: 0, after: 0, line: qrMode ? 220 : 200 },   // 2026-10-10：全书按主题查条目增多，行距 220 → 200，免得首行整体推页留孤页
       children: [new InternalHyperlink({ anchor: it.id, children: [
-        new TextRun({ text: it.num + (it.x ? '↗' : '') + '\t', font: FF, size: 17, color: it.x ? '808080' : H2_C }),
-        new TextRun({ text: it.text, font: FF, size: 17, color: it.x ? '808080' : '000000' }),
-        new TextRun({ text: '\t', size: 17 }), new PageReference(it.id) ] })] })));
+        new TextRun({ text: it.num + (it.x ? '↗' : '') + '\t', font: FF, size: qrMode ? 17 : 16, color: it.x ? '808080' : H2_C }),
+        new TextRun({ text: it.text, font: FF, size: qrMode ? 17 : 16, color: it.x ? '808080' : '000000' }),
+        new TextRun({ text: '\t', size: qrMode ? 17 : 16 }), new PageReference(it.id) ] })] })));
     return new TableCell({ width: { size: w, type: WidthType.DXA }, borders: { top: NB, bottom: NB, left: NB, right: NB },
       margins: { top: 0, bottom: 120, left: 0, right: 0 }, verticalAlign: VerticalAlign.TOP, children: ch });
   };
@@ -2118,7 +2118,9 @@ function bodyTopicPage() {
     for (let r0 = 0; r0 < themes.length; r0 += NC) {
       const cells = [];
       for (let k = 0; k < NC; k++) { if (k) cells.push(themeCell(null, GAP)); cells.push(themeCell(themes[r0 + k], colW)); }
-      rows.push(new TableRow({ cantSplit: true, children: cells }));
+      /* 2026-10-10：按主题查条目增多后，一行（三个主题并排）可能比一页还高——整行不拆会被整体推到下一页、留下只有标题的孤页；超过约 36 行的行允许跨页 */
+      const rowLines = Math.max(...themes.slice(r0, r0 + NC).map(t => t.items.length + (t.nohead ? 0 : 1.5)));
+      rows.push(new TableRow({ cantSplit: rowLines <= 36, children: cells }));
     }
     out.push(new Table({ rows, alignment: AlignmentType.CENTER, borders: TableBorders.NONE, layout: TableLayoutType.FIXED,
       width: { size: widths.reduce((a, b) => a + b, 0), type: WidthType.DXA }, columnWidths: widths }));

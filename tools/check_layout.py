@@ -462,6 +462,14 @@ try:
                 err('T14', '%s 第 %d 页：第 %d 列「%s」折成 2 行，第 %d 列（「%s」）右侧仍空约 %.0fpt——把空位让给折行的列（定宽表用 autow --from-report 重定）' % (
                     _nm, _x['page'], _x['col'] + 1, _x['cell'][:20], _dk + 1, _dv.get('head', ''), _have))
         if _nm != '全书': continue
+    # T14（续，2026-10-10 用户：速查第 23 条 N1 表）：定宽表右侧有空位、长句列却折行（fixw_grow.py 同口径；--apply 可直接改）
+    try:
+        from fixw_grow import scan as _fg_scan
+        for (_f, _p), _v in _fg_scan(REPO).items():
+            err('T14', '%s 第 %d 页：定宽表 %s 右侧有空位，%s——按实测加宽（python3 ../pub/tools/fixw_grow.py --repo . --apply）' % (
+                _v['book'], _v['page'], os.path.basename(_f), '、'.join('第 %d 列可加宽约 %.0fpt' % (c + 1, e) for c, e in _v['cols'].items())))
+    except Exception as _e:
+        sug('T14', '定宽表加宽检查未能运行：%s' % _e)
     for _x in _lm_measure(BOOK):
         if _x.get('orphan'):
             sug('T8', '全书 第 %d 页：「%s…」末行只剩一两个字（上一行止于「…%s」）——fit_fix 已自动处理；个别剩下的接受，不手工反复调（SD-172）' % (_x['page'], _x['cell'][:16], _x['prev'][-10:]))
