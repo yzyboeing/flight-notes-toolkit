@@ -147,6 +147,11 @@ def main():
             if '【737-NG' in seg and '【737-8' in seg:
                 MIX.append('%s:%d「%s」' % (rel(f), body[:body.find(seg)].count('\n') + 1 if seg in body else 0, re.sub(r'<[^>]+>|\s+', '', seg)[:24]))
 
+        # 2026-10-10 用户（速查第 35 页 LE FLAPS TRANSIT 表）：对比表首列必须是「项目」，表头第一格就是机型名会被当成标签列排窄加粗
+        for mh in re.finditer(r'<table\b[^>]*>\s*(?:<tr class="premise">.*?</tr>\s*)?<tr class="hdr">\s*<th[^>]*>(.*?)</th>', body, re.S):
+            if re.match(r'\s*(?:<[^>]+>)*\s*737', mh.group(1)):
+                errors.append('对比表缺项目列（表头首格是机型名）%s:%d' % (rel(f), body[:mh.start()].count('\n') + 1))
+
         # 双链
         for m2 in WIKI.finditer(body):
             tgt = m2.group(1).strip()
@@ -168,6 +173,9 @@ def main():
     qsrc = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '速查', '速查源.md')   # 2026-10-09 用户：速查也按 SD-170 查（此前漏查）
     if os.path.exists(qsrc):
         qt = io.open(qsrc, encoding='utf-8').read()
+        for mh in re.finditer(r'<table\b[^>]*>\s*(?:<tr class="premise">.*?</tr>\s*)?<tr class="hdr">\s*<th[^>]*>(.*?)</th>', qt, re.S):
+            if re.match(r'\s*(?:<[^>]+>)*\s*737', mh.group(1)):
+                errors.append('对比表缺项目列（表头首格是机型名）速查/速查源.md:%d' % (qt[:mh.start()].count('\n') + 1))
         for seg in re.findall(r'<td\b[^>]*>.*?</td>', qt, re.S) + [l for l in re.sub(r'<table\b.*?</table>', '', qt, flags=re.S).split('\n') if not l.startswith(('<!--', '#'))]:
             if '【737-NG' in seg and '【737-8' in seg:
                 MIX.append('速查/速查源.md:%d「%s」' % (qt[:qt.find(seg)].count('\n') + 1, re.sub(r'<[^>]+>|\s+', '', seg)[:24]))
