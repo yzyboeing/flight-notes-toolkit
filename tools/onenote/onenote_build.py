@@ -90,6 +90,13 @@ def main():
     lo, hi = a.chapters.split('-'); want_ch = [NUM[str(n)] for n in range(int(lo), int(hi) + 1)]
     pages = [p for p in split(a.docx) if p['chap'] in want_ch]; L('拆页', len(pages), '节')
     secs, parent = locate(a.notebook_id, a.group)
+    # 2026-10-10 用户：「onenote 模拟机训练章节我正在人工做修正和优化，没有我的允许从现在开始先不要主动去更改」——
+    # 锁定分区（~/.config/flight-onenote/locked_sections 每行一个分区名，或环境变量 ONENOTE_LOCKED 逗号分隔）：不写页、不补标题、不删重复、不核查
+    lf = os.path.expanduser('~/.config/flight-onenote/locked_sections')
+    locked = {x.strip() for x in (open(lf, encoding='utf-8').read().splitlines() if os.path.exists(lf) else []) + os.environ.get('ONENOTE_LOCKED', '').split(',') if x.strip()}
+    if locked: L('锁定分区（跳过）：', '、'.join(sorted(locked)))
+    secs = {k: v for k, v in secs.items() if k not in locked}
+    pages = [p for p in pages if CHN[p['chap']] not in locked]
     only = [x for x in a.only.split(',') if x]
     for p in pages:
         name = CHN[p['chap']]
