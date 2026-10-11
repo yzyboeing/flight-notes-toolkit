@@ -2808,9 +2808,11 @@ Packer.toBuffer(doc).then(async b => {
         return '<w:r>' + rp + '<w:fldChar w:fldCharType="begin"/></w:r><w:r>' + rp + '<w:instrText xml:space="preserve"> ' + instr + ' </w:instrText></w:r>'
           + '<w:r>' + rp + '<w:fldChar w:fldCharType="separate"/></w:r><w:r>' + rp + '<w:t xml:space="preserve"> </w:t></w:r><w:r>' + rp + '<w:fldChar w:fldCharType="end"/></w:r>';
       });
-      /* 页脚「第 X 页」整段链到目录（TOC_MAIN）；没有目录书签的文档不加 */
+      /* 页脚「第 X 页」整段链到目录（TOC_MAIN）；没有目录书签的文档不加。
+         2026-10-11 用户：「把速查手册右下角的页码改成返回按主题查的主题页面」（选「保留页码，改跳按主题查」）——速查单册链到 TOPICS */
+      const FOOT_ANCHOR = (SINGLE && process.env.DOC_QRDIMS && TOPICS_DONE) ? 'TOPICS' : 'TOC_MAIN';
       let hx3 = hx2;
-      if (TOC_MARKED) hx3 = hx2.replace(/(<w:r>(?:(?!<w:r>)[\s\S])*?<w:t[^>]*>第 <\/w:t><\/w:r>[\s\S]*?<w:t[^>]*> 页<\/w:t><\/w:r>)/g, m => (nh++, '<w:hyperlink w:anchor="TOC_MAIN" w:history="1">' + m + '</w:hyperlink>'));
+      if (TOC_MARKED || FOOT_ANCHOR === 'TOPICS') hx3 = hx2.replace(/(<w:r>(?:(?!<w:r>)[\s\S])*?<w:t[^>]*>第 <\/w:t><\/w:r>[\s\S]*?<w:t[^>]*> 页<\/w:t><\/w:r>)/g, m => (nh++, '<w:hyperlink w:anchor="' + FOOT_ANCHOR + '" w:history="1">' + m + '</w:hyperlink>'));
       if (hx3 !== hx) zh.file(name, hx3);
     }
     if (nh) b = await zh.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
