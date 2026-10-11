@@ -117,7 +117,7 @@ def add_qr_figs(pid):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--docx', required=True); ap.add_argument('--only', default='')
-    ap.add_argument('--dry', action='store_true'); ap.add_argument('--verify', action='store_true'); ap.add_argument('--audit-only', action='store_true')
+    ap.add_argument('--fresh', action='store_true', help='先删掉本分区全部页再按顺序重写（分段改名 / 重排后用）');ap.add_argument('--dry', action='store_true'); ap.add_argument('--verify', action='store_true'); ap.add_argument('--audit-only', action='store_true')
     a = ap.parse_args()
     pages = split(a.docx); L('拆页', len(pages), '页：', ' / '.join(p['title'] for p in pages))
     if a.dry:
@@ -131,6 +131,8 @@ def main():
     sid = secs[SECTION]
     if a.verify: sys.exit(1 if verify(pages, sid) else 0)
     only = [x for x in a.only.split(',') if x]
+    if a.fresh and not only and not a.audit_only:   # 2026-10-10：10 段重排后旧页名（03 起飞等）不会被同名删除覆盖，页序也乱
+        for q in list_pages(sid): delete_page(q['id']); L('删旧页', q['title']); time.sleep(3)
     if not a.audit_only:
         for p in pages:
             if only and p['title'] not in only and not any(p['title'].startswith(o) for o in only): continue
@@ -138,7 +140,10 @@ def main():
                 if q['title'] == p['title']: delete_page(q['id'])
             pid = create_page(sid, p['title'], build(p))
             L('写', p['title'], 'OK' if pid else '!! 失败')
-            if pid: time.sleep(8); add_qr_figs(pid)
+            if pid:
+                time.sleep(8)
+                try: add_qr_figs(pid)
+                except RuntimeError as e: L('!! 补图失败（稍后 --only 该页重写）', p['title'], str(e)[:60])   # 2026-10-10：504 曾使整区写入中断
             time.sleep(10)
     for q in list_pages(sid):          # 新页有时标题为空：按页眉「基础知识速查区 ｜ 页名」补（2026-10-08 系统、七两页）
         if q['title']: continue
