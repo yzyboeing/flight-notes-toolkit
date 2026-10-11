@@ -2020,9 +2020,11 @@ function singleToc(ch, brk) {
     const pk = lines.map((l, k) => l.chap ? k : -1).filter(k => k > 0);
     if (!PORTRAIT && pk.length >= 2 && lines.length > 32) {
       let best = null;
-      for (let b = 1; b < pk.length; b++) {   // 第一栏只放第一段（系统），后两栏平衡；同高取后者
-        const h = Math.max(pk[0], pk[b] - pk[0], lines.length - pk[b]);
-        if (!best || h <= best.h) best = { h, a: pk[0], b: pk[b] };
+      /* 2026-10-10：速查分 10 段后「第一栏只放系统段」使中栏 24 行，目录标题被挤成孤页（B4）——改为在所有分段处找最高一栏最矮的分法；
+         同高时仍优先第一栏只放系统段、再取后者 */
+      for (let a = 0; a < pk.length; a++) for (let b = a + 1; b < pk.length; b++) {
+        const h = Math.max(pk[a], pk[b] - pk[a], lines.length - pk[b]);
+        if (!best || h < best.h || (h === best.h && (a === 0 || best.ai !== 0))) best = { h, a: pk[a], b: pk[b], ai: a };
       }
       const W3 = Math.floor((TOTAL - GAP * 2) / 3), G3 = [lines.slice(0, best.a), lines.slice(best.a, best.b), lines.slice(best.b)];
       out.push(colsTable(G3.map(g => g.map((l, k) => tocLine(l, W3, { numW: 560, tight: true, first: k === 0 }))), W3, GAP));
