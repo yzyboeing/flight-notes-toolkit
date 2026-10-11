@@ -2081,19 +2081,20 @@ function bodyTopicPage() {
   let bad = 0, firstDim = true;
   const NC = PORTRAIT ? 2 : 3, GAP = 300, colW = Math.floor((TOTAL - GAP * (NC - 1)) / NC), NUMW = qrMode ? 460 : 820;
   const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
-  const themeCell = (tp, w) => {
+  const themeCell = (tp, w, paraOnly) => {
     if (!tp) return new TableCell({ width: { size: w, type: WidthType.DXA }, borders: { top: NB, bottom: NB, left: NB, right: NB }, children: [new Paragraph({ children: [] })] });
     /* 2026-10-07 速查：只有一个主题的段不出主题小标题（nohead）；交叉挂靠的条目编号后加「↗」、标题灰字 */
-    const ch = tp.nohead ? [] : [new Paragraph({ keepLines: true, spacing: { before: 0, after: 40, line: 240 }, indent: { left: 80 },
+    const ch = tp.nohead ? [] : [new Paragraph({ keepLines: true, keepNext: !!paraOnly, spacing: { before: paraOnly ? 100 : 0, after: 40, line: 240 }, indent: { left: 80 },
       shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E6E6E6' },
       children: [new InternalHyperlink({ anchor: tp.items[0].id, children: [new TextRun({ text: tp.name, font: FF, size: 19, bold: true, color: '000000' })] })] })];
-    tp.items.forEach((it) => ch.push(new Paragraph({ keepLines: true,
+    tp.items.forEach((it, ii) => ch.push(new Paragraph({ keepLines: true, keepNext: !!(paraOnly && !tp.nohead && ii < tp.items.length - 1),   // 报栏式：一个主题整块不拆栏
       tabStops: [{ type: TabStopType.LEFT, position: NUMW }, { type: TabStopType.RIGHT, position: w, leader: LeaderType.DOT }],
-      indent: { left: NUMW, hanging: NUMW }, spacing: { before: 0, after: 0, line: qrMode ? 220 : 200 },   // 2026-10-10：全书按主题查条目增多，行距 220 → 200，免得首行整体推页留孤页
+      indent: { left: NUMW, hanging: NUMW }, spacing: { before: 0, after: 0, line: qrMode ? 210 : 200 },   // 2026-10-11 报栏式：速查 220 → 210   // 2026-10-10：全书按主题查条目增多，行距 220 → 200，免得首行整体推页留孤页
       children: [new InternalHyperlink({ anchor: it.id, children: [
         new TextRun({ text: it.num + (it.x ? '↗' : '') + '\t', font: FF, size: qrMode ? 17 : 16, color: it.x ? '808080' : H2_C }),
         new TextRun({ text: it.text, font: FF, size: qrMode ? 17 : 16, color: it.x ? '808080' : '000000' }),
         new TextRun({ text: '\t', size: qrMode ? 17 : 16 }), new PageReference(it.id) ] })] })));
+    if (paraOnly) return ch;   // 只要段落（报栏式一栏放多个主题时用）
     return new TableCell({ width: { size: w, type: WidthType.DXA }, borders: { top: NB, bottom: NB, left: NB, right: NB },
       margins: { top: 0, bottom: 120, left: 0, right: 0 }, verticalAlign: VerticalAlign.TOP, children: ch });
   };
@@ -2116,16 +2117,12 @@ function bodyTopicPage() {
       border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: H1_LINE, space: 2 } } }));
     firstDim = false;
     const widths = []; for (let k = 0; k < NC; k++) { if (k) widths.push(GAP); widths.push(colW); }
-    const rows = [];
-    for (let r0 = 0; r0 < themes.length; r0 += NC) {
-      const cells = [];
-      for (let k = 0; k < NC; k++) { if (k) cells.push(themeCell(null, GAP)); cells.push(themeCell(themes[r0 + k], colW)); }
-      /* 2026-10-10：按主题查条目增多后，一行（三个主题并排）可能比一页还高——整行不拆会被整体推到下一页、留下只有标题的孤页；超过约 36 行的行允许跨页 */
-      const rowLines = Math.max(...themes.slice(r0, r0 + NC).map(t => t.items.length + (t.nohead ? 0 : 1.5)));
-      rows.push(new TableRow({ cantSplit: rowLines <= 36, children: cells }));
-    }
-    out.push(new Table({ rows, alignment: AlignmentType.CENTER, borders: TableBorders.NONE, layout: TableLayoutType.FIXED,
-      width: { size: widths.reduce((a, b) => a + b, 0), type: WidthType.DXA }, columnWidths: widths }));
+    /* 2026-10-11 用户：「主题页的排版能不能优化一下，空白太多了」「效率再高一点一目了然」——
+       由「一行三个主题、行高取最高者」的网格改为报栏式分栏：每段标题通栏，其下用三栏连续分栏节（Word 分栏，续排时列间自动平衡），
+       主题按顺序自上而下排、主题标题与下一行同页（keepNext）；分栏节在组装 SECTIONS 时由哨兵 {__cols} 拆出（expandCols）。 */
+    out.push({ __cols: NC });
+    themes.forEach(t => themeCell(t, colW, true).forEach(x => out.push(x)));   // 主题标题 + 条目 keepNext 成块；栏末平衡偶尔拆栏（试过单格表包主题，LibreOffice 不再平衡、页数 5 → 7，弃用）
+    out.push({ __cols: 1 });
   }
   /* 网格最后一行贴近页底时，表后必需的那个段落会溢出成一张空白页：让它只占 1pt，并收掉最后一行的底部留白 */
   out.push(new Paragraph({ spacing: { before: 0, after: 0, line: 20, lineRule: 'exact' }, children: [new TextRun({ text: '', size: 2 })] }));
@@ -2704,6 +2701,21 @@ const footNav = () => new Paragraph({
   children: [SINGLE ? titleRun() : chapRun(), new TextRun({ text: '　', size: 16, color: GRAY }), secRun(),
     new TextRun({ text: '　｜　', size: 16, color: 'BFBFBF' }), ...pageRun()]
 });
+/* 2026-10-11 报栏式按主题查：节的 children 里遇到哨兵 {__cols: n} 就切成新的连续节（type CONTINUOUS，n 栏）；后续节不设页眉页脚（沿用前节） */
+function expandCols(sec) {
+  if (!sec.children.some(x => x && x.__cols)) return [sec];
+  const out = []; let cur = [], cols = 1, first = true;
+  const close = () => {
+    if (!cur.length && !first) return;
+    const colProp = cols > 1 ? { column: { count: cols, space: 300, equalWidth: true } } : {};
+    out.push(first ? { ...sec, properties: { ...sec.properties, ...colProp }, children: cur }
+                   : { properties: { page: PAGE, type: SectionType.CONTINUOUS, ...colProp }, children: cur });
+    first = false; cur = [];
+  };
+  for (const x of sec.children) { if (x && x.__cols) { close(); cols = x.__cols; } else cur.push(x); }
+  close();
+  return out;
+}
 let SECTIONS;
 if (!DUPLEX) {
   SECTIONS = [{
@@ -2712,7 +2724,7 @@ if (!DUPLEX) {
     headers: { first: emptyHF().header, default: emptyHF().header },
     footers: { first: emptyHF().footer, default: new Footer({ children: [footNav()] }) },
     children: front.concat(body, TOPICS_AT_END ? bodyTopicPage() : [])   // SD-149：第五章之后的速查入口
-  }];
+  }].flatMap(expandCols);
 } else {
   const HF = {
     headers: { default: emptyHF().header, even: emptyHF().header },      // SD-97：章名 / 节名移到页脚
@@ -2743,7 +2755,7 @@ if (!DUPLEX) {
     /* SD-149（2026-10-06 用户）：第五章之后的速查入口「按主题查」（五种查法），从右页开始 */
     ...(() => { if (!TOPICS_AT_END) return []; const tp = bodyTopicPage(); return tp.length ? [{ properties: { page: PAGE, type: SectionType.ODD_PAGE },
       headers: { default: emptyHF().header, even: emptyHF().header }, footers: HF.footers, children: tp }] : []; })()
-  ];
+  ].flatMap(expandCols);
 }
 
 const doc = new Document({
