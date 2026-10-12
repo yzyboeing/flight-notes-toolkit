@@ -16,9 +16,12 @@ def fixed_tables(srcs):
         t = io.open(f, encoding='utf-8').read()
         for m in re.finditer(r'<table\b.*?</table>', t, re.S):
             tb = m.group(0); h = re.search(r'<tr class="hdr">(.*?)</tr>', tb, re.S)
-            if not h or not re.search(r'\bw-\d+', h.group(1)): continue
+            if not h: continue
+            # 2026-10-12：候选取全部表（不只定宽表）、首行比对加长到 8 字——各节块索引表头都是「块 主题 条目」，
+            # 首行又常以「A 系统组…」开头，只在定宽表里比 4 个字会把别节的自动宽度表认成定宽表（1.2 的块索引被当成 1.4 的，误报 T14 并误改）
             r1 = re.search(r'<tr>(.*?)</tr>', tb[h.end():], re.S)
-            out.append({'f': f, 'pos': m.start() + h.start(), 'h': N(h.group(1)), 'r': N(r1.group(1) if r1 else '')[:4], 'hdr': h.group(0)})
+            out.append({'f': f, 'pos': m.start() + h.start(), 'h': N(h.group(1)), 'r': N(r1.group(1) if r1 else '')[:8], 'hdr': h.group(0),
+                        'fixed': bool(re.search(r'\bw-\d+', h.group(1)))})
     return out
 
 def scan(repo, books=None):
@@ -33,7 +36,7 @@ def scan(repo, books=None):
             if not x.get('grow') or x.get('fill'): continue
             tb = N(x.get('table', ''))
             c = [t for t in ft if tb.startswith(t['h']) and tb[len(t['h']):].startswith(t['r'])]
-            if len(c) != 1: continue
+            if len(c) != 1 or not c[0]['fixed']: continue   # 对不上、不唯一、或对上的是自动宽度表：不报不改
             k = (c[0]['f'], c[0]['pos'])
             v = hits.setdefault(k, {'book': name, 'page': x['page'], 'hdr': c[0]['hdr'], 'cols': {}})
             v['cols'][x['col']] = max(v['cols'].get(x['col'], 0), x['extra_pt'])

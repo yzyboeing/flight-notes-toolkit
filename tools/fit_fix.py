@@ -105,6 +105,11 @@ def match(text, tbls):
     return {s for v, s in score if v >= max(0.75, score[0][0] - 0.1)}
 
 dump = os.path.join(tempfile.mkdtemp(), 'dump.jsonl')
+# 2026-10-12（用户：固定来回跳的列宽）：逐遍记录各表实际列宽与成品取哪一遍，供 fixosc.py 找来回跳的表并定宽
+TRACE = os.path.join(os.path.dirname(OUT) or '.', 'fitfix_trace_%s.jsonl' % name)
+open(TRACE, 'w').close()
+def trace(obj):
+    with open(TRACE, 'a', encoding='utf-8') as tf: tf.write(json.dumps(obj, ensure_ascii=False) + '\n')
 tried = {}
 import time, hashlib
 MAXPASS = int(os.environ.get('FITFIX_MAXPASS', '10'))   # 预览（preview.py）用 4 遍
@@ -117,12 +122,16 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     save()
     st = hashlib.md5(open(KF, 'rb').read()).hexdigest()
     if st in seen_state:
-        print('fit_fix：第 %d 遍开工前的状态与第 %d 遍相同（列宽来回拉锯），停止，成品取上一遍' % (n, seen_state[st])); break
+        print('fit_fix：第 %d 遍开工前的状态与第 %d 遍相同（列宽来回拉锯），停止，成品取上一遍' % (n, seen_state[st])); trace({'best': n - 1, 'why': 'state-repeat'}); break
     seen_state[st] = n
     t0 = time.time()
     build(dump)
     tbls = [json.loads(l) for l in open(dump, encoding='utf-8') if l.strip()]
     for t in tbls: t['bg'] = bg(t['text'])
+    trace({'pass': n, 'W': {t['sig']: t.get('W') for t in tbls}})
+    _full = {t['sig'] for t in tbls if t.get('fixed') == 'full'}; _narrow = {t['sig'] for t in tbls if t.get('fixed') == 'narrow'}
+    for _d in (wfix, nwfix, ffix):   # 定宽表名下生成器不认的旧记录撤掉（满宽：W / NW / F；窄：NW / F）
+        for _k in [k2 for k2 in _d if k2[0] in _full or (_d is not wfix and k2[0] in _narrow)]: del _d[_k]
     sigs = {t['sig'] for t in tbls}
     onep = {t['sig'] for t in tbls if t.get('onepage')}
     changed = [s for s in list(lv) if s not in sigs]            # 表已改动：撤出
@@ -142,6 +151,8 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     for x in measure(pdf, srcmd=MD):
         for sg in match(x['table'], tbls):           # 速查区与正文同文的表一并加宽
             tb = next(t for t in tbls if t['sig'] == sg)
+            fx = tb.get('fixed') or ''   # 2026-10-12：定宽表（w-NN）——满宽的生成器不吃任何实测调整，窄的只吃加宽（W:）；不再记账，免得每遍空转
+            if fx == 'full' or (fx and (x.get('nw') or x.get('fill'))): continue
             # 列号按格子中心的横向位置换算回源表列（PDF 识别合并单元格时会多切列，列号不可靠）
             Wt = tb.get('W') or []
             if not Wt: continue
@@ -269,7 +280,8 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
         best = min((n - 1, n), key=lambda q: snap[q][0])   # 两种状态取待调整更少的一遍作成品
         if best != n:
             shutil.copy2(snap[best][1], OUT); shutil.copy2(snap[best][2], last_pdf)
-        print('fit_fix：第 %d 遍与第 %d 遍结果相同（页数、断表、列宽调整量），列宽在两种状态间来回跳，提前停止；成品取第 %d 遍（待调整 %d 处）' % (n, n - 2, best, snap[best][0])); break   # 2026-10-07 实测：±60 / ±25 两遍一循环，跑满 10 遍也一样
+        print('fit_fix：第 %d 遍与第 %d 遍结果相同（页数、断表、列宽调整量），列宽在两种状态间来回跳，提前停止；成品取第 %d 遍（待调整 %d 处）' % (n, n - 2, best, snap[best][0]))
+        trace({'best': best, 'why': 'two-state'}); break   # 2026-10-07 实测：±60 / ±25 两遍一循环，跑满 10 遍也一样
     calm = not (add or up or gave or changed or ladd or cadd) and wadd + wgive <= 3   # 只剩零星列宽微调
     if calm and prev_calm:
         print('fit_fix：连续两遍只有零星列宽微调（≤ 3 处），提前停止'); break

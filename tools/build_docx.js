@@ -1330,12 +1330,14 @@ function htmlTableCore(html) {
     }
   }
   /* w-NN（2026-10-06 用户，1.4 D-2 三种复飞方式按截图版式）：表头标 w-NN 的表按指定百分比分列宽（总宽＝版心），跨列表头按 w-NN-MM 写两小列；不参与实测加宽 / 收窄 */
+  let fixedW = '';   // 2026-10-12：定宽类型写进 TBL_DUMP（full＝满宽定宽，W / NW / F 实测调整都不生效；narrow＝窄定宽，只有 W 加宽生效），fit_fix 据此不再空转
   { const hrW = parsed.find(r => r.cls.includes('hdr'));
     if (hrW) { const hriW = parsed.indexOf(hrW), pct = new Array(nCols).fill(0);
       hrW.cells.forEach((hc, hk) => { const m = String(hc.cls || '').match(/(?:^|\s)w-(\d+)(?:-(\d+))?(?=\s|$)/); if (!m) return;
         const c0 = startCol[hriW][hk]; pct[c0] = +m[1]; if (m[2] && hc.colspan >= 2) pct[c0 + 1] = +m[2]; });
       const tot = pct.reduce((a2, b2) => a2 + b2, 0);
       if (tot > 0 && pct.every(v => v > 0)) {
+        fixedW = tot >= 100 ? 'full' : 'narrow';
         for (let k = 0; k < nCols; k++) W[k] = Math.floor(TOTAL * pct[k] / Math.max(tot, 100));   // 合计不足 100 时按版心宽的百分比（窄表不硬撑满）
         /* 2026-10-07 用户（完整版第 11 页 1.1 C-1「输送路径」折 3 行、表右侧大片空白却不加宽）：定宽表没占满版心时，
            fit_fix 的实测加宽（W:，SD-144 加宽省行 / 孤字）照样生效——只用右侧空余，不从别的列匀，各列定宽比例不变 */
@@ -1522,7 +1524,7 @@ function htmlTableCore(html) {
      绑定后放不下时排版软件会在末行前硬断、留下孤行（2026-09-30 Songti SC 实测：3.8 分类表估 9325 / 预算 9566，实际放不下） */
   /* SD-79 两遍排版：第一遍按估算（留 12% 余量）；成品 PDF 里「断开但两截加起来放得进一页」的表，由 fit_fix.py 记下签名，
      第二遍强制整表同页（KEEP_FORCE 文件，一行一个签名）。签名＝表内文字只留字母数字后的前 80 字。 */
-  if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, onepage: /\bone-page\b/.test(String(html).slice(0, 80)), text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3), W: W.slice(),
+  if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, fixed: fixedW, onepage: /\bone-page\b/.test(String(html).slice(0, 80)), text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3), W: W.slice(),
     br: parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<br\s*\/?>/g, '\u0001').replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}\u0001]/gu, '').replace(/\u0001/g, '|')).join('')).join('') });
   const onePage = /^\s*<table[^>]*\bone-page\b/.test(String(html));
   const keepTogether = onePage ? true : splitRow ? estimate(FS) <= BUDGET * 0.95 : ((estimate(FS) <= BUDGET * 0.88 || KEEP_FORCE.has(tblSig)) && !SPLITOK.has(tblSig));   // split-ok：正常字号放得下一页就整表同页，放不下才行间分页   // SD-78 实测：Songti SC 下个别表实际比估算高约 12%（4.20 A/P 可用性表 估 8575 / 实 ≈ 9640），留 15% 余量
