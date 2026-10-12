@@ -27,6 +27,13 @@ def locate(nb_id, group=''):
 NUM = {'1': '第一章', '2': '第二章', '3': '第三章', '4': '第四章', '5': '第五章'}
 def L(*a): print(*a, flush=True)
 def txt(x): return re.sub(r'[\s​]+', ' ', html.unescape(re.sub(r'<[^>]+>', '', x))).strip()
+def xref_plain(body):
+    """2026-10-11 用户「做法一」：OneNote 不用链接——节 / 主题开头的「相关：↗ …」改成文字「相关：见 …」"""
+    def f(m):
+        p = m.group(0)
+        if not (txt(p).startswith('相关：') and '↗' in p): return p
+        return re.sub(r'</?a\b[^>]*>', '', p).replace('↗ ', '见 ').replace('↗', '见 ')
+    return re.sub(r'<p\b[^>]*>.*?</p>', f, body, flags=re.S)
 # ---------- 1. docx → html → 拆页 ----------
 def split(docx):
     os.makedirs(WORK, exist_ok=True)
@@ -42,6 +49,7 @@ def split(docx):
         body = re.split(r'<p\b[^>]*>\s*<a name="TOPICS', body)[0]                   # SD-149「按主题查」排在第五章后，属索引，OneNote 不要
         body = re.sub(r'^.*?</h2>', '', body, count=1, flags=re.S)                  # 去掉与页标题重复的节标题
         body = re.sub(r'<p[^>]*page-break-before: always[^>]*>\s*(<br/>\s*)*</p>\s*<p[^>]*>\s*<font color="#c9d8e8">.*?</p>\s*$', '', body, flags=re.S)   # 章封面大号章号残留
+        body = xref_plain(body)
         pages.append({'chap': chap, 'title': t, 'html': head + '<body>' + body + '</body></html>'})
     return pages
 # ---------- 2. 插图 ----------
@@ -56,6 +64,7 @@ def figs_for(title):
         # OneNote 版删了「详见」行，不能当锚点（1.14-2）
         prev = [x for x in Ls[:i] if x.strip() and not re.match(r'\s*详见', x)][-1].strip(); nxt = [x for x in Ls[i + 1:] if x.strip()][0].strip()
         anchor = (re.sub(r'^#+\s*', '', nxt), 'before') if prev.startswith('<') else (re.sub(r'^#+\s*', '', prev), 'after')
+        if prev.startswith('%%FIG'): anchor = ([x.strip() for x in re.sub(r'^%%FIG(SIDE)?%%\s*', '', prev).split('|')][1], 'after')   # 连排几张图：接在上一张图注后（2026-10-11 重要天气预告图三张）
         out.append(dict(file=NS + fn, cap=cap, wmm=float(wmm or 120), anchor=anchor))
     return out
 def find_anchor(h, text):

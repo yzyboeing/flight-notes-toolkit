@@ -411,7 +411,7 @@ def scan(pdf, name, header):
                         sug('T4', '%s 第 %d 页：「%s…」含 %d 个并列长分句，考虑按语义分条加「•」' % (name, i + 1, txt[:20], len(parts)))
     return d
 
-book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录|目录|按主题查)')   # SD-96 页眉左侧为章名
+book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录|目录|按主题查|主题目录)')   # SD-96 页眉左侧为章名
 if QON: scan(QREF, '单册', 'B737机型理论知识速查')   # SD-146 册名   # SD-139 单册停出：只有新近生成的单册才检查   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
 # T8 末行孤字（SD-84 / SD-85，错误级）：用 layout_measure.measure() 实测——与 fit_fix 的自动修复看同一批格子，
 # 检查器不再维护第二套测量（2026-10-05，APU 火警「1s」教训：两套眼睛必然漏）
@@ -482,6 +482,9 @@ for nm, pdf in (('全书', BOOK),) + ((('单册', QREF),) if QON else ()):
     dd = pymupdf.open(pdf); Hh = dd[0].rect.height
     for i in range(1, len(dd) - 1):
         ln = [l for l in body_lines(dd[i]) if l[1] > 0.06 * Hh]
+        # 2026-10-11：整页插图（图 + 图注）只有图注一行文字，不算孤页
+        if 0 < len(ln) <= 2 and dd[i].get_images():
+            if sum(r.height for x in dd[i].get_images(full=True) for r in dd[i].get_image_rects(x[0])) > 0.35 * Hh: continue
         if 0 < len(ln) <= 2:
             err('B4', '%s 第 %d 页只有 %d 行（「%s」）——调整上一页间距或内容，避免孤页' % (nm, i + 1, len(ln), ln[0][4].strip()[:20]))
 
@@ -493,15 +496,15 @@ else:
     t = book[pre].get_text()
     if SIGN and SIGN not in t: err('P1', '前言缺署名 %s（SD-74）' % SIGN)
     if re.search(r'以\s*(SOP|FCOM)[^。]{0,6}为准', t): err('P1', '前言不应再有「以 SOP / FCOM 为准」一句（SD-73）')
-toc = '按主题查' if SECTION else ''.join(book[i].get_text() for i in range(1, min(6, len(book))))
+toc = '主题目录' if SECTION else ''.join(book[i].get_text() for i in range(1, min(6, len(book))))
 if '运行规范' in re.sub(r'运行规范\s*C\d+', '', toc): err('P2', '总目录仍出现「运行规范」，第三章名应为「运行手册」（SD-73）')
-if '按主题查' not in toc: err('P2', '目录里缺「按主题查（速查入口）」（SD-139 / SD-149）')
+if '主题目录' not in toc: err('P2', '目录里缺「主题目录（速查入口）」（SD-139 / SD-149；2026-10-11 由「按主题查」改名）')
 # SD-149（2026-10-06 用户）：五种查法放在第五章之后——第五章最后一页之后才出现「按主题查」页
-_tp = [i for i in range(6, len(book)) if nosp(book[i].get_text()).startswith('按主题查') or '按主题查按系统' in nosp(book[i].get_text())[:40]]
+_tp = [i for i in range(6, len(book)) if nosp(book[i].get_text()).startswith('主题目录') or '主题目录按系统' in nosp(book[i].get_text())[:40]]
 _c5 = max((i for i in range(len(book)) if '第五章' in book[i].get_text()[:60]), default=-1)
 if SECTION: pass
-elif not _tp: err('P2', '找不到「按主题查」页（SD-149）')
-elif _tp[0] < _c5: err('P2', '「按主题查」在第 %d 页，应放在第五章之后（SD-149）' % (_tp[0] + 1))
+elif not _tp: err('P2', '找不到「主题目录」页（SD-149）')
+elif _tp[0] < _c5: err('P2', '「主题目录」在第 %d 页，应放在第五章之后（SD-149）' % (_tp[0] + 1))
 
 # R5（SD-154，2026-10-06 用户）：同一条目下同表头的几张表、中间只隔着注——应合成一张（标 one-page）。
 # 例外：压到最小仍放不下一页、用户定为照常跨页的几处（范围 A）

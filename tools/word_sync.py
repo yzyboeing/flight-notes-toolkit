@@ -160,7 +160,7 @@ def read_docx(path, quick):
         if st == 'Heading1': ctx.update(h2='', h3='', tbl=0, gen=True)   # 章首页（本章内容、章目录）/ 速查目录：自动生成，到第一个节标题为止
         elif st == 'Heading2': ctx.update(h2=t, h3='', tbl=0, gen=False)
         elif st == 'Heading3': ctx.update(h3=re.sub(r'^\d+\.', '', t) if quick else t, tbl=0)
-        elif not quick and t == '按主题查': ctx['gen'] = True
+        elif not quick and t in ('按主题查', '主题目录'): ctx['gen'] = True
         mv = re.search(r'版本号\s*(\d{4}R\d+)', ''.join(c for c, _ in U['new']))
         if mv and not ctx['ver']: ctx['ver'] = mv.group(1)
 

@@ -136,11 +136,13 @@ if [ "$BUILD" = 1 ]; then
     fi
   fi
   DOC_EDITION="${DOC_EDITION:-$(git config --get notes.docEdition)}"; export DOC_EDITION
-  DOC_FIGS="${DOC_FIGS:-3.2-1_,2.1-1_,2.1-2_}"; export DOC_FIGS   # SD-136 补充（2026-10-09 用户）：完整版、速查版只排 3.2-1 目视参考图
+  DOC_FIGS="${DOC_FIGS:-3.2-1_,2.1-1_,2.1-2_,3.3-1_,3.3-2_,3.3-3_,3.1-1_}"; export DOC_FIGS   # SD-136 补充（2026-10-09 用户）：完整版、速查版只排 3.2-1 目视参考图
   # SD-118 速查「按主题查」索引（主题表按条目标题引用）
   DOC_QRTOPICS="${DOC_QRTOPICS:-$ROOT/速查主题索引.json}"; export DOC_QRTOPICS
   # SD-139 目录后「按主题查」索引（主题 → 正文块「节号 块号」）
   DOC_TOPICS="${DOC_TOPICS:-$ROOT/按主题查索引.json}"; export DOC_TOPICS
+  # 2026-10-11 做法一：节首「相关：↗ 节 标题」（相关节索引.json：{"节": ["节", …]}）
+  DOC_RELATED="${DOC_RELATED:-$ROOT/相关节索引.json}"; export DOC_RELATED
   DOC_NOTICE="${DOC_NOTICE:-$(git config --get notes.docNotice)}"; export DOC_NOTICE
   DOC_PREFACE="${DOC_PREFACE:-$ROOT/前言.md}"; export DOC_PREFACE   # SD-51 前言页（文件不存在则不出前言）
   DOC_PREFACE_SIGNATURE="${DOC_PREFACE_SIGNATURE:-$(git config --get notes.docPrefaceSignature)}"; export DOC_PREFACE_SIGNATURE

@@ -34,6 +34,13 @@ def parts_from_src():
     return out
 def title_of(part, groups):
     return part + '　' + groups[0] if part == '附录' and len(groups) == 1 else part
+def xref_plain(body):
+    """2026-10-11 用户「做法一」：OneNote 不用链接——节 / 主题开头的「相关：↗ …」改成文字「相关：见 …」"""
+    def f(m):
+        p = m.group(0)
+        if not (re.sub(r'<[^>]+>', '', p).strip().startswith('相关：') and '↗' in p): return p
+        return re.sub(r'</?a\b[^>]*>', '', p).replace('↗ ', '见 ').replace('↗', '见 ')
+    return re.sub(r'<p\b[^>]*>.*?</p>', f, body, flags=re.S)
 def split(docx):
     os.makedirs(WORK, exist_ok=True)
     subprocess.run(['soffice', '--headless', '--convert-to', 'html', '--outdir', WORK, docx], check=True, capture_output=True)
@@ -49,6 +56,7 @@ def split(docx):
     for part, gs in parts:
         a = h2[k][0]; k += len(gs); b = h2[k][0] if k < len(h2) else end
         body = re.sub(r'<p[^>]*>\s*(<br/>\s*)*</p>\s*$', '', s[a:b].rstrip())
+        body = xref_plain(body)
         pages.append({'title': title_of(part, gs), 'html': head + '<body>' + body + '</body></html>'})
     return pages
 def build(p): return page(p['title'], convert(p['html']), '%s ｜ %s' % (SECTION, p['title']))
@@ -101,7 +109,7 @@ def qr_figs():
             out.append((cur, os.path.join(REPO, 'notes_src', fn), cap, float(wmm or 80)))
     return out
 def add_qr_figs(pid):
-    for title, fn, cap, wmm in qr_figs():
+    for title, fn, cap, wmm in reversed(qr_figs()):   # 同一条目几张图都插在标题后：倒序插入，顺序才对（2026-10-11）
         h = content(pid, ids=True) or ''
         if plain(title) not in plain(h) or 'alt="%s"' % html.escape(cap) in h: continue
         # 2026-10-10：只认条目标题行（「编号. 标题」），不按前 18 字模糊匹配——表格里出现同名词时会插错位置（改进爬升图曾插进上一条表格的格子）

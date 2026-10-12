@@ -37,7 +37,7 @@ for i, pg in enumerate(d):
     tabs = [t for t in tabs if t.bbox[1] >= hy - 2 and t.bbox[3] <= fy + 2 and t.bbox[3] - t.bbox[1] > 4]
     top = min((b[1] for b in body), default=H); bot = max((b[3] for b in body), default=0)
     info.append({'tabs': tabs, 'top': top, 'bot': bot, 'H': H, 'blocks': body,
-                 'idx': any(re.match(r'\s*(按主题查|目录)', x[4]) for x in foot)})   # SD-139：目录 / 按主题查页的条目是索引行，不是标题
+                 'idx': any(re.match(r'\s*(按主题查|主题目录|目录)', x[4]) for x in foot)})   # SD-139：目录 / 按主题查页的条目是索引行，不是标题
 AREA = max(x['bot'] - x['top'] for x in info if x['blocks']) if info else 0
 problems, allsplits = [], []
 head_re = re.compile(r'^\s*(\d{1,3}\.\s+\S|[A-Z]-\d+\s|\d\.\d+\s|块索引\s*$)')   # 条目标题、节标题、「块索引」小标题

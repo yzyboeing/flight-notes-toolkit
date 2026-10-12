@@ -64,7 +64,6 @@ def main():
             out += ['#### %d. %s' % (n, e['t'])] + [x for x in e['body'] if not x.startswith('<!--')] + ['', '']
     out += ['%%ENDCOMPACT%%', '']
     os.makedirs(BUILD, exist_ok=True)
-    open(SINGLE_MD, 'w', encoding='utf-8').write('\n'.join(out))
     # 2) 五维目录：条目绑定的正文块落在哪个主题，就挂到哪个主题下（一条可挂多处）；正文分组主题本身也挂
     idx = json.load(open(IDX, encoding='utf-8'))
     # 2026-10-07 用户（选 A）：按主题查压缩——速查索引可写成 {"dims": [...], "short": {全标题前缀: 短标题}}；
@@ -77,6 +76,18 @@ def main():
         for k, v in short.items():
             if t.startswith(k): return v
         return clean(t)
+    def subs_of(e):
+        """条目正文第一张表的首列标签（≥ 3 个、去掉括注与序号格）→ 按主题查里的小项"""
+        body = '\n'.join(e['body'])
+        m = re.search(r'<table[^>]*>(.*?)</table>', body, re.S)
+        if not m: return []
+        out = []
+        for row in re.findall(r'<tr(?![^>]*class="(?:hdr|premise|note)")[^>]*>\s*<td[^>]*>(.*?)</td>', m.group(1), re.S):
+            t = re.split(r'<br\s*/?>|（|\(', row)[0]
+            t = re.sub(r'<[^>]+>', '', t).replace('&gt;', '>').replace('&lt;', '<').strip()
+            if not t or re.match(r'^[①-⑳\d]', t) or len(t) > 16 or t in out: continue
+            out.append(t)
+        return out if len(out) >= 3 else []
     dims = []
     for d in idx:
         themes, own = [], {tp['theme'] for tp in d['themes']}
@@ -84,19 +95,39 @@ def main():
         for tp in d['themes']:
             keys = {x.split('|')[0].strip() for x in tp['items']}
             exc = tp.get('exclude', [])
-            hit = [e for e in ents if e['g'] == tp['theme'] or (e['g'] not in NO_XREF and e['g'] not in own
+            # 2026-10-11 用户（做法一 + 交叉清单）：theme 可写 see（条目标题前缀）——明确挂靠的交叉条目，不受「同段不交叉」限制
+            see = tp.get('see', [])
+            is_see = lambda e: e['g'] != tp['theme'] and any(e['t'].startswith(x) for x in see)
+            hit = [e for e in ents if e['g'] == tp['theme'] or is_see(e) or (e['g'] not in NO_XREF and e['g'] not in own
                    and not any(e['t'].startswith(x) for x in exc) and any(('%s %s' % (s, b)) in keys for s, b in e['binds'] if b))]
-            hit = [e for e in sorted(hit, key=lambda x: x['n']) if e['n'] not in seen]
+            hit = [e for e in sorted(hit, key=lambda x: x['n']) if e['g'] == tp['theme'] or is_see(e) or e['n'] not in seen]
+            for x in see:
+                if not any(e['t'].startswith(x) for e in ents): print('  警告  按主题查 see 找不到条目：%s → %s' % (tp['theme'], x))
             seen |= {e['n'] for e in hit}
             if not hit: continue
             if tp.get('collapse'):
                 items = ['%d|%s' % (hit[0]['n'], tp['theme'])]
             else:
-                items = ['%d|%s%s' % (e['n'], label(e['t']), '' if e['g'] == tp['theme'] else '|x') for e in hit]
+                # 2026-10-11 用户：「按主题查的燃油主题也要细化增加尽量能体现每个知识点，一点就可以看，其它主题也一样」——本主题条目附小项（表格首列标签）
+                items = ['%d|%s|%s|%s' % (e['n'], label(e['t']), '' if e['g'] == tp['theme'] else 'x', '' if e['g'] != tp['theme'] else '·'.join(subs_of(e))) for e in hit]
             themes.append({'theme': tp['theme'], 'items': items})
         if len(themes) == 1: themes[0]['nohead'] = True
         if themes: dims.append({'dim': d['dim'], 'themes': themes})
     json.dump(dims, open(DIMS_JSON, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    # 2026-10-11 用户「做法一」：每个主题开头一行「相关：↗ 编号 标题」——取按主题查里该主题的交叉条目（↗），点击跳到条目
+    xref = {}
+    for d in dims:
+        for tp in d['themes']:
+            for it in tp['items']:
+                p = it.split('|')
+                if len(p) >= 3 and p[2] == 'x': xref.setdefault(tp['theme'], []).append('QRI_%s|%s %s' % (p[0], p[0], p[1]))
+    out2 = []
+    for l in out:
+        out2.append(l)
+        m = re.match(r'^### (.+)$', l)
+        if m and xref.get(m.group(1).strip()):
+            out2 += ['', '%%XREF%% ' + ' ;; '.join(dict.fromkeys(xref[m.group(1).strip()]))]
+    open(SINGLE_MD, 'w', encoding='utf-8').write('\n'.join(out2))
     # 3) 排版：与完整版同一套生成器与 fit_fix（整表同页、列宽实测、孤字），单册模式
     env = dict(os.environ)
     for k in ('DOC_TOPICS', 'DOC_PREFACE', 'DOC_QRTOPICS', 'DOC_TOPICINDEX', 'NO_SEC_BREAK'): env.pop(k, None)
@@ -105,7 +136,7 @@ def main():
     for k, g in (('DOC_EDITION', 'notes.docEdition'), ('DOC_NOTICE', 'notes.docNotice')):   # 封面版本号、特别提示与全书同（sync 已导出；单独跑时从 git config 取）
         if not env.get(k): env[k] = git_cfg(g)
     env.update({'DOC_SINGLE': '1', 'DOC_QRDIMS': DIMS_JSON, 'DOC_SINGLE_TOC_TITLE': '目录', 'DOC_SUBTITLE': '数据 · 限制 · 概念', 'DOC_HEADER': 'B737机型理论知识速查',
-                'DOC_FIGS': env.get('DOC_FIGS') or '3.2-1_,2.1-1_,2.1-2_'})   # 2026-10-09 用户：两版都只留目视参考图（SD-136 补充）
+                'DOC_FIGS': env.get('DOC_FIGS') or '3.2-1_,2.1-1_,2.1-2_,3.3-1_,3.3-2_,3.3-3_,3.1-1_'})   # 2026-10-09 用户：两版都只留目视参考图（SD-136 补充）
     r = subprocess.run([sys.executable, os.path.join(T, 'fit_fix.py'), SINGLE_MD, OUT_DOCX], env=env, cwd=REPO, capture_output=True, text=True)
     if r.returncode: sys.exit('速查版排版失败：' + (r.stderr or r.stdout)[-600:])
     _ok = OUT_DOCX + '.pdf-ok'   # 2026-10-07：fit_fix 已交出同一份 docx 的 PDF 就不重转
