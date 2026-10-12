@@ -2109,7 +2109,10 @@ function bodyTopicPage() {
     const ch = tp.nohead ? [] : [new Paragraph({ keepLines: true, keepNext: !!paraOnly, spacing: { before: paraOnly ? 100 : 0, after: 40, line: 240 }, indent: { left: 80 },
       shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E6E6E6' },
       children: [new InternalHyperlink({ anchor: tp.items[0].id, children: [new TextRun({ text: tp.name, font: FF, size: 19, bold: true, color: '000000' })] })] })];
-    tp.items.forEach((it, ii) => { const kn = !!(paraOnly && !tp.nohead && ii < tp.items.length - 1); ch.push(new Paragraph({ keepLines: true, keepNext: kn || !!(it.subs && it.subs.length),   // 报栏式：一个主题整块不拆栏
+    /* 2026-10-12 用户（方案 A：「主题目录按逻辑顺序排列不用留空白排列」）：主题可跨栏接排，栏底不留空白；只保留
+       主题标题与第一条同栏、条目与其灰色小项同栏、只有两条的小主题整块；原「一个主题整块不拆栏」作废（样稿里「标题与前两条同栏」仍在栏底留空，放宽） */
+    const nIt = tp.items.length;
+    tp.items.forEach((it, ii) => { const kn = !!(paraOnly && nIt <= 2 && ii < nIt - 1); ch.push(new Paragraph({ keepLines: true, keepNext: kn || !!(it.subs && it.subs.length),
       tabStops: [{ type: TabStopType.LEFT, position: NUMW }, { type: TabStopType.RIGHT, position: w, leader: LeaderType.DOT }],
       indent: { left: NUMW, hanging: NUMW }, spacing: { before: 0, after: 0, line: qrMode ? 210 : 200 },   // 2026-10-11 报栏式：速查 220 → 210   // 2026-10-10：全书按主题查条目增多，行距 220 → 200，免得首行整体推页留孤页
       children: [new InternalHyperlink({ anchor: it.id, children: [

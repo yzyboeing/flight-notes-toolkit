@@ -100,7 +100,8 @@ def main():
             is_see = lambda e: e['g'] != tp['theme'] and any(e['t'].startswith(x) for x in see)
             hit = [e for e in ents if e['g'] == tp['theme'] or is_see(e) or (e['g'] not in NO_XREF and e['g'] not in own
                    and not any(e['t'].startswith(x) for x in exc) and any(('%s %s' % (s, b)) in keys for s, b in e['binds'] if b))]
-            hit = [e for e in sorted(hit, key=lambda x: x['n']) if e['g'] == tp['theme'] or is_see(e) or e['n'] not in seen]
+            # 2026-10-12 用户（方案 A）：主题目录按逻辑顺序——本主题条目在前（正文顺序），↗ 交叉条目统一排在后面
+            hit = [e for e in sorted(hit, key=lambda x: (x['g'] != tp['theme'], x['n'])) if e['g'] == tp['theme'] or is_see(e) or e['n'] not in seen]
             for x in see:
                 if not any(e['t'].startswith(x) for e in ents): print('  警告  按主题查 see 找不到条目：%s → %s' % (tp['theme'], x))
             seen |= {e['n'] for e in hit}
@@ -114,20 +115,8 @@ def main():
         if len(themes) == 1: themes[0]['nohead'] = True
         if themes: dims.append({'dim': d['dim'], 'themes': themes})
     json.dump(dims, open(DIMS_JSON, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    # 2026-10-11 用户「做法一」：每个主题开头一行「相关：↗ 编号 标题」——取按主题查里该主题的交叉条目（↗），点击跳到条目
-    xref = {}
-    for d in dims:
-        for tp in d['themes']:
-            for it in tp['items']:
-                p = it.split('|')
-                if len(p) >= 3 and p[2] == 'x': xref.setdefault(tp['theme'], []).append('QRI_%s|%s %s' % (p[0], p[0], p[1]))
-    out2 = []
-    for l in out:
-        out2.append(l)
-        m = re.match(r'^### (.+)$', l)
-        if m and xref.get(m.group(1).strip()):
-            out2 += ['', '%%XREF%% ' + ' ;; '.join(dict.fromkeys(xref[m.group(1).strip()]))]
-    open(SINGLE_MD, 'w', encoding='utf-8').write('\n'.join(out2))
+    # 2026-10-12 用户：「去掉刚添加的笔记正文中的相关链接等信息，太乱了，包括 onenote」——正文不再写「相关」行（%%XREF%%）；主题目录里的 ↗ 交叉条目保留
+    open(SINGLE_MD, 'w', encoding='utf-8').write('\n'.join(out))
     # 3) 排版：与完整版同一套生成器与 fit_fix（整表同页、列宽实测、孤字），单册模式
     env = dict(os.environ)
     for k in ('DOC_TOPICS', 'DOC_PREFACE', 'DOC_QRTOPICS', 'DOC_TOPICINDEX', 'NO_SEC_BREAK'): env.pop(k, None)

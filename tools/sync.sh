@@ -141,8 +141,8 @@ if [ "$BUILD" = 1 ]; then
   DOC_QRTOPICS="${DOC_QRTOPICS:-$ROOT/速查主题索引.json}"; export DOC_QRTOPICS
   # SD-139 目录后「按主题查」索引（主题 → 正文块「节号 块号」）
   DOC_TOPICS="${DOC_TOPICS:-$ROOT/按主题查索引.json}"; export DOC_TOPICS
-  # 2026-10-11 做法一：节首「相关：↗ 节 标题」（相关节索引.json：{"节": ["节", …]}）
-  DOC_RELATED="${DOC_RELATED:-$ROOT/相关节索引.json}"; export DOC_RELATED
+  # 2026-10-12 用户取消正文「相关」行（「太乱了」）：不再传 DOC_RELATED（相关节索引.json 停用备查）
+  unset DOC_RELATED
   DOC_NOTICE="${DOC_NOTICE:-$(git config --get notes.docNotice)}"; export DOC_NOTICE
   DOC_PREFACE="${DOC_PREFACE:-$ROOT/前言.md}"; export DOC_PREFACE   # SD-51 前言页（文件不存在则不出前言）
   DOC_PREFACE_SIGNATURE="${DOC_PREFACE_SIGNATURE:-$(git config --get notes.docPrefaceSignature)}"; export DOC_PREFACE_SIGNATURE
