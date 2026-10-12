@@ -28,6 +28,10 @@ const FF_CIRC = { ascii: CIRC2, hAnsi: CIRC2, eastAsia: CIRC2, cs: CIRC2 };
 const DOT_CHAR = process.env.DOC_DOT_CHAR || '●', DOT_SCALE = +(process.env.DOC_DOT_SCALE || 0.32), DOT_RAISE = +(process.env.DOC_DOT_RAISE || 0.13), DOT_GAP = +(process.env.DOC_DOT_GAP || 40), DOT_COLOR = process.env.DOC_DOT_COLOR || '595959';   // 用户 2026-10-03 选 B：0.32 倍、50% 灰、上提 0.13   // DOT_COLOR：圆点颜色（空＝随文字色）   // 2026-10-01 用户选 6 号：0.38 号、上提、2pt 间距   // 分条圆点：字符 / 相对字号 / 上提（比选用）
 const DOT_BIG = (process.env.DOC_DOT || (MAIN.startsWith('Source Han') ? 'big' : 'plain')) === 'big';
 const FF_MONO = { ascii: MONO, hAnsi: MONO, eastAsia: CN, cs: MONO };
+/* 2026-10-12 用户「帮我重新设计排版颜色和字体搭配」：DOC_FONT_HEAD＝标题字体（章 / 节 / 条目标题、章序号、主题目录标题与段名）；
+   未设置＝与正文同字体。经典中文技术书式样：黑体标题 + 宋体正文。表头格仍用正文字体加粗。 */
+const HEADF = process.env.DOC_FONT_HEAD || '';
+const FF_HEAD = HEADF ? { ascii: HEADF, hAnsi: HEADF, eastAsia: HEADF, cs: HEADF } : FF;
 /* SD-96 页眉「左章名、右节名」：页眉用 STYLEREF 引用字符样式 HdrChap（章名、前言、总目录）与 HdrSec（节名 / 速查块名）。
    章标题、前言、总目录、单册目录页各带一个零宽的 HdrSec 空标记，让这些页的节名为空，而不是沿用上一章最后一节。 */
 const SECMARK = () => new TextRun({ text: '\u200B', style: 'HdrSec' });
@@ -41,6 +45,12 @@ const PALETTES = {
 /* SD-68（2026-09-29 用户选 B）：默认配色＝亮蓝统一方案。
    DOC_PALETTE=green 可回到 SD-65 墨绿方案；hl / teal 为比选留档。 */
 PALETTES.green = { key: '1B6B4C', keyBg: '', note: 'EAF1F8', noteBar: '2E74B5', warn: 'FDECEA', hdr: 'EBEBEB', alt: 'F7F7F7', tail: '' };
+/* 2026-10-12 用户：「我想把整笔记的底色改一下，不要淡蓝色」——比选方案（数值红 / 蓝字色不变，只换底色、注解竖条、章序号、整格高亮）：
+   gray＝中性灰，beige＝暖米色，sage＝淡豆绿，white＝纯白（表头、注解条不铺底色，只留竖条） */
+PALETTES.gray  = { key: '0B5CAD', keyBg: '', note: 'F2F2F2', noteBar: '7F7F7F', warn: 'FDECEA', hdr: 'E6E6E6', alt: 'FAFAFA', hlb: 'E6E6E6', chap: 'D0D0D0', tail: '' };
+PALETTES.beige = { key: '0B5CAD', keyBg: '', note: 'F7F1E6', noteBar: 'A2805A', warn: 'FDECEA', hdr: 'ECE2D0', alt: 'FCF9F3', hlb: 'ECE2D0', chap: 'E0D0B4', tail: '' };
+PALETTES.sage  = { key: '0B5CAD', keyBg: '', note: 'EDF5EE', noteBar: '5E8C61', warn: 'FDECEA', hdr: 'DCEADD', alt: 'F7FBF7', hlb: 'DCEADD', chap: 'C5DBC7', tail: '' };
+PALETTES.white = { key: '0B5CAD', keyBg: '', note: 'FFFFFF', noteBar: '7F7F7F', warn: 'FDECEA', hdr: 'FFFFFF', alt: 'FFFFFF', hlb: 'F2F2F2', chap: 'D0D0D0', tail: '' };
 const PAL = PALETTES[process.env.DOC_PALETTE || 'blue'] || PALETTES.blue;
 const GRAY = '595959', LINE = 'BFBFBF', ALT = PAL.alt || 'F7F7F7', CODE = 'F2F2F2';
 const RED = 'C00000';
@@ -229,7 +239,7 @@ function H(text, level, brk, forceId) {
   const secBreak = level === 2 && /^\d+\.\d+[\s\u3000]/.test(text) && !AFTER_H1 && !NO_SEC_BREAK && !COMPACT;   // 速查组名带节号（SD-117）不另起一页
   AFTER_H1 = level === 1;
   const HC = { 1: H1_C, 2: H2_C, 3: H3_C, 4: H3_C }[level];
-  const tr = new TextRun({ text, font: FF, size: sizes[level], bold: true, color: HC, style: level === 1 ? 'HdrChap' : level === 2 ? 'HdrSec' : undefined });
+  const tr = new TextRun({ text, font: FF_HEAD, size: sizes[level], bold: true, color: HC, style: level === 1 ? 'HdrChap' : level === 2 ? 'HdrSec' : undefined });
   return new Paragraph({
     heading: level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : level === 3 ? HeadingLevel.HEADING_3 : HeadingLevel.HEADING_4,
     children: (id ? [new Bookmark({ id, children: [tr] })] : [tr]).concat(level === 1 ? [SECMARK()] : []),
@@ -1787,7 +1797,7 @@ function htmlTableCore(html) {
         columnSpan: c.colspan > 1 ? c.colspan : undefined,
         rowSpan: c.rowspan > 1 ? c.rowspan : undefined,
         /* SD-99 单格标黄（<td class="hl">）：只标需要特别注意的那一两格，不整行铺黄 */
-        shading: { type: ShadingType.CLEAR, color: 'auto', fill: /(^|\s)hl(\s|$)/.test(c.cls || '') ? PRIORITY_F : /(^|\s)hlb(\s|$)/.test(c.cls || '') ? 'DCE9F7' : fill },   // hlb：整格淡蓝底（速查 48 主 / 备用行）
+        shading: { type: ShadingType.CLEAR, color: 'auto', fill: /(^|\s)hl(\s|$)/.test(c.cls || '') ? PRIORITY_F : /(^|\s)hlb(\s|$)/.test(c.cls || '') ? C(PAL.hlb || 'DCE9F7', 'EDEDED') : fill },   // hlb：整格淡蓝底（速查 48 主 / 备用行）
         borders,
         margins: { top: CM, bottom: CM, left: 170, right: 90 },   // 用户 2026-10-03 悬挂圆点：左留白 150，圆点挂在留白里，全表文字起始位置一致
         verticalAlign: VerticalAlign.CENTER,   // 用户 2026-09-29：内容尽量靠表格中心（纵向居中），排版更舒服
@@ -2014,7 +2024,7 @@ function singleToc(ch, brk) {
   out.push(new Paragraph({
     heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, keepNext: true,
     spacing: { before: 0, after: 120 },
-    children: [...tocMark(), new Bookmark({ id: ch.id, children: [new TextRun({ text: process.env.DOC_SINGLE_TOC_TITLE || '按章节查', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()]
+    children: [...tocMark(), new Bookmark({ id: ch.id, children: [new TextRun({ text: process.env.DOC_SINGLE_TOC_TITLE || '按章节查', font: FF_HEAD, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()]
   }));
   const hr = (sz, col, after) => new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after, line: 20 },
     children: [new TextRun({ text: '', size: 2 })],
@@ -2094,7 +2104,7 @@ function bodyTopicPage() {
      条目「编号 + 标题 …… 页码」，编号栏等宽对齐，标题折行时悬挂在编号之后。书签里排在「目录」之后（outlineLevel 0）。 */
   const out = [new Paragraph({ pageBreakBefore: !(TOPICS_AT_END && DUPLEX && !qrMode), alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 120 }, outlineLevel: 0,   // SD-149：单独一节时由分节换页，不再段前分页
     children: [...(qrMode ? tocMark() : []), ...(qrMode && QR_CHID ? [new Bookmark({ id: QR_CHID, children: [new TextRun({ text: '' })] })] : []),
-      new Bookmark({ id: 'TOPICS', children: [new TextRun({ text: '主题目录', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()] })];   // 2026-10-11 用户：「按主题查」改名「主题目录」
+      new Bookmark({ id: 'TOPICS', children: [new TextRun({ text: '主题目录', font: FF_HEAD, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()] })];   // 2026-10-11 用户：「按主题查」改名「主题目录」
   out.push(new Paragraph({ alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 0, line: 20 }, children: [new TextRun({ text: '', size: 2 })],
     border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
   const NAV_AT = out.length, NAV = [];   // 2026-10-11 用户（方案 A）：段导航行（标题线下、图例上），循环后插回这里
@@ -2108,7 +2118,7 @@ function bodyTopicPage() {
     /* 2026-10-07 速查：只有一个主题的段不出主题小标题（nohead）；交叉挂靠的条目编号后加「↗」、标题灰字 */
     const ch = tp.nohead ? [] : [new Paragraph({ keepLines: true, keepNext: !!paraOnly, spacing: { before: paraOnly ? 100 : 0, after: 40, line: 240 }, indent: { left: 80 },
       shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'E6E6E6' },
-      children: [new InternalHyperlink({ anchor: tp.items[0].id, children: [new TextRun({ text: tp.name, font: FF, size: 19, bold: true, color: '000000' })] })] })];
+      children: [new InternalHyperlink({ anchor: tp.items[0].id, children: [new TextRun({ text: tp.name, font: FF_HEAD, size: 19, bold: true, color: '000000' })] })] })];
     /* 2026-10-12 用户（方案 A：「主题目录按逻辑顺序排列不用留空白排列」）：主题可跨栏接排，栏底不留空白；只保留
        主题标题与第一条同栏、条目与其灰色小项同栏、只有两条的小主题整块；原「一个主题整块不拆栏」作废（样稿里「标题与前两条同栏」仍在栏底留空，放宽） */
     const nIt = tp.items.length;
@@ -2141,7 +2151,7 @@ function bodyTopicPage() {
       if (got.length) themes.push({ name: clean(tp.theme), items: got, nohead: !!tp.nohead });
     }
     if (!themes.length) continue;
-    const dimRun = new TextRun({ text: d.dim, font: FF, size: 24, bold: true, color: H2_C });
+    const dimRun = new TextRun({ text: d.dim, font: FF_HEAD, size: 24, bold: true, color: H2_C });
     NAV.push({ id: 'TOPICS_D' + DIM_I, text: d.dim });
     out.push(new Paragraph({ keepNext: true, outlineLevel: qrMode ? undefined : 1, spacing: { before: firstDim ? 120 : 200, after: 80 }, children: [new Bookmark({ id: 'TOPICS_D' + (DIM_I++), children: [dimRun] })],   // SD-149：每种查法一个书签，目录 / PDF 书签直达
       border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: H1_LINE, space: 2 } } }));
@@ -2158,7 +2168,7 @@ function bodyTopicPage() {
     const kids = [];
     const half = NAV.length > 6 ? Math.ceil(NAV.length / 2) : 0;   // 段多时分两行、每行一半，不靠自动折行（LibreOffice 会在「10」后断开）
     NAV.forEach((n, k) => { if (k && k === half) kids.push(new TextRun({ text: '', break: 1 })); else if (k) kids.push(new TextRun({ text: '　·　', font: FF, size: 18, color: 'A6A6A6' }));
-      kids.push(new InternalHyperlink({ anchor: n.id, children: [new TextRun({ text: n.text.replace(/ /g, '\u00A0'), font: FF, size: 18, bold: true, color: H2_C })] })); });   // 段名内不折行
+      kids.push(new InternalHyperlink({ anchor: n.id, children: [new TextRun({ text: n.text.replace(/ /g, '\u00A0'), font: FF_HEAD, size: 18, bold: true, color: H2_C })] })); });   // 段名内不折行
     out.splice(NAV_AT, 0, new Paragraph({ keepNext: true, alignment: AlignmentType.CENTER, spacing: { before: 100, after: 40, line: 260 }, children: kids }));
   }
   /* 网格最后一行贴近页底时，表后必需的那个段落会溢出成一张空白页：让它只占 1pt，并收掉最后一行的底部留白 */
@@ -2196,7 +2206,7 @@ function qrTopicPage() {
   }
   if (!blocks.length) return [];
   const out = [new Paragraph({ pageBreakBefore: true, alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 120 },
-    children: [new Bookmark({ id: 'QRTOPIC', children: [new TextRun({ text: '主题目录', font: FF, size: 32, bold: true, characterSpacing: 60, color: H1_C })] })] })];
+    children: [new Bookmark({ id: 'QRTOPIC', children: [new TextRun({ text: '主题目录', font: FF_HEAD, size: 32, bold: true, characterSpacing: 60, color: H1_C })] })] })];
   out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: 20 }, children: [new TextRun({ text: '', size: 2 })],
     border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
   out.push(new Paragraph({ spacing: { before: 0, after: 60, line: 120 }, children: [] }));
@@ -2227,10 +2237,10 @@ function chapterOpener(ch, brk) {
   const dense = n > 24;
   const out = [new Paragraph({ pageBreakBefore: !!brk, spacing: { before: 0, after: PORTRAIT ? 2400 : dense ? 60 : 500 }, children: [] })];
   if (no) out.push(new Paragraph({ spacing: { before: 0, after: 0 }, keepNext: true,
-    children: [new TextRun({ text: no, font: FF, size: 150, bold: true, color: C('C9D8E8', '000000') })] }));
+    children: [new TextRun({ text: no, font: FF_HEAD, size: 150, bold: true, color: C(PAL.chap || 'C9D8E8', '000000') })] }));
   out.push(new Paragraph({
     heading: HeadingLevel.HEADING_1, keepNext: true,
-    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: unesc(ch.text), font: FF, size: 44, bold: true, color: H1_C, style: 'HdrChap' })] }), SECMARK()],
+    children: [new Bookmark({ id: ch.id, children: [new TextRun({ text: unesc(ch.text), font: FF_HEAD, size: 44, bold: true, color: H1_C, style: 'HdrChap' })] }), SECMARK()],
     spacing: { before: 60, after: 160 },
     border: { bottom: { style: BorderStyle.SINGLE, size: 24, color: H1_LINE, space: 8 } }
   }));
