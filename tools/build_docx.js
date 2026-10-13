@@ -1776,11 +1776,12 @@ function htmlTableCore(html) {
         /* 父项加粗（用户 2026-10-03「父子关系，父都加粗加黑」）：以「：」结尾、下一段是子项（– / 编号子项 / 层级子段）的那一段 */
         const nmk = ((rawParas[pi + 1] || '').match(/^[\uE001-\uE006]+/) || [''])[0];
         const parentSeg = hierarchy ? !!parentFlags[pi]
-          : (/[：:]\s*(<\/[^>]+>\s*)*$/.test(seg) && pi + 1 < rawParas.length && (nmk.startsWith('\uE002') || nmk === '\uE005' || c.cmpShared));   // 对照表共有格不分层，但父项照样加粗（噜噜 M14-L005）
+          : (/[：:]\s*(<\/[^>]+>\s*)*$/.test(seg) && pi + 1 < rawParas.length && (nmk.startsWith('\uE002') || nmk === '\uE005' || c.cmpShared
+             || (!LEAD_OLD && /^\s*(<[^>]+>\s*)*[\u2460-\u2473]/.test(String(rawParas[pi + 1]).replace(/^[\uE001-\uE006]+/, '')))));   // SD-180：源文件直接写的「引语：」+「① …」行也算引导语   // 对照表共有格不分层，但父项照样加粗（噜噜 M14-L005）
         /* SD-180 版式体系（2026-10-13 用户「按照你的方案优化」）：引导语（父项）不加点、深蓝加粗当小标题；分项「–」缩进一级、折行对齐文字；
            无引导语的并列条目「•」悬挂不变。DOC_LEAD=old 退回 SD-93 / 10-04 写法（父项「•」、子项与圆点对齐） */
         const leadSeg = !LEAD_OLD && parentSeg && !isHdr && !c.head && !labelCol;
-        const numUnderLead = !LEAD_OLD && leadSeen && !leadSeg && mk === '\uE005';   // 引导语后的 ①② 步骤与「–」分项同级缩进
+        const numUnderLead = !LEAD_OLD && leadSeen && !leadSeg && (mk === '\uE005' || (mk !== '\uE001' && /^\s*(<[^>]+>\s*)*[\u2460-\u2473]/.test(seg)));   // 引导语后的 ①② 步骤与「–」分项同级缩进
         if (leadSeg) leadSeen = true;
         const prefix = (SERIAL_T && ci > 0) ? ((mk.startsWith('\uE002') || (hierarchy && !parentFlags[pi] && hasParent)) ? '– ' : '') :   // SD-140：序号表其余列不加「•」，子项「–」保留
           leadSeg ? '' :
