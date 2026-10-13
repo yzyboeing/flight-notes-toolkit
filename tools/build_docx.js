@@ -54,6 +54,8 @@ PALETTES.white = { key: '0B5CAD', keyBg: '', note: 'FFFFFF', noteBar: '7F7F7F', 
 const PAL = PALETTES[process.env.DOC_PALETTE || 'blue'] || PALETTES.blue;
 const GRAY = '595959', LINE = 'BFBFBF', ALT = PAL.alt || 'F7F7F7', CODE = 'F2F2F2';
 const RED = 'C00000';
+const LEAD_OLD = process.env.DOC_LEAD === 'old';
+const SUB_IND = (mk) => LEAD_OLD ? 0 : (mk.startsWith('\uE002') || mk === '\uE005') ? 315 : 0;   // SD-180：分项 / 引导语下编号步骤缩进一级（9pt 汉字 180 × 1.75），宽度预估同步计入   // SD-180：退回旧父子项样式（父项「•」、子项不缩进）
 /* ---------- 彩色版配色（2026-09-29 用户：整本按彩色设计）----------
    只用三个色相，各自含义固定，避免「五颜六色但看不出层级」：
      红  C00000  限制值、禁令、必须句（正文强调色，仅此一处用红）
@@ -517,7 +519,7 @@ function htmlTable(html) {
     return role; };
   const paras = (arr, kn) => arr.flatMap(r => { const segsR = balanceBr(rowText(r)).split(/<br\s*\/?>/).filter(x => x.trim()); const roleR = pcRoles(segsR);
     return segsR.map((sg, k, a) => new Paragraph({
-    children: runs((roleR[k] === 'c' ? '– ' : '') + sg.trim(), { size: 19, ...(roleR[k] === 'p' ? { bold: true } : {}) }),
+    children: runs((roleR[k] === 'c' ? '– ' : '') + sg.trim(), { size: 19, ...(roleR[k] === 'p' ? { bold: true, ...(!LEAD_OLD && !BW ? { color: INK } : {}) } : {}) }),   // SD-180：引导语深蓝
     spacing: { before: k ? 20 : 100, after: k === a.length - 1 ? 100 : 20, line: 290 },
     /* 警示 / 前提 / 注 行移出表格后保留左侧竖条与淡底色 */
     indent: /warn|premise|note/.test(r.cls) ? (roleR[k] === 'c' ? { left: 300, right: 80, hanging: 180 } : roleR[k] === 'n' ? { left: 300, right: 80 } : { left: 120, right: 80 }) : undefined,
@@ -773,6 +775,10 @@ function htmlTableCore(html) {
           if (ci > 0) {
             const head = s0.slice(0, ci + 1), rest = s0.slice(ci + 1), hp = plainOf(head);
             const kids = balanced(head) && balanced(rest) ? splitOut(rest, /[；;]/) : null;
+            /* SD-180 补（2026-10-13，速查 42「机械卡槽」）：「标签甲：内容；标签乙：内容」是并列的两个小标题项，不是「引语：子项；子项」——
+               分项里（第二项起）又以「≤ 32 字标签：」开头的（4.10「最低安全高度高于 9000ft、低于 13000ft：」），按「；」拆成并列条目 */
+            const pairLike = kids && kids.slice(1).some(x => /^[^：:，。；（(①-⑳]{2,32}[：:]/.test(plainOf(x).trim()) && !/^[①-⑳]/.test(plainOf(x).trim()));
+            if (pairLike) { splitOut(s0, /[；;]/).forEach(x => items.push({ t: x, kind: 'item' })); continue; }
             if (kids && kids.length >= 2 && pv(hp) >= 4 && pv(hp) <= 60 && !/^注/.test(hp) && kids.every(x => pv(x) >= 6)) {
               items.push({ t: head, kind: 'intro', kids }); continue; }
           }
@@ -1205,7 +1211,7 @@ function htmlTableCore(html) {
           if (c.colspan !== 1) { for (let q = 0; q < c.colspan; q++) spanned.add(k + q); return; }
           const segs = String(c.text).split(/<br\s*\/?>/).filter(sg => sg.replace(/<[^>]+>|[\uE001-\uE006\s]/g, '')).map(sg => {
             const mk0 = (sg.match(/^[\uE001-\uE006]+/) || [''])[0];
-            return fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * (UNIT_W(sg) + 3) + (mk0 === '\uE006' ? 200 : 0); });
+            return fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * (UNIT_W(sg) + 3) + (mk0 === '\uE006' ? 200 : 0) + SUB_IND(mk0); });
           if (segs.length) cellsByCol[k].push(segs); }); });
       const wide0 = parsed.filter(r => /note|premise|warn/.test(r.cls)).map(r => fineVis(String(r.cells.map(c => c.text).join('')).replace(/<br\s*\/?>/g, '')) * 90);
       const tot0 = W.reduce((a2, b2) => a2 + b2, 0), wl0 = wide0.map(L => LN(L, tot0));
@@ -1265,7 +1271,7 @@ function htmlTableCore(html) {
         const bold = r.cls.includes('hdr') || c.head || k === 0, avail = W[k] - 340;   // 左留白 170 + 右 90 + 余量
         String(c.text).split(/<br\s*\/?>/).forEach(sg => {
           const mk0 = (sg.match(/^[\uE001-\uE006]+/) || [''])[0];
-          const ind0 = mk0 === '\uE006' ? 200 : 0;   // 悬挂圆点后   // 分条 / 子项的左缩进也占掉可用宽度
+          const ind0 = (mk0 === '\uE006' ? 200 : 0) + SUB_IND(mk0);   // 悬挂圆点后   // 分条 / 子项的左缩进也占掉可用宽度
           const L = fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * 90 + ind0; if (avail <= 0 || !L) return;   // 按宋体 9pt 实际字宽（汉字 180 DXA，粗体同宽）
           const lines = Math.ceil(L / avail), rem = L - (lines - 1) * avail;
           if (lines >= 2 && lines <= 4 && rem <= 4.4 * 90) tail[k] = Math.max(tail[k], Math.ceil(L / (lines - 1)) + 340 + 60 - W[k]);
@@ -1318,7 +1324,7 @@ function htmlTableCore(html) {
           if (c.colspan !== 1) { for (let q = 0; q < c.colspan; q++) spannedF.add(k + q); return; }
           String(c.text).split(/<br\s*\/?>/).forEach(sg => { if (!sg.replace(/<[^>]+>|[\uE001-\uE006\s]/g, '')) return;
             const mk0 = (sg.match(/^[\uE001-\uE006]+/) || [''])[0];
-            segsF[k].push(fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * UNIT_W(sg) + (mk0 ? 200 : 0)); }); }); });
+            segsF[k].push(fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * UNIT_W(sg) + (mk0 ? 200 : 0) + SUB_IND(mk0)); }); }); });
       const longest = segsF.map(ss => Math.max(0, ...ss));
       const sigF = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
       const nwSet = new Set((NWFIX.get(sigF) || []).map(x => x[0]));   // 实测已确认不折行（fit_fix 写了 NW: 收窄）的列不拉宽，免得与收窄来回拉锯
@@ -1383,7 +1389,7 @@ function htmlTableCore(html) {
         for (const seg0 of String(c.text).split(/<br\s*\/?>/)) {
           /* SD-78：加点 / 子项有悬挂缩进，可用行宽变窄；每多一段多一份段前后间距 */
           const mk = (seg0.match(/^[\uE001-\uE006]+/) || [''])[0];
-          const ind = mk === '\uE006' ? 200 : 0;   // 悬挂圆点后：「•」与单句不占缩进
+          const ind = (mk === '\uE006' ? 200 : 0) + SUB_IND(mk);   // 悬挂圆点后：「•」与单句不占缩进；SD-180 分项缩进
           const perLine = Math.max(4, (w - 180 - ind) / unit);
           lines += Math.max(1, Math.ceil(vis(seg0.slice(mk.length).trim()) / perLine)); np++;
         }
@@ -1763,21 +1769,30 @@ function htmlTableCore(html) {
       const cellCS = (() => { const lst = CONDENSE.get(tblSig); if (!lst) return 0;
         const nt = unesc(String(c.text).replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}]/gu, '');
         const hit = lst.find(([fk]) => fk && nt.startsWith(fk)); return hit ? ([0, -6, -10, -14, -18][Math.min(4, hit[1])]) : 0; })();   // 2026-10-06：末行孤字收紧字距 2 级 → 4 级（占满版心、没法加宽的表）
+      let leadSeen = false;   // SD-180：本格前面出现过引导语
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
         const mk = (seg.match(/^[\uE001-\uE006]+/) || [''])[0]; seg = seg.slice(mk.length);
-        const prefix = (SERIAL_T && ci > 0) ? ((mk.startsWith('\uE002') || (hierarchy && !parentFlags[pi] && hasParent)) ? '– ' : '') :   // SD-140：序号表其余列不加「•」，子项「–」保留
-          hierarchy ? (parentFlags[pi] ? '• ' : (hasParent ? '– ' : '')) :   /* 父项统一「•」（Muse M5-149 / 258，2026-10-01） */ mk === '\uE001' ? '• ' : mk.startsWith('\uE002') ? '– ' : '';
         /* 父项加粗（用户 2026-10-03「父子关系，父都加粗加黑」）：以「：」结尾、下一段是子项（– / 编号子项 / 层级子段）的那一段 */
         const nmk = ((rawParas[pi + 1] || '').match(/^[\uE001-\uE006]+/) || [''])[0];
         const parentSeg = hierarchy ? !!parentFlags[pi]
           : (/[：:]\s*(<\/[^>]+>\s*)*$/.test(seg) && pi + 1 < rawParas.length && (nmk.startsWith('\uE002') || nmk === '\uE005' || c.cmpShared));   // 对照表共有格不分层，但父项照样加粗（噜噜 M14-L005）
+        /* SD-180 版式体系（2026-10-13 用户「按照你的方案优化」）：引导语（父项）不加点、深蓝加粗当小标题；分项「–」缩进一级、折行对齐文字；
+           无引导语的并列条目「•」悬挂不变。DOC_LEAD=old 退回 SD-93 / 10-04 写法（父项「•」、子项与圆点对齐） */
+        const leadSeg = !LEAD_OLD && parentSeg && !isHdr && !c.head && !labelCol;
+        const numUnderLead = !LEAD_OLD && leadSeen && !leadSeg && mk === '\uE005';   // 引导语后的 ①② 步骤与「–」分项同级缩进
+        if (leadSeg) leadSeen = true;
+        const prefix = (SERIAL_T && ci > 0) ? ((mk.startsWith('\uE002') || (hierarchy && !parentFlags[pi] && hasParent)) ? '– ' : '') :   // SD-140：序号表其余列不加「•」，子项「–」保留
+          leadSeg ? '' :
+          hierarchy ? (parentFlags[pi] ? '• ' : (hasParent ? '– ' : '')) :   /* 父项统一「•」（Muse M5-149 / 258，2026-10-01） */ mk === '\uE001' ? '• ' : mk.startsWith('\uE002') ? '– ' : '';
         const prefix2 = (prefix === '– ' && /^\s*(<[^>]+>\s*)*([\u2460-\u2473]|\d+[.、)）])/.test(seg)) ? '' : prefix;   // ① 子项已编号不加短线
+        const CHW = FS * 10;   // 一个汉字宽（twip）
+        const childInd = LEAD_OLD ? null : prefix === '– ' ? (prefix2 ? { left: Math.round(CHW * 1.75), hanging: Math.round(CHW * 0.85) } : { left: Math.round(CHW * 0.9) }) : null;
         return new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
-          children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS }),
+          children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS, ...(leadSeg && !BW ? { color: INK } : {}) }),
           spacing: shrinkLv >= 4 ? { before: 0, after: 0, line: LN } : { before: 20, after: 20, line: LN },   // 4 级（one-page 超大表）：格内段间距取 0（1.4 D-2 约 70 段，段间距合计约 140pt）
-          indent: hierarchy ? { left: 0, hanging: 120 } : (mk === '\uE001' || mk.startsWith('\uE002')) ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : undefined,   // 用户 2026-10-04 样本：子项「–」与圆点对齐（都悬挂在左留白），子项文字与父项文字对齐；编号子项、单句同一起点   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
+          indent: leadSeg ? { left: 0 } : childInd ? childInd : numUnderLead ? { left: Math.round(CHW * 2.2), hanging: Math.round(CHW * 1.3) } : hierarchy ? { left: 0, hanging: 120 } : (mk === '\uE001' || mk.startsWith('\uE002')) ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : undefined,   // 用户 2026-10-04 样本：子项「–」与圆点对齐（都悬挂在左留白），子项文字与父项文字对齐；编号子项、单句同一起点（SD-180 起子项缩进一级，DOC_LEAD=old 时仍按此）   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
           /* 单格居中（<td class="center">，2026-10-01 用户，速查 120「条件」跨列格）优先于列规则 */
           alignment: (/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? AlignmentType.CENTER : (hierarchy || semMarked) ? undefined : (center ? AlignmentType.CENTER : undefined)

@@ -278,6 +278,8 @@ def scan(pdf, name, header):
                 cells = [r[k] for r in info[1:] if k < len(r) and r[k] and (k + 1 >= len(r) or r[k + 1] is not None) and r[k][1]]
                 cells = [x for x in cells if not PH.match(''.join(l[2] for l in x[1]))]
                 if len(cells) < 2: continue
+                # SD-180：引导语不加「•」——有「……：」+「–」/ ①② 分项的格是层级格，不按漏点计
+                lead = lambda x: any(re.search(r'[：:]\s*$', a[2]) and re.match(r'\s*[–①-⑳]', b[2]) for a, b in zip(x[1], x[1][1:]))
                 bul = [x for x in cells if x[1][0][2].lstrip().startswith('•')]
                 # 没加点的格只算「句子」：≥ 12 字或以句号结尾；短值（持续 / ≥ 800m）和 ①② 步骤格不算不统一
                 def sentence(x):
@@ -286,7 +288,7 @@ def scan(pdf, name, header):
                 # SD-119 修订（用户 2026-10-03「除了父子关系之外，去掉所有单独的句子之前的小圆点」）：单句格不加点是对的，
                 # 只有没加点、格内却有多句（中间有「；」或「。」）的才算不统一
                 multi = lambda x: len([p for p in re.split(r'[；]', ''.join(l[2] for l in x[1]).strip()) if len(p.strip()) >= 4]) >= 2
-                nbs = [x for x in cells if x not in bul and sentence(x)]   # 2026-10-03 用户退回：一列要加点就整列都加（单句也加）
+                nbs = [x for x in cells if x not in bul and sentence(x) and not lead(x)]   # SD-180：引导语格不算漏点，也不算加点格   # 2026-10-03 用户退回：一列要加点就整列都加（单句也加）
                 # 取值列（有「持续」「≥ 800m」这类不带句号的短值格）：长的并列格加点、短值居中不加点，是允许的差异（用户第 52 条）
                 valcol = any(len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) < 12 and not ''.join(l[2] for l in x[1]).strip().endswith('。')
                              for x in cells if x not in bul)
@@ -328,7 +330,8 @@ def scan(pdf, name, header):
                     if not x: continue
                     ls = [l[2].strip() for l in x[1]]
                     for a0, b0 in zip(ls, ls[1:]):
-                        if a0.startswith('•') and re.search(r'[：:]$', a0) and b0.startswith('•'):
+                        # SD-180（2026-10-13）：引导语不再加「•」——以「：」结尾、不以「•」「–」开头的行后面紧跟「•」，也是子项排成了同级
+                        if re.search(r'[：:]$', a0) and not a0.startswith('–') and b0.startswith('•') and (a0.startswith('•') or not re.match(r'^[①-⑳\d]', a0)):
                             sug('T10', '%s 第 %d 页：「%s」是引语，后面的子项应为「–」，现为「•」' % (name, i + 1, a0[:24])); break
             # T9 两型对照列格式不一致（2026-09-30 全书复审，速查第 120 条）：表头有 737-NG 与 737-8 两列，一列有「•」、另一列同类句子格没有
             try:
