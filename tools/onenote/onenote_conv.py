@@ -425,6 +425,7 @@ def convert(src):
     h=fit_widths(h)
     h=unmerge(h)
     h=note_blocks(h)
+    h=lead_indent(h) if _os.environ.get('DOC_LEAD')!='old' else h
     if LISTS: h=to_lists(h)
     return h
 _PARA=re.compile(r'<p\b([^>]*)>(.*?)</p>',re.S)
@@ -433,6 +434,20 @@ def _is_dash(inner):
     return t.startswith('– ') or t.startswith('–\u00a0')
 def _undash(inner):
     return re.sub(r'^((?:<span[^>]*>)?)\s*–[\s\u00a0]','\\1',inner,count=1)
+_LEADC=re.compile(r'color:#1f4e79',re.I)
+def lead_indent(h):
+    """SD-180（2026-10-13）：引导语（父项）不再是「●」列表项，深蓝加粗；OneNote 接口不认段落左缩进，
+    紧跟在引导语后面的「– 」分项 / ①② 步骤在行首加一个全角空格，缩进一个字（折行不悬挂，OneNote 限制）"""
+    items=list(_PARA.finditer(h)); out=[]; i=0; on=False; prev_end=None
+    for m in items:
+        inner=m.group(2); t=html.unescape(re.sub(r'<[^>]+>','',inner)).strip()
+        adj=prev_end is not None and not re.sub(r'</?(?:td|tr)\b[^>]*>','x',h[prev_end:m.start()]).strip()
+        if BUL not in inner and t.endswith(('：',':')) and _LEADC.search(inner): on=True
+        elif on and adj and (_is_dash(inner) or re.match(r'[\u2460-\u2473]',t)):
+            out.append(h[i:m.start()]); out.append('<p%s>%s</p>'%(m.group(1),re.sub(r'^((?:<span[^>]*>)?)','\\1\u3000',inner,count=1))); i=m.end()
+        else: on=False
+        prev_end=m.end()
+    out.append(h[i:]); return ''.join(out)
 def to_lists(h):
     """父项（生成器的「●」）→ <ul><li style="list-style-type:square">；紧跟的「– 」子项挂在该父项下（见 CHILD）。
     只把相邻（中间只有空白）的段落连成一组；不跟在父项后的「– 」段落保持原样。"""
