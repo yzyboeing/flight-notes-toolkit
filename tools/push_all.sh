@@ -8,7 +8,8 @@
 #     push_all.sh [笔记库路径]
 #
 # 公开仓库的规则（rules.md「内容不外发」）：
-#   · 推之前跑一次泄漏扫描：关键词表 + 本机绝对路径
+#   · 推之前先跑包检查（tools/check_package.py，同 GitHub CI），不过就停下
+#   · 再跑一次泄漏扫描：关键词表 + 本机绝对路径
 #   · 关键词表**不存在时停下报告，不得当作通过**——它就是用来防这件事的
 #   · 有命中就停下，不推
 set -uo pipefail
@@ -44,6 +45,12 @@ AHEAD_T="$(git -C "$PUB" rev-list --count @{u}..HEAD 2>/dev/null || echo 0)"
 if [ "$AHEAD_T" -eq 0 ]; then
   info "工具链 无待推送提交"
 else
+  # 包检查（与 GitHub「Package checks」同口径，含 prompt/SKILL.md 是否过期）
+  if ! (cd "$PUB" && python3 tools/check_package.py); then
+    no "包检查未通过，工具链**未推送**（提示词过期先跑 python3 tools/export_prompt.py 再提交）"
+    exit 1
+  fi
+  ok "包检查通过"
   KW=""
   for c in "$HOME/.leakscan-keywords" "$ROOT/.leakscan-keywords"; do
     [ -s "$c" ] && { KW="$c"; break; }
