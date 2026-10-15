@@ -128,16 +128,21 @@ if [ "$BUILD" = 1 ]; then
   # notes_src 相对最新 baseline/* 标签有改动（含未提交）时，印下一版的版本名（出基线时按它打标签）；没有改动时印最新基线的版本名
   if [ "$FULL" = 1 ] && [ -z "${DOC_EDITION:-}" ]; then
     LASTBL="$(git tag --list 'baseline/*' --sort=-creatordate | head -1)"
-    if [ -z "$LASTBL" ] || ! git diff --quiet "$LASTBL" -- notes_src 2>/dev/null; then
+    if [ -z "$LASTBL" ] || ! git diff --quiet "$LASTBL" -- notes_src 速查 2>/dev/null; then
       VER="$(python3 "$TOOLKIT/release_name.py" --next | awk '{print $1}')"
     else
       VER="$(python3 "$TOOLKIT/release_name.py" "$LASTBL")"
     fi
-    if [ -n "$VER" ] && [ "$(git config --get notes.docEdition)" != "$VER" ]; then
+    if [ -n "$VER" ] && [ "$(cfg notes.docEdition)" != "$VER" ]; then
       git config notes.docEdition "$VER"; ok "版本号更新为 $VER（SD-142）"
     fi
   fi
+  # 2026-10-15：版本号同时写进库内 成品设置.gitconfig（check_layout 等先读它），避免封面与检查器各读一处
+  if [ -n "${DOC_EDITION:-}" ] && [ "$FULL" = 1 ]; then git config notes.docEdition "$DOC_EDITION"; fi
   DOC_EDITION="${DOC_EDITION:-$(git config --get notes.docEdition)}"; export DOC_EDITION
+  if [ -f "$ROOT/成品设置.gitconfig" ] && [ "$(git config -f "$ROOT/成品设置.gitconfig" --get notes.docEdition)" != "$DOC_EDITION" ]; then
+    git config -f "$ROOT/成品设置.gitconfig" notes.docEdition "$DOC_EDITION"
+  fi
   DOC_FIGS="${DOC_FIGS:-3.2-1_,2.1-1_,2.1-2_,3.3-1_,3.3-2_,3.3-3_,3.1-1_}"; export DOC_FIGS   # SD-136 补充（2026-10-09 用户）：完整版、速查版只排 3.2-1 目视参考图
   # SD-118 速查「按主题查」索引（主题表按条目标题引用）
   DOC_QRTOPICS="${DOC_QRTOPICS:-$ROOT/速查主题索引.json}"; export DOC_QRTOPICS
