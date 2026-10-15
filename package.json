@@ -1,7 +1,7 @@
 {
   "name": "flight-notes-toolkit",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Local document tool dependencies",
   "dependencies": {
     "docx": "9.6.1"
