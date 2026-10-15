@@ -58,7 +58,7 @@ info "工具链 $TOOLKIT"
 
 mod_name() {
   case "$1" in
-    0) echo "基础知识速查区" ;;   1) echo "第一章_系统理论" ;;
+    0) echo "基础知识速查区" ;;   1) echo "第一章_系统描述" ;;
     2) echo "第二章_机组训练手册" ;; 3) echo "第三章_运行手册" ;;
     4) echo "第四章_模拟机训练" ;;  5) echo "第五章_技术提示" ;;
     *) echo "mod$1" ;;
@@ -143,7 +143,7 @@ if [ "$BUILD" = 1 ]; then
   if [ -f "$ROOT/成品设置.gitconfig" ] && [ "$(git config -f "$ROOT/成品设置.gitconfig" --get notes.docEdition)" != "$DOC_EDITION" ]; then
     git config -f "$ROOT/成品设置.gitconfig" notes.docEdition "$DOC_EDITION"
   fi
-  DOC_FIGS="${DOC_FIGS:-3.2-1_,2.1-1_,2.1-2_,3.3-1_,3.3-2_,3.3-3_,3.1-1_}"; export DOC_FIGS   # SD-136 补充（2026-10-09 用户）：完整版、速查版只排 3.2-1 目视参考图
+  DOC_FIGS="${DOC_FIGS:-figures/1.,3.2-1_,2.1-1_,2.1-2_,3.3-1_,3.3-2_,3.3-3_,3.1-1_}"; export DOC_FIGS   # SD-185（2026-10-15 用户）：完整版放回第一章系统原理图；速查版用 DOC_QR_FIGS（quickref.py），仍只排目视参考图（SD-136 补充）
   # SD-118 速查「按主题查」索引（主题表按条目标题引用）
   DOC_QRTOPICS="${DOC_QRTOPICS:-$ROOT/速查主题索引.json}"; export DOC_QRTOPICS
   # SD-139 目录后「按主题查」索引（主题 → 正文块「节号 块号」）
