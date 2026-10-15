@@ -1403,3 +1403,10 @@
 - **做法**：`layout_measure.measure()` 结果按「PDF 指纹 + 源文件指纹 + 工具代码指纹」缓存在 `~/.cache/flight-measure`（留最近 60 份，`MEASURE_NOCACHE=1` 不用缓存），60 页以上按连续页段分给多个进程（`MEASURE_JOBS`）；`lonely()` 只给近乎空白的候选页及其前后页找表格；fit_fix 每遍的断表检查与实测并行；check_layout 的 verify / check_splits 放后台，单册 scan 与逐页表格检查按页段分叉并行（`CHECK_SERIAL=1` 回串行，`CHECK_JOBS` 调进程数）。
 - **用时**（10 核 Mac）：fit_fix 每遍约 75 → 32 秒；速查版排版 166 → 77 秒；排版检查 172 → 24 秒；整本重建约 7 分钟 → 4 分钟（242 秒）。
 - **新增自动检查（T10，读 Word 成品）**：段首「– -」双短横、段首原样「- 」报**错误**（10-13 重新校对查出的两类生成器回归）；表格里的孤立分项（前一段不是引导语 / 分项 / 编号 / 并列条目）、引导语下只有一个分项报**建议**，进排版建议裁定流程。
+
+## SD-183　成品设置与列宽记录入库、LibreOffice 统一 26.8（2026-10-14 用户「按你的建议改」）
+
+- 起因：噜噜第二次验收（LibreOffice 24.2）完整版 442 页、速查 189 页，没有页脚，封面缺特别提示、署名成了「噜噜」。Claude 用 bundle 新克隆复现：①特别提示、署名、前言署名只存在本机 `.git/config`，不随克隆走，署名退回 git 用户名；②fit_fix 的列宽 / 压缩记录 `build/keep_force_*.txt` 不入库，克隆后从零调起（Claude 的 Mac 上也只得 556 页、排版错误 5 条）；③补上两者后 557 / 234 页逐页一致，剩下的页脚缺失与少页归 LibreOffice 24.2。
+- **成品设置**：私有库根目录 `成品设置.gitconfig`（git 配置文件格式，键 notes.docAuthor / docNotice / docPrefaceSignature / docBW / docDuplex）。sync.sh、quickref.py、check_layout.py、preview.py 先读它，没有的键才退回本机 git config。版本号 notes.docEdition 仍由 sync.sh 按基线标签设或用 DOC_EDITION 指定。
+- **列宽记录入库**：`.gitignore` 由 `build/` 改为 `build/*`，例外放行 `build/keep_force_B737机型理论知识笔记.txt`、`…速查.txt`；sync.sh 每次提交都带上，基线连排版状态一起可复现。
+- **LibreOffice 统一 26.8.x**：噜噜的环境脚本不是 26.8 就装官方 deb 包（/opt/libreoffice26.8，/usr/local/bin/soffice 链接），自检不是 26.8 报 ✗；另自检成品设置与列宽记录是否随仓库到位。

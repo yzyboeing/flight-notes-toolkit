@@ -121,7 +121,9 @@ def main():
     env = dict(os.environ)
     for k in ('DOC_TOPICS', 'DOC_PREFACE', 'DOC_QRTOPICS', 'DOC_TOPICINDEX', 'NO_SEC_BREAK'): env.pop(k, None)
     env.setdefault('NODE_PATH', os.path.join(REPO, 'node_modules'))
-    git_cfg = lambda k: subprocess.run(['git', '-C', REPO, 'config', '--get', k], capture_output=True, text=True).stdout.strip()
+    def git_cfg(k):   # 2026-10-14：先读库内 成品设置.gitconfig，没有的键再读本机 git config（同 sync.sh 的 cfg）
+        r = subprocess.run(['git', '-C', REPO, 'config', '-f', os.path.join(REPO, '成品设置.gitconfig'), '--get', k], capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else subprocess.run(['git', '-C', REPO, 'config', '--get', k], capture_output=True, text=True).stdout.strip()
     for k, g in (('DOC_EDITION', 'notes.docEdition'), ('DOC_NOTICE', 'notes.docNotice')):   # 封面版本号、特别提示与全书同（sync 已导出；单独跑时从 git config 取）
         if not env.get(k): env[k] = git_cfg(g)
     env.update({'DOC_SINGLE': '1', 'DOC_QRDIMS': DIMS_JSON, 'DOC_SINGLE_TOC_TITLE': '目录', 'DOC_SUBTITLE': '数据 · 限制 · 概念', 'DOC_HEADER': 'B737机型理论知识速查',

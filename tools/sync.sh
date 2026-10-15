@@ -51,6 +51,8 @@ TOOLKIT="${TOOLKIT:-$SELF_DIR}"
 [ -f "$TOOLKIT/assemble.py" ] || TOOLKIT="$ROOT/../pub/tools"
 [ -f "$TOOLKIT/assemble.py" ] || die "找不到工具链（assemble.py），可设 TOOLKIT 环境变量指定"
 TOOLKIT="$(cd "$TOOLKIT" && pwd)"
+# 成品设置（2026-10-14）：先读库内 成品设置.gitconfig（随克隆 / bundle 走），没有的键再读本机 git config
+cfg(){ git config -f "$ROOT/成品设置.gitconfig" --get "$1" 2>/dev/null || git config --get "$1"; }
 info "仓库 $ROOT"
 info "工具链 $TOOLKIT"
 
@@ -119,7 +121,7 @@ if [ "$BUILD" = 1 ]; then
   # 而成品封面要署真名。优先取仓库本地配置 notes.docAuthor：
   #     git config notes.docAuthor "by　张三"
   # 没设才退回 user.name。
-  DOC_AUTHOR="${DOC_AUTHOR:-$(git config --get notes.docAuthor || git config user.name)}"
+  DOC_AUTHOR="${DOC_AUTHOR:-$(cfg notes.docAuthor || git config user.name)}"
   export DOC_AUTHOR
   # 封面版次与声明（可选）：git config notes.docEdition "20260930"；git config notes.docNotice "…"
   # SD-142（2026-10-05 用户）：封面版本号与文件名同为版本名「月日 + R + 当天第几版」（如 1005R7）——
@@ -143,15 +145,15 @@ if [ "$BUILD" = 1 ]; then
   DOC_TOPICS="${DOC_TOPICS:-$ROOT/按主题查索引.json}"; export DOC_TOPICS
   # 2026-10-12 用户取消正文「相关」行（「太乱了」）：不再传 DOC_RELATED（相关节索引.json 停用备查）
   unset DOC_RELATED
-  DOC_NOTICE="${DOC_NOTICE:-$(git config --get notes.docNotice)}"; export DOC_NOTICE
+  DOC_NOTICE="${DOC_NOTICE:-$(cfg notes.docNotice)}"; export DOC_NOTICE
   DOC_PREFACE="${DOC_PREFACE:-$ROOT/前言.md}"; export DOC_PREFACE   # SD-51 前言页（文件不存在则不出前言）
-  DOC_PREFACE_SIGNATURE="${DOC_PREFACE_SIGNATURE:-$(git config --get notes.docPrefaceSignature)}"; export DOC_PREFACE_SIGNATURE
+  DOC_PREFACE_SIGNATURE="${DOC_PREFACE_SIGNATURE:-$(cfg notes.docPrefaceSignature)}"; export DOC_PREFACE_SIGNATURE
   # SD-67（2026-09-29 用户）：主题线索引页撤出成品。源文件 主题线索引.md 保留在库里，
   # 需要时把下一行取消注释即可恢复。
   # DOC_TOPICINDEX="${DOC_TOPICINDEX:-$ROOT/主题线索引.md}"; export DOC_TOPICINDEX
   # 印刷方式（可选）：git config notes.docBW 1（黑白：限制值改黑色加粗 + 下划线）；git config notes.docDuplex 1（双面：镜像页边距、奇偶页页眉页脚、每章从右页开始）
-  DOC_BW="${DOC_BW:-$(git config --get notes.docBW)}"; export DOC_BW
-  DOC_DUPLEX="${DOC_DUPLEX:-$(git config --get notes.docDuplex)}"; export DOC_DUPLEX
+  DOC_BW="${DOC_BW:-$(cfg notes.docBW)}"; export DOC_BW
+  DOC_DUPLEX="${DOC_DUPLEX:-$(cfg notes.docDuplex)}"; export DOC_DUPLEX
 
   echo; info "[4/5] 渲染 docx"
   if [ "$FULL" = 1 ]; then

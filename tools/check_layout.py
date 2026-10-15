@@ -24,7 +24,9 @@ QREF = arg('--qref') or os.path.join(REPO, 'build', 'B737机型理论知识速�
 SECTION = '--section' in sys.argv   # 2026-10-07 单节预览（preview.py）：只查表格与版面，跳过成品文件、前言 / 目录、速查等整书检查
 MDP = arg('--md') or os.path.join(REPO, 'build', 'book.md')   # 生成这本 PDF 的源（取源文件 <br>、one-page、w-NN 标记）
 if SECTION and '--qref' not in sys.argv: QREF = '/nonexistent'
-def git_cfg(k):
+def git_cfg(k):   # 2026-10-14：先读库内 成品设置.gitconfig，没有的键再读本机 git config（同 sync.sh 的 cfg）
+    r = subprocess.run(['git', '-C', REPO, 'config', '-f', os.path.join(REPO, '成品设置.gitconfig'), '--get', k], capture_output=True, text=True)
+    if r.returncode == 0: return r.stdout.strip()
     return subprocess.run(['git', '-C', REPO, 'config', '--get', k], capture_output=True, text=True).stdout.strip()
 EDITION, NOTICE, SIGN = git_cfg('notes.docEdition'), git_cfg('notes.docNotice'), git_cfg('notes.docPrefaceSignature')
 

@@ -20,6 +20,9 @@ secs = [a for a in sys.argv[1:] if re.fullmatch(r'\d\.\d{1,2}', a)]
 if not secs: print(__doc__); sys.exit(1)
 B = os.path.join(ROOT, 'build'); P = os.path.join(B, 'preview'); os.makedirs(P, exist_ok=True)
 git = lambda *a: subprocess.run(['git'] + list(a), capture_output=True, text=True, cwd=ROOT).stdout.strip()
+def cfg(k):   # 2026-10-14：先读库内 成品设置.gitconfig，没有的键再读本机 git config（同 sync.sh 的 cfg）
+    r = subprocess.run(['git', 'config', '-f', os.path.join(ROOT, '成品设置.gitconfig'), '--get', k], capture_output=True, text=True, cwd=ROOT)
+    return r.stdout.strip() if r.returncode == 0 else git('config', '--get', k)
 
 # 1. 组装并截出指定节
 subprocess.run([sys.executable, os.path.join(T, 'assemble.py'), '--src', 'notes_src', '--out', 'build'], cwd=ROOT, check=True, capture_output=True)
@@ -44,7 +47,7 @@ DOCX = os.path.join(P, '预览.docx'); KF = os.path.join(P, 'keep_force_预览.t
 if os.path.exists(BOOKKF): shutil.copy2(BOOKKF, KF)
 env = dict(os.environ, DOC_FIGS=os.environ.get('DOC_FIGS', '3.2-1_,2.1-1_,2.1-2_,3.3-1_,3.3-2_,3.3-3_,3.1-1_'), NODE_PATH=os.path.join(ROOT, 'node_modules'), FITFIX_MAXPASS='4',
            DOC_EDITION=git('config', '--get', 'notes.docEdition') or 'preview', DOC_HEADER='B737-NG / B737-8 机型理论知识笔记',
-           DOC_AUTHOR=git('config', '--get', 'notes.docAuthor'), DOC_TOPICS='', DOC_PREFACE='/nonexistent')
+           DOC_AUTHOR=cfg('notes.docAuthor'), DOC_TOPICS='', DOC_PREFACE='/nonexistent')
 r = subprocess.run([sys.executable, os.path.join(T, 'fit_fix.py'), MD, DOCX], env=env, cwd=ROOT, capture_output=True, text=True)
 print('\n'.join(l for l in r.stdout.splitlines() if l.startswith('fit_fix')))
 if r.returncode: sys.exit('排版失败：' + (r.stderr or r.stdout)[-800:])
