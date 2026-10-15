@@ -194,7 +194,8 @@ if [ "$BUILD" = 1 ]; then
       for ff in "$HOME"/Library/Fonts/SourceHan*.otf; do [ -f "$ff" ] && { cmp -s "$ff" "$LOPROF/user/fonts/$(basename "$ff")" || cp "$ff" "$LOPROF/user/fonts/"; }; done
       fresh="$LOTMP/$(basename "${f%.docx}").pdf"
       # 2026-10-07：fit_fix 最后一遍已转好同一份 docx 的 PDF（标记里记着 docx 的修改时间）→ 直接用，省一次整本转换
-      if [ -f "$f.pdf-ok" ] && [ -f "$pdf" ] && [ "$(cat "$f.pdf-ok")" = "$(stat -f %m "$f")" ]; then
+      # 2026-10-14：修改时间改用 python 取（原 `stat -f %m` 是 macOS 写法，Linux 上含义不同；噜噜在 Linux 虚拟机上重建）
+      if [ -f "$f.pdf-ok" ] && [ -f "$pdf" ] && [ "$(cat "$f.pdf-ok")" = "$(python3 -c 'import os,sys;print(int(os.path.getmtime(sys.argv[1])))' "$f")" ]; then
         cp "$pdf" "$fresh"; info "沿用 fit_fix 最后一遍的 PDF（不重转）"
       else
         "$SOF" -env:UserInstallation="file://$LOPROF" \
