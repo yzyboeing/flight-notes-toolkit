@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import subprocess
 import sys
 import tempfile
@@ -8,6 +9,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackageTest(unittest.TestCase):
+    def test_catalog_release_matches_package_version(self):
+        manifest = json.loads((ROOT / 'skill-package.json').read_text())
+        catalog = json.loads((ROOT / 'ai-catalog.json').read_text())
+        entry = next(item for item in catalog['entries']
+                     if item.get('name') == manifest['name'])
+        version = manifest['version']
+        self.assertEqual(entry['release_tag'], f'skill-v{version}')
+        self.assertEqual(entry['asset'], f"{manifest['name']}-{version}.skill.zip")
+
     def test_hidden_install_parent_does_not_hide_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / '.agent' / 'skill' / 'examples'
