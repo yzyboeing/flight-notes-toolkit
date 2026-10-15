@@ -6,6 +6,7 @@
   "visibility": "public",
   "root": ".",
   "include": [
+    "agents/*",
     "SKILL.md",
     "AGENTS.md",
     "README.md",

@@ -9,6 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackageTest(unittest.TestCase):
+    def test_codex_agent_config_is_distributed(self):
+        manifest = json.loads((ROOT / 'skill-package.json').read_text())
+        self.assertIn('agents/*', manifest['include'])
+        self.assertTrue((ROOT / 'agents/openai.yaml').is_file())
+
     def test_catalog_release_matches_package_version(self):
         manifest = json.loads((ROOT / 'skill-package.json').read_text())
         catalog = json.loads((ROOT / 'ai-catalog.json').read_text())

@@ -9,6 +9,11 @@
 - Python 3.12.14 下 `doctor.py --stage rules` 和 `build` 依赖探测通过；`render` 阶段因当前运行时缺少 `fitz` 未通过。默认 Python 3.9.6 低于包要求，不作为验证环境。
 - `functional_test: not_run`，`visual_qa: not_run`；未据此声明真实航空翻译或跨 AI 行为通过。
 - GitHub Release `skill-v1.2.0` 已发布并回读确认包含 ZIP、规则文本和 SHA-256 文件；GitHub 页面显示 ZIP 与规则文本的摘要分别与本地记录一致。校验文件以 `.sha256.txt` 资产名发布，内容仍为构建器生成的原始校验清单。
+## 2026-10-14：1.2.1 补丁复核
+
+- 修复 1.2.0 发布包未包含 Codex 专用 `agents/openai.yaml` 的允许列表遗漏。
+- 新增打包测试，确保 Skill 包清单包含 `agents/*` 且源码文件存在。
+- 重新执行包检查、外部私有关键词扫描、单元测试、确定提交打包、安装校验和 rules 阶段 doctor。
 
 ## 2026-10-14：1.2.0 发布前复核
 
