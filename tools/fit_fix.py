@@ -145,7 +145,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     pdf = to_pdf(); last_pdf = os.path.splitext(OUT)[0] + '.fitfix.pdf'; shutil.copy2(pdf, last_pdf)   # 测量后临时目录会删，先留一份
     # 2026-10-14 提速：断表检查与下面的实测并行跑，到下面删临时目录前再收
     _cs = subprocess.Popen([sys.executable, os.path.join(T, 'check_splits.py'), pdf, '--json'],
-                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     # SD-85 实测加宽：末行孤字、短格折行 → 这张表这一列加宽，下一遍重排（原文 <br> 主动换行的不算）
     sys.path.insert(0, T); from layout_measure import measure
     wadd, wgive, now, cadd, nwcand, nwwrap, grown_sg, nlnow = 0, 0, set(), 0, {}, set(), set(), {}
@@ -250,7 +250,13 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
         # 表已收紧到底（或上一页没有可收紧的表）仍只剩一两行：上一页最后一个条目标题另起一页
         if not live and x.get('head') and x['head'] not in pbreak: pbreak.add(x['head']); ladd += 1
     splitok &= sigs
-    res = json.loads(_cs.communicate()[0])   # 先收断表结果再删临时目录
+    # 2026-10-15（噜噜虚拟机自检报「JSON 解析错」）：不再丢掉 check_splits 的 stderr；取最后一行 JSON（PyMuPDF 旧版会把警告打到 stdout），解析不了就把真正原因报出来
+    _out, _err = _cs.communicate()   # 先收断表结果再删临时目录
+    _js = [l for l in _out.splitlines() if l.startswith('{')]
+    try: res = json.loads(_js[-1])
+    except (IndexError, ValueError):
+        sys.exit('fit_fix：断表检查 check_splits.py 没有给出结果（退出码 %s）。\n  stdout 末尾：%s\n  stderr 末尾：%s'
+                 % (_cs.returncode, _out.strip()[-500:] or '（空）', _err.strip()[-1500:] or '（空）'))
     shutil.rmtree(os.path.dirname(pdf), ignore_errors=True)
     add, up, gave, miss = 0, 0, 0, []
     for sp in res['splits']:
