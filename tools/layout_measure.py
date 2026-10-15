@@ -59,13 +59,61 @@ def cell_lines(lines, bb):
         r[0] = min(r[0], l[0]); r[1] = max(r[1], l[2]); r[2] += l[4]
     return [tuple(v) for v in rows.values()]
 
+# ---------- 2026-10-14 提速：测量结果缓存 + 多进程分页并行（结果与逐页串行完全相同） ----------
+# 缓存键 = PDF 内容 + book.md 内容 + 本模块源码 的指纹；任一变化即重测。缓存目录 MEASURE_CACHE（默认 ~/.cache/flight-measure），只留最近 60 份。
+# 并行：页数 ≥ 60 时开 MEASURE_JOBS 个子进程（默认 CPU 核数，最多 8），各测一段连续页、写临时文件后按页序合并；MEASURE_JOBS=1 退回串行。
+# 用独立子进程（python3 layout_measure.py --worker …）而不是 multiprocessing：调用方 check_layout.py 等是脚本式写法，spawn 会把整个脚本重跑一遍。
+import hashlib, pickle, subprocess, tempfile
+_CODE = hashlib.sha1(open(os.path.abspath(__file__), 'rb').read()).hexdigest()[:12]
+def _fh(path):
+    if not path or not os.path.exists(path): return '-'
+    h = hashlib.sha1()
+    with open(path, 'rb') as f:
+        for blk in iter(lambda: f.read(1 << 20), b''): h.update(blk)
+    return h.hexdigest()[:16]
+
 def measure(pdf, srcmd=None):
     if srcmd is None: srcmd = os.path.join(os.path.dirname(os.path.abspath(pdf)), 'book.md')
+    cdir = os.environ.get('MEASURE_CACHE', os.path.expanduser('~/.cache/flight-measure'))
+    key = '%s_%s_%s' % (_fh(pdf), _fh(srcmd), _CODE)
+    cf = os.path.join(cdir, key + '.pkl')
+    if os.environ.get('MEASURE_NOCACHE') != '1' and os.path.exists(cf):
+        try:
+            with open(cf, 'rb') as f: return pickle.load(f)
+        except Exception: pass
+    n = len(pymupdf.open(pdf))
+    jobs = int(os.environ.get('MEASURE_JOBS', '0') or 0) or min(os.cpu_count() or 1, 8)
+    if n >= 60 and jobs > 1:
+        cuts = [round(n * k / jobs) for k in range(jobs + 1)]
+        tmpd = tempfile.mkdtemp(prefix='lm_')
+        procs = []
+        for k in range(jobs):
+            out = os.path.join(tmpd, '%d.pkl' % k)
+            procs.append((subprocess.Popen([sys.executable, os.path.abspath(__file__), '--worker', pdf, srcmd, str(cuts[k]), str(cuts[k + 1]), out]), out))
+        res = []
+        for pr, out in procs:
+            if pr.wait() != 0: raise RuntimeError('layout_measure 子进程失败')
+            with open(out, 'rb') as f: res += pickle.load(f)
+        for _, out in procs: os.remove(out)
+        os.rmdir(tmpd)
+    else:
+        res = _measure_pages(pdf, srcmd, range(n))
+    try:
+        os.makedirs(cdir, exist_ok=True)
+        with open(cf + '.tmp', 'wb') as f: pickle.dump(res, f)
+        os.replace(cf + '.tmp', cf)
+        old = sorted((os.path.getmtime(os.path.join(cdir, x)), x) for x in os.listdir(cdir) if x.endswith('.pkl'))
+        for _, x in old[:-60]: os.remove(os.path.join(cdir, x))
+    except Exception: pass
+    return res
+
+def _measure_pages(pdf, srcmd, pages):
     br = _brtext(srcmd)
     ebr = lambda line: bool(br) and (lambda k: bool(k) and (k + '|') in br)(''.join(ch for ch in line if ch.isalnum()))
     d = pymupdf.open(pdf); H = d[0].rect.height; found = []
     CW = d[0].rect.width - 72   # 版心宽（左右页边距各 36pt）
-    for i, p in enumerate(d):
+    for i in pages:
+        p = d[i]
         try: tabs = p.find_tables().tables
         except Exception: continue
         lines = lines_of(p)
@@ -250,6 +298,10 @@ def measure(pdf, srcmd=None):
                               'orphan': False, 'grow': True, 'fill': True, 'cx': fillc[kf][1], 'tw': round(TX2 - t.bbox[0], 1), 'table': ttext, 'span': False})
     return found
 
+if __name__ == '__main__' and len(sys.argv) > 1 and sys.argv[1] == '--worker':   # 并行子进程：测 [start, end) 页
+    _pdf, _src, _a, _b, _out = sys.argv[2:7]
+    with open(_out, 'wb') as _f: pickle.dump(_measure_pages(_pdf, _src, range(int(_a), int(_b))), _f)
+    sys.exit(0)
 if __name__ == '__main__':
     res = measure(sys.argv[1])
     print('共 %d 格需要加宽' % len(res))
@@ -261,22 +313,31 @@ def lonely(pdf):
          tail：本页只有上一页表格的表后说明（表格占满上一页）→ 返回上一页最后那张表。
        over＝（标题 / 说明高度 + 表高）÷ 版心高度，fit_fix 据此决定压缩级别；块索引表改为允许按块分页。"""
     d = pymupdf.open(pdf); H = d[0].rect.height
-    info = []
+    # 2026-10-14 提速：找表格只在用到时做（只有近乎空白的候选页及其前后页需要），结果与逐页全找相同
+    blocks, _tabs = [], {}
     for p in d:
         bl = [b for b in p.get_text('blocks') if b[4].strip() and b[1] > 0.06 * H]
         fy = max((b[1] for b in bl if re.search(r'第\s*\d+\s*页\s*$', b[4])), default=H + 1)   # SD-97 页脚一行：章名 / 节名 / 页码；取最下面一个「第 N 页」（正文「出处 …第 51 页」也会匹配）
         bl = [b for b in bl if b[1] < fy - 2]
-        try: tabs = [t for t in p.find_tables().tables if t.bbox[1] > 0.07 * H and t.bbox[3] - t.bbox[1] > 10]
-        except Exception: tabs = []
-        info.append((bl, tabs))
+        blocks.append(bl)
+    def tabs_of(k):
+        if k not in _tabs:
+            try: _tabs[k] = [t for t in d[k].find_tables().tables if t.bbox[1] > 0.07 * H and t.bbox[3] - t.bbox[1] > 10]
+            except Exception: _tabs[k] = []
+        return _tabs[k]
+    class _Info:
+        def __getitem__(s, k): return (blocks[k], tabs_of(k))
+        def __iter__(s): return iter([(b, None) for b in blocks])
+    info = _Info()
     spans = [max(b[3] for b in bl) - min(b[1] for b in bl) for bl, _ in info if bl]
     AREA = max(spans) if spans else H
     out = []
     for i in range(1, len(d) - 1):
-        bl, tabs = info[i]
-        if not bl or tabs: continue
+        bl = blocks[i]
+        if not bl: continue
         top, bot = min(b[1] for b in bl), max(b[3] for b in bl)
         if bot > 0.25 * H: continue
+        if tabs_of(i): continue   # 原顺序「not bl or tabs」再「bot > 0.25H」：三个条件都是 continue，先判便宜的不改变结果
         nbl, ntabs = info[i + 1]
         HEAD = re.compile(r'^(\d\.\d+\u3000|[A-Z]-\d+\u3000|\d+\.\s|块索引\s*$)')
         if any(HEAD.match(b[4].strip()) for b in bl) and nbl:

@@ -143,8 +143,9 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     nwlock = {k2 for k2 in nwlock if k2[0] in sigs}
     wblock = {k2 for k2 in wblock if k2[0] in sigs}
     pdf = to_pdf(); last_pdf = os.path.splitext(OUT)[0] + '.fitfix.pdf'; shutil.copy2(pdf, last_pdf)   # 测量后临时目录会删，先留一份
-    res = json.loads(subprocess.run([sys.executable, os.path.join(T, 'check_splits.py'), pdf, '--json'],
-                                    capture_output=True, text=True).stdout)
+    # 2026-10-14 提速：断表检查与下面的实测并行跑，到下面删临时目录前再收
+    _cs = subprocess.Popen([sys.executable, os.path.join(T, 'check_splits.py'), pdf, '--json'],
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     # SD-85 实测加宽：末行孤字、短格折行 → 这张表这一列加宽，下一遍重排（原文 <br> 主动换行的不算）
     sys.path.insert(0, T); from layout_measure import measure
     wadd, wgive, now, cadd, nwcand, nwwrap, grown_sg, nlnow = 0, 0, set(), 0, {}, set(), set(), {}
@@ -249,6 +250,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
         # 表已收紧到底（或上一页没有可收紧的表）仍只剩一两行：上一页最后一个条目标题另起一页
         if not live and x.get('head') and x['head'] not in pbreak: pbreak.add(x['head']); ladd += 1
     splitok &= sigs
+    res = json.loads(_cs.communicate()[0])   # 先收断表结果再删临时目录
     shutil.rmtree(os.path.dirname(pdf), ignore_errors=True)
     add, up, gave, miss = 0, 0, 0, []
     for sp in res['splits']:

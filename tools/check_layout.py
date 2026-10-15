@@ -81,6 +81,19 @@ except Exception as _e:
 
 # ---------- F 成品文件 ----------
 QON = os.path.exists(QREF)   # SD-139：速查单册停出，有单册文件时才检查
+# 2026-10-14 提速：成品核验与断表检查（各自独立读 PDF、互不依赖）一开始就放到后台并行，下面原位置再取结果——报告顺序与内容不变
+_BG = {}
+for _pdf in (BOOK,) + ((QREF,) if QON else ()):
+    if os.path.exists(_pdf):
+        for _tool in ('verify.py', 'check_splits.py'):
+            _BG[(_tool, _pdf)] = subprocess.Popen([sys.executable, os.path.join(T, _tool), _pdf], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+class _R:
+    def __init__(s, tool, pdf):
+        pr = _BG.pop((tool, pdf), None)
+        if pr is None:
+            r = subprocess.run([sys.executable, os.path.join(T, tool), pdf], capture_output=True, text=True); s.stdout, s.returncode = r.stdout, r.returncode
+        else:
+            s.stdout, _e = pr.communicate(); s.returncode = pr.returncode
 for p in (() if SECTION else (BOOK, BOOK[:-4] + '.docx')) + ((QREF, QREF[:-4] + '.docx') if QON else ()):
     if not os.path.exists(p): err('F1', '缺成品：' + os.path.relpath(p, REPO))
 for p in glob.glob(os.path.join(REPO, 'build', '*竖版*')):
@@ -89,6 +102,41 @@ src_m = max((os.path.getmtime(f) for f in glob.glob(os.path.join(REPO, 'notes_sr
 for p in (() if SECTION else (BOOK,)) + ((QREF,) if QON else ()):
     if os.path.exists(p) and os.path.getmtime(p) < src_m:
         err('F3', '%s 比 notes_src 旧，先重新 sync 再检查' % os.path.basename(p))
+# T10 分项落实（B7 / SD-180，2026-10-14 起自动，原为人工校对项）：读 Word 成品逐段判角色
+#   错误：段首「– -」双短横、段首原样「- 」（生成器没吃掉源文件的列表短横，10-13 重新校对查出的两类回归）
+#   建议：表格里的孤立分项（前一段不是引导语 / 分项 / 编号 / 并列条目）；引导语下只有一个分项（规则要合并成一行）
+def _b7(docx, name):
+    import zipfile, html as _h
+    try: x = zipfile.ZipFile(docx).read('word/document.xml').decode('utf-8')
+    except Exception: return
+    def ptxt(pp):
+        runs = re.findall(r'<w:r\b.*?</w:r>', pp, re.S)
+        t = ''.join(_h.unescape(''.join(re.findall(r'<w:t[^>]*>(.*?)</w:t>', r, re.S))) for r in runs).strip()
+        navy = any('w:val="1F4E79"' in r and re.search(r'<w:t[^>]*>[^<]*[^\s<]', r) for r in runs)
+        return t, navy
+    dd, raw = [], []
+    for pp in re.findall(r'<w:p\b.*?</w:p>', x, re.S):
+        t, _ = ptxt(pp)
+        if re.match(r'[–—]\s*[-–—]\s', t): dd.append(t)
+        elif re.match(r'-\s', t): raw.append(t)
+    if dd: err('T10', '%s 有 %d 段以「– -」双短横开头（如「%s」）——源文件的「- 」没被生成器吃掉' % (name, len(dd), dd[0][:30]))
+    if raw: err('T10', '%s 有 %d 段以原样「- 」开头（如「%s」）——应排成「–」分项或「•」并列条目' % (name, len(raw), raw[0][:30]))
+    for tc in re.findall(r'<w:tc>.*?</w:tc>', x, re.S):
+        if '<w:tbl>' in tc: continue
+        P = [q for q in (ptxt(pp) for pp in re.findall(r'<w:p\b.*?</w:p>', tc, re.S)) if q[0]]
+        role = ['bul' if t.startswith('●') else 'dash' if re.match(r'–[ \u00a0]', t) else 'num' if re.match(r'[①-⑳]', t)
+                else 'lead' if nv and re.search(r'[：:]$', t) else 'plain' for t, nv in P]
+        for k, r in enumerate(role):
+            if r == 'dash' and (k == 0 or role[k - 1] not in ('lead', 'dash', 'num', 'bul')):
+                sug('T10', '%s：孤立分项「%s」——前一段「%s」不是引导语，分项应挂在以「：」结尾的引导语下（SD-180）' % (name, P[k][0][:24], P[k - 1][0][:24] if k else '（格首）'))
+            if r == 'lead':
+                kids = 0
+                for j in range(k + 1, len(role)):
+                    if role[j] in ('dash', 'num'): kids += 1
+                    else: break
+                if kids == 1: sug('T10', '%s：引导语「%s」下只有一个分项「%s」——按 B7 合并成一行' % (name, P[k][0][:24], P[k + 1][0][:24]))
+for _d, _nm in ((BOOK[:-4] + '.docx', '全书'),) + (((QREF[:-4] + '.docx', '单册'),) if QON else ()):
+    if os.path.exists(_d): _b7(_d, _nm)
 if not os.path.exists(BOOK):
     print('成品不全，先跑 sync.sh --full'); ERR and [print(' ', r, m) for r, m in ERR]; sys.exit(1)
 
@@ -158,6 +206,30 @@ try:
 except Exception:
     pass
 
+def _par(fn, n):
+    """把 range(n) 切成连续页段：第一段在本进程跑，其余各段在分叉子进程跑；子进程传回 ERR / SUG 的新增条目，按段序接回（2026-10-14）"""
+    J = int(os.environ.get('CHECK_JOBS') or min(os.cpu_count() or 1, 8))
+    if J <= 1 or n < 60 or not hasattr(os, 'fork') or os.environ.get('CHECK_SERIAL'):
+        fn(range(n), True); return
+    import pickle
+    cuts = [n * k // J for k in range(J + 1)]
+    kids = []
+    for k in range(1, J):
+        r, w = os.pipe(); n0 = (len(ERR), len(SUG)); pid = os.fork()
+        if pid == 0:
+            os.close(r)
+            try: fn(range(cuts[k], cuts[k + 1]), False); out = ('ok', ERR[n0[0]:], SUG[n0[1]:])
+            except BaseException as e: out = ('fail', repr(e), None)
+            with os.fdopen(w, 'wb') as f: pickle.dump(out, f)
+            os._exit(0)
+        os.close(w); kids.append((pid, r))
+    fn(range(cuts[0], cuts[1]), True)
+    for pid, r in kids:
+        with os.fdopen(r, 'rb') as f: out = pickle.load(f)
+        os.waitpid(pid, 0)
+        if out[0] != 'ok': raise RuntimeError('逐页检查子进程失败：' + out[1])
+        ERR.extend(out[1]); SUG.extend(out[2])
+
 def scan(pdf, name, header):
     d = pymupdf.open(pdf)
     W, H = d[0].rect.width, d[0].rect.height
@@ -211,211 +283,233 @@ def scan(pdf, name, header):
     if over: sug('L5', '%s 文字伸进右页边距（多为长英文串撑出行尾），看是否需要断开：第 %s 页' % (name, sorted(set(over))[:12]))
     # 表格逐格检查
     CW = W - 72
-    for i, p in enumerate(d):
-        try: tabs = p.find_tables().tables
-        except Exception: continue
-        lines = body_lines(p)
-        for t in tabs:
-            if t.bbox[3] - t.bbox[1] < 8 or t.bbox[1] < 0.08 * H: continue
-            tw = t.bbox[2] - t.bbox[0]
-            # T5 表内字号底线 8pt（SD-80）
-            small = [sp['size'] for b in p.get_text('dict', clip=t.bbox)['blocks'] for l in b.get('lines', []) for sp in l['spans']
-                     if sp['text'].strip() and sp['text'].strip() != '●' and sp['size'] < 7.9]   # 分条圆点「●」按半号排，不算小字
-            if small and min(small) >= 6.9 and any(sig in nosp(p.get_text()) for sig in ONEPAGE_SIGS): small = []   # R6：源文件标 one-page 的超大表允许 7.5pt
-            if small: err('T5', '%s 第 %d 页：表内有 %.1fpt 的字，低于 8pt 底线' % (name, i + 1, min(small)))
-            if tw > CW + 4: err('T1', '%s 第 %d 页：表格宽 %.0fpt 超过版心 %.0fpt' % (name, i + 1, tw, CW))
-            rows = [[c for c in r.cells] for r in t.rows]
-            if not rows: continue
-            ncol = max(len(r) for r in rows)
-            info = [[(c, cell_lines(lines, c)) if c else None for c in r] for r in rows]
-            # 表后淡蓝底注、公司差异、警告条紧贴表格时会被识别成表格的末几行：去掉，免得序号表判不出（2026-10-05）
-            _nt = lambda r: r and r[0] and re.match(r'\s*(注[：:]|公司差异|警告[：:])', ''.join(l[2] for l in r[0][1]))
-            while len(info) > 1 and _nt(info[-1]): info.pop(); rows.pop()
-            # 每列：宽度与最长一行的占用
-            colw, colused = [0] * ncol, [0] * ncol
-            for r in info:
-                for k, x in enumerate(r):
-                    if not x: continue
-                    c, ls = x
-                    if k + 1 < len(r) and r[k + 1] is None: continue      # 跨列格不代表单列宽
-                    colw[k] = max(colw[k], c[2] - c[0])
-                    colused[k] = max(colused[k], max((l[1] - l[0] for l in ls), default=0))
-            spare = [max(0, colw[k] - colused[k] - PAD) for k in range(ncol)]
-            # T13 改由 layout_measure 实测统一检查（见 scan 之后，跨页表按各段最小余量），这里不再单页判断
-            # T2 有剩余宽度却折行（SD-72）：表头、以及 20 个字宽以内的短格
-            for ri, r in enumerate(info):
-                for k, x in enumerate(r):
-                    if not x: continue
-                    c, ls = x
-                    if len(ls) < 2: continue
-                    txt = ''.join(l[2] for l in ls).strip()
-                    if ri > 0 and vis(txt) > 20: continue
-                    if re.match(r'[•–▪①-⑳]', txt) or '•' in txt: continue
-                    # 自然折行时首行会接近撑满格宽；首行明显短于格宽说明是原文 <br> 主动分行（SD-72 不管）
-                    if (ls[0][1] - ls[0][0]) < (c[2] - c[0]) - PAD - 18 or explicit_br(ls[0][2]): continue
-                    need = sum(l[1] - l[0] for l in ls) + PAD - (c[2] - c[0])
-                    have = sum(spare[j] for j in range(ncol) if j != k) + max(0, CW - tw)
-                    if 0 < need and need + 6 <= have:
-                        sug('T2', '%s 第 %d 页：%s「%s」折成 %d 行，表内还有约 %.0fpt 空余可让它一行放下' % (
-                            name, i + 1, '表头' if ri == 0 else '短格', txt[:24], len(ls), have))
-            # T3 整列都是一行短内容却没居中（SD-75 / SD-78），第 2 列起、至少 2 格；序号表（首列 ①②③ / 1 2 3）按 SD-90 左对齐，不查
-            first = [''.join(l[2] for l in r[0][1]).strip() for r in info[1:] if r and r[0] and r[0][1] and not (len(r) > 1 and all(x is None for x in r[1:]))]   # 跳过整行合并的说明行（SD-129 表后说明进表格末行）
-            _sr = lambda x: re.match(r'^([①-⑳]|\d{1,2}[.、]?)$', x)
-            serial = len(first) >= 2 and all(_sr(x) for x in (first if _sr(first[-1]) else first[:-1])) and len(first) - (0 if _sr(first[-1]) else 1) >= 2   # 末行可以是表后说明行（SD-129）
-            for k in (range(1, ncol) if not serial else []):
-                cells = [r[k] for r in info[1:] if k < len(r) and r[k] and (k + 1 >= len(r) or r[k + 1] is not None)]
-                cells = [x for x in cells if x[1]]
-                if len(cells) < 2 or any(len(x[1]) != 1 for x in cells): continue
-                if any(x[1][0][2].lstrip().startswith('•') for x in cells): continue   # 按同列统一规则加点的列本就左齐（表可能跨页，只看到一半）
-                left = [x for x in cells if abs(((x[1][0][0] + x[1][0][1]) / 2) - ((x[0][0] + x[0][2]) / 2)) > 4
-                        and (x[0][2] - x[0][0]) - (x[1][0][1] - x[1][0][0]) > PAD + 8]
-                if len(left) == len(cells):
-                    sug('T3', '%s 第 %d 页：第 %d 列每格都是一行短内容却左对齐（如「%s」），考虑整列居中' % (
-                        name, i + 1, k + 1, left[0][1][0][2].strip()[:20]))
-            # T6 / T7 / T8 同列统一与末行孤字（SD-84，2026-09-30 用户速查区第 15～55 条反馈）
-            PH = re.compile(r'^[—－\-–/／无空×✕✓√?？…\s]*$')
-            for k in range(ncol):
-                cells = [r[k] for r in info[1:] if k < len(r) and r[k] and (k + 1 >= len(r) or r[k + 1] is not None) and r[k][1]]
-                cells = [x for x in cells if not PH.match(''.join(l[2] for l in x[1]))]
-                if len(cells) < 2: continue
-                # SD-180：引导语不加「•」——有「……：」+「–」/ ①② 分项的格是层级格，不按漏点计
-                lead = lambda x: any(re.search(r'[：:]\s*$', a[2]) and re.match(r'\s*[–①-⑳]', b[2]) for a, b in zip(x[1], x[1][1:]))
-                bul = [x for x in cells if x[1][0][2].lstrip().startswith('•')]
-                # 没加点的格只算「句子」：≥ 12 字或以句号结尾；短值（持续 / ≥ 800m）和 ①② 步骤格不算不统一
-                def sentence(x):
-                    t0 = ''.join(l[2] for l in x[1]).strip()
-                    return not re.match(r'[①-⑳]', t0) and '①' not in t0 and (len(re.sub(r'\s', '', t0)) >= 12 or t0.endswith('。'))
-                # SD-119 修订（用户 2026-10-03「除了父子关系之外，去掉所有单独的句子之前的小圆点」）：单句格不加点是对的，
-                # 只有没加点、格内却有多句（中间有「；」或「。」）的才算不统一
-                multi = lambda x: len([p for p in re.split(r'[；]', ''.join(l[2] for l in x[1]).strip()) if len(p.strip()) >= 4]) >= 2
-                nbs = [x for x in cells if x not in bul and sentence(x) and not lead(x)]   # SD-180：引导语格不算漏点，也不算加点格   # 2026-10-03 用户退回：一列要加点就整列都加（单句也加）
-                # 取值列（有「持续」「≥ 800m」这类不带句号的短值格）：长的并列格加点、短值居中不加点，是允许的差异（用户第 52 条）
-                valcol = any(len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) < 12 and not ''.join(l[2] for l in x[1]).strip().endswith('。')
-                             for x in cells if x not in bul)
-                if k > 0 and bul and nbs and not valcol:
-                    other = nbs[0]
-                    sug('T6', '%s 第 %d 页：第 %d 列有 %d 格分条加点、%d 格句子没有（如「%s」）——整列加点（col-bullet）或整列不加（col-center）' % (
-                        name, i + 1, k + 1, len(bul), len(nbs), other[1][0][2].strip()[:18]))
-                def centered(x):
-                    cx = (x[0][0] + x[0][2]) / 2
-                    return all(abs((l[0] + l[1]) / 2 - cx) <= 4 for l in x[1]) and any((x[0][2] - x[0][0]) - (l[1] - l[0]) > PAD + 8 for l in x[1])
-                def lefty(x):
-                    return all(l[0] - x[0][0] < PAD + 2 for l in x[1]) and any((x[0][2] - x[0][0]) - (l[1] - l[0]) > PAD + 8 for l in x[1])
-                nb = [x for x in cells if x not in bul]
-                # 表前有通栏说明行时，info[1] 是表头：最上面一格是 ≤ 8 字的短词（「步骤」「自动动作」），按表头处理，不算居中数据格
-                hdrlike = lambda x: x is cells[0] and len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) <= 8
-                # 列宽收窄到刚好放下（2026-10-05）后，填满格子的文字左右留白都很小，看不出是居中还是靠左：两边都不算
-                full = lambda x: all((x[0][2] - x[0][0]) - (l[1] - l[0]) <= PAD + 24 for l in x[1])
-                cen = [x for x in nb if centered(x) and not hdrlike(x) and not full(x)]; lef = [x for x in nb if lefty(x) and not centered(x) and not full(x)]
-                if cen and lef:
-                    sug('T7', '%s 第 %d 页：第 %d 列 %d 格居中、%d 格左对齐（如「%s」）——统一对齐' % (
-                        name, i + 1, k + 1, len(cen), len(lef), lef[0][1][0][2].strip()[:18]))
-            # T13 首列靠左（SD-104，2026-10-01 用户：「一般第一列都是居中」）：首列是标签 / 短句却左对齐。首列是长句 / 问句 / 条件句（≥ 约 30 字或带句号）的允许左对齐，不报
-            try:
-                fc = [r[0] for r in info[1:] if r and r[0] and r[0][1] and (len(r) < 2 or r[1] is not None)]
-                fc = [x for x in fc if not PH.match(''.join(l[2] for l in x[1]))]
-                def fct(x): return ''.join(l[2] for l in x[1]).strip()
-                def fleft(x):
-                    cx = (x[0][0] + x[0][2]) / 2
-                    return any(abs((l[0] + l[1]) / 2 - cx) > 4 and l[0] - x[0][0] < PAD + 2 for l in x[1]) and any((x[0][2] - x[0][0]) - (l[1] - l[0]) > PAD + 8 for l in x[1])
-                lf = [x for x in fc if fleft(x)]
-                longs = [x for x in fc if vis(re.sub(r'[（(][^）)]*[）)]', '', fct(x))) > 60 or '。' in fct(x) or fct(x).startswith('•')]
-                if len(fc) >= 2 and len(lf) >= max(2, len(fc) // 2) and len(longs) < 0.4 * len(fc):
-                    sug('T13', '%s 第 %d 页：首列「%s」等 %d 格左对齐——首列一般居中（标签 / 短句），表头标 col-center；首列是长句 / 问句的可保留左对齐' % (
-                        name, i + 1, fct(lf[0])[:16], len(lf)))
-            except Exception: pass
-            # T10 引语后的子项被排成同级（2026-09-30 用户，速查第 6 条）：「• ……：」后面紧跟的仍是「•」
-            for r in info[1:]:
-                for x in r:
-                    if not x: continue
-                    ls = [l[2].strip() for l in x[1]]
-                    for a0, b0 in zip(ls, ls[1:]):
-                        # SD-180（2026-10-13）：引导语不再加「•」——以「：」结尾、不以「•」「–」开头的行后面紧跟「•」，也是子项排成了同级
-                        if re.search(r'[：:]$', a0) and not a0.startswith('–') and b0.startswith('•') and (a0.startswith('•') or not re.match(r'^[①-⑳\d]', a0)):
-                            sug('T10', '%s 第 %d 页：「%s」是引语，后面的子项应为「–」，现为「•」' % (name, i + 1, a0[:24])); break
-            # T9 两型对照列格式不一致（2026-09-30 全书复审，速查第 120 条）：表头有 737-NG 与 737-8 两列，一列有「•」、另一列同类句子格没有
-            try:
-                hdrtxt = [''.join(l[2] for l in x[1]) if x else '' for x in info[0]]
-                ng = [k for k, h in enumerate(hdrtxt) if re.search(r'737-NG', h) and '737-8' not in h]
-                m8 = [k for k, h in enumerate(hdrtxt) if re.search(r'737-8', h) and '737-NG' not in h]
-                if ng and m8:
-                    def colbul(k):
-                        cs = [r[k] for r in info[1:] if k < len(r) and r[k] and r[k][1]]
-                        cs = [x for x in cs if len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) >= 12]
-                        return any(x[1][0][2].lstrip().startswith('•') for x in cs), any(not x[1][0][2].lstrip().startswith('•') for x in cs)
-                    a, b = colbul(ng[0]), colbul(m8[0])
-                    if (a[0] and not b[0] and b[1]) or (b[0] and not a[0] and a[1]):
-                        sug('T9', '%s 第 %d 页：737-NG / 737-8 对照两列一列分条加点、另一列没有——两列格式应一致（表头标 col-bullet 或 col-center）' % (name, i + 1))
-            except Exception: pass
-            # T8 末行孤字：改在 scan 之后统一用 layout_measure.measure() 实测（与 fit_fix 同一双眼睛，2026-10-05），这里不再自己另测
-            # SD-102：序号表（首列全是 ①② / 1、2）——T4 不报（序号表不分条）；T12 报自动加点；非序号表的说明类句子列没加点报 T11
-            try:
-                ctext = lambda x: ''.join(l[2] for l in x[1]).strip() if x else ''
-                # 序号列不一定在首列（2026-10-06 用户，2.3 B-1「类别｜序号｜条件」）：首列或表头为 序号 / # / 编号 / 步骤 / 条款 的列，与生成器 serialColOf 同口径
-                _hd0 = [ctext(x) for x in info[0]] if info else []
-                serial, sc = False, -1
-                for _sc in range(min(3, len(_hd0))):
-                    if _sc > 0 and not re.fullmatch(r'(序号|#|编号|步骤|条款)', _hd0[_sc].replace(' ', '')): continue
-                    firsts = [ctext(r[_sc]) for r in info[1:] if r and _sc < len(r) and r[_sc]]
-                    firsts = [f[0] if re.match(r'[\u2460-\u2473]\s*\S', f) else f for f in firsts]   # 「① 加标签文字」首列按序号表（2026-10-06 用户）
-                    serial = len(firsts) >= 2 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in firsts)
-                    def _sv(t):
-                        t = re.sub(r'[\s（()）.、]', '', t)
-                        return ord(t) - 0x245F if re.fullmatch(r'[\u2460-\u2473]', t) else int(t) if t.isdigit() else ord(t.lower()) - 96 if re.fullmatch(r'[a-zA-Z]', t) else -1
-                    if not serial and len(firsts) >= 4:   # 末尾 1～2 行非编号补充行（如「特殊情况」），与生成器同口径
-                        for tn in (1, 2):
-                            hd = firsts[:-tn]
-                            if len(hd) >= 3 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in hd) and [_sv(f) for f in hd] == list(range(1, len(hd) + 1)):
-                                serial = True; firsts = hd; break
-                    else:
-                        serial = serial and [_sv(f) for f in firsts] == list(range(1, len(firsts) + 1))   # 从 1 开始的连续编号才算（襟翼位置 10 / 15 / 25 不算）
-                    if serial: sc = _sc; break
-                hdrs = [ctext(x) for x in info[0]] if info else []
-                for k, h in enumerate(hdrs):
-                    if k == 0 or not h: continue
-                    ser_k = serial and k > sc   # 序号列右边的列才按序号表查
-                    cs = [ctext(r[k]) for r in info[1:] if k < len(r) and r[k]]
-                    cs = [c for c in cs if c and not re.fullmatch(r'[—\-–/无\s]+', c)]
-                    if len(cs) < 2: continue
-                    bul = sum(1 for c in cs if c.startswith('•') and '–' not in c)   # 「• 引语：」+「– 子项」是 F2 层级写法，不算自动加点
-                    single_b = sum(1 for c in cs if c.count('•') == 1 and '–' not in c and len(c) < 80)
-                    multi_b = any(c.count('•') >= 2 for c in cs)   # 2026-10-03 用户：一列要加点就整列都加——序号表这一列有多条加点时，单句加点是对的
-                    if ser_k and any('•' in c or '●' in c for c in cs):   # SD-140（2026-10-05 用户）：「有了序号就不要加小圆点」，无例外，报错
-                        err('T12', '%s 第 %d 页：序号表的「%s」列有小圆点——序号表其余列不加「•」（SD-140）' % (name, i + 1, h))
-                    if ser_k and not re.fullmatch(r'(时机|宣布时机|总则|类别)', h.replace(' ', '')):   # SD-140「后面的一列都是靠左」（类别等居中表头除外，2026-10-06 用户）：居中的格（左右留白相等且明显大于内边距）报错（M18-L015，2026-10-06）
-                        ctr = 0
-                        pad = (collections.Counter(round(l[0] - x[0][0]) for r in info[1:] for x in r if x for l in x[1] if l[2].strip()).most_common(1) or [(6, 0)])[0][0]   # 本表实际左内边距：取众数（悬挂缩进的「–」子项会更靠左，不能取最小）
-                        for r in info[1:]:
-                            x = r[k] if k < len(r) else None
-                            if not x or (k + 1 < len(r) and r[k + 1] is None): continue
-                            c, ls = x
-                            for l in ls:
-                                if re.fullmatch(r'[—\-–/无\s]+', l[2].strip()): continue
-                                lg, rg = l[0] - c[0], c[2] - l[1]
-                                if lg > pad + 2.5 and abs(lg - rg) < 3: ctr += 1
-                        if ctr: err('T12', '%s 第 %d 页：序号表的「%s」列有 %d 行居中——序号表其余列一律靠左（SD-140）' % (name, i + 1, h, ctr))
-                    if any(re.match(r'([\u2460-\u2473]|\d+[.、])', c) for c in cs): continue   # 格内本身是 ①② / 1. 编号条目的列不报
-                    sent = ([c for c in cs if vis(c) >= 12 or re.search(r'[，。；、]', c)] if re.search(r'说明$', h)
-                            else [c for c in cs if vis(c) >= 36 or re.search(r'[，。；]', c)])   # 与生成器同口径，门槛略放宽避免临界误报
-                    # SD-119 修订：单句不加点；只有格内有多句（「；」「。」分开 ≥ 2 句）却整列没加点时才提示
-                    multi = [c for c in cs if len([p for p in re.split(r'[；]', c) if len(p.strip()) >= 4]) >= 2]
-                    if (not serial and bul == 0 and len(sent) >= 0.6 * len(cs) and h not in EXPLICIT_NOBULLET
-                            and (DESC_H.match(h) or re.search(r'(条件|要求|说明|逻辑|措施|处置|要点|内容)$', h))):
-                        sug('T11', '%s 第 %d 页：说明类句子列「%s」没有加「•」——整列左对齐加点（SD-102）' % (name, i + 1, h))
-            except Exception: serial = False
-            # T4 并列长句未分条（SD-78）：一格内 ≥2 个「；」、各分句 ≥ 20 字宽、却没有 •
-            for r in ([] if serial else info[1:]):
-                for x in r:
-                    if not x: continue
-                    txt = ''.join(l[2] for l in x[1]).strip()
-                    if re.search(r'[•–▪①-⑳]', txt) or re.match(r'(注|解释|出处|公司差异)[：:]', txt): continue
-                    parts = [s for s in re.split(r'；', txt) if s.strip()]
-                    if len(parts) >= 3 and all(vis(s) >= 20 for s in parts[:-1]):
-                        sug('T4', '%s 第 %d 页：「%s…」含 %d 个并列长分句，考虑按语义分条加「•」' % (name, i + 1, txt[:20], len(parts)))
+    # 2026-10-14 提速：逐页表格检查各页互不相干（只往 ERR / SUG 里添），按连续页段分给分叉子进程，
+    # 各段的新增条目按页序接回，结果与串行相同；子进程各自重开 PDF（共用文件描述符的读位置会互相干扰）。CHECK_SERIAL=1 回到串行
+    def _tpass(dd, rng):
+        for i in rng:
+            p = dd[i]
+            try: tabs = p.find_tables().tables
+            except Exception: continue
+            lines = body_lines(p)
+            for t in tabs:
+                if t.bbox[3] - t.bbox[1] < 8 or t.bbox[1] < 0.08 * H: continue
+                tw = t.bbox[2] - t.bbox[0]
+                # T5 表内字号底线 8pt（SD-80）
+                small = [sp['size'] for b in p.get_text('dict', clip=t.bbox)['blocks'] for l in b.get('lines', []) for sp in l['spans']
+                         if sp['text'].strip() and sp['text'].strip() != '●' and sp['size'] < 7.9]   # 分条圆点「●」按半号排，不算小字
+                if small and min(small) >= 6.9 and any(sig in nosp(p.get_text()) for sig in ONEPAGE_SIGS): small = []   # R6：源文件标 one-page 的超大表允许 7.5pt
+                if small: err('T5', '%s 第 %d 页：表内有 %.1fpt 的字，低于 8pt 底线' % (name, i + 1, min(small)))
+                if tw > CW + 4: err('T1', '%s 第 %d 页：表格宽 %.0fpt 超过版心 %.0fpt' % (name, i + 1, tw, CW))
+                rows = [[c for c in r.cells] for r in t.rows]
+                if not rows: continue
+                ncol = max(len(r) for r in rows)
+                info = [[(c, cell_lines(lines, c)) if c else None for c in r] for r in rows]
+                # 表后淡蓝底注、公司差异、警告条紧贴表格时会被识别成表格的末几行：去掉，免得序号表判不出（2026-10-05）
+                _nt = lambda r: r and r[0] and re.match(r'\s*(注[：:]|公司差异|警告[：:])', ''.join(l[2] for l in r[0][1]))
+                while len(info) > 1 and _nt(info[-1]): info.pop(); rows.pop()
+                # 每列：宽度与最长一行的占用
+                colw, colused = [0] * ncol, [0] * ncol
+                for r in info:
+                    for k, x in enumerate(r):
+                        if not x: continue
+                        c, ls = x
+                        if k + 1 < len(r) and r[k + 1] is None: continue      # 跨列格不代表单列宽
+                        colw[k] = max(colw[k], c[2] - c[0])
+                        colused[k] = max(colused[k], max((l[1] - l[0] for l in ls), default=0))
+                spare = [max(0, colw[k] - colused[k] - PAD) for k in range(ncol)]
+                # T13 改由 layout_measure 实测统一检查（见 scan 之后，跨页表按各段最小余量），这里不再单页判断
+                # T2 有剩余宽度却折行（SD-72）：表头、以及 20 个字宽以内的短格
+                for ri, r in enumerate(info):
+                    for k, x in enumerate(r):
+                        if not x: continue
+                        c, ls = x
+                        if len(ls) < 2: continue
+                        txt = ''.join(l[2] for l in ls).strip()
+                        if ri > 0 and vis(txt) > 20: continue
+                        if re.match(r'[•–▪①-⑳]', txt) or '•' in txt: continue
+                        # 自然折行时首行会接近撑满格宽；首行明显短于格宽说明是原文 <br> 主动分行（SD-72 不管）
+                        if (ls[0][1] - ls[0][0]) < (c[2] - c[0]) - PAD - 18 or explicit_br(ls[0][2]): continue
+                        need = sum(l[1] - l[0] for l in ls) + PAD - (c[2] - c[0])
+                        have = sum(spare[j] for j in range(ncol) if j != k) + max(0, CW - tw)
+                        if 0 < need and need + 6 <= have:
+                            sug('T2', '%s 第 %d 页：%s「%s」折成 %d 行，表内还有约 %.0fpt 空余可让它一行放下' % (
+                                name, i + 1, '表头' if ri == 0 else '短格', txt[:24], len(ls), have))
+                # T3 整列都是一行短内容却没居中（SD-75 / SD-78），第 2 列起、至少 2 格；序号表（首列 ①②③ / 1 2 3）按 SD-90 左对齐，不查
+                first = [''.join(l[2] for l in r[0][1]).strip() for r in info[1:] if r and r[0] and r[0][1] and not (len(r) > 1 and all(x is None for x in r[1:]))]   # 跳过整行合并的说明行（SD-129 表后说明进表格末行）
+                _sr = lambda x: re.match(r'^([①-⑳]|\d{1,2}[.、]?)$', x)
+                serial = len(first) >= 2 and all(_sr(x) for x in (first if _sr(first[-1]) else first[:-1])) and len(first) - (0 if _sr(first[-1]) else 1) >= 2   # 末行可以是表后说明行（SD-129）
+                for k in (range(1, ncol) if not serial else []):
+                    cells = [r[k] for r in info[1:] if k < len(r) and r[k] and (k + 1 >= len(r) or r[k + 1] is not None)]
+                    cells = [x for x in cells if x[1]]
+                    if len(cells) < 2 or any(len(x[1]) != 1 for x in cells): continue
+                    if any(x[1][0][2].lstrip().startswith('•') for x in cells): continue   # 按同列统一规则加点的列本就左齐（表可能跨页，只看到一半）
+                    left = [x for x in cells if abs(((x[1][0][0] + x[1][0][1]) / 2) - ((x[0][0] + x[0][2]) / 2)) > 4
+                            and (x[0][2] - x[0][0]) - (x[1][0][1] - x[1][0][0]) > PAD + 8]
+                    if len(left) == len(cells):
+                        sug('T3', '%s 第 %d 页：第 %d 列每格都是一行短内容却左对齐（如「%s」），考虑整列居中' % (
+                            name, i + 1, k + 1, left[0][1][0][2].strip()[:20]))
+                # T6 / T7 / T8 同列统一与末行孤字（SD-84，2026-09-30 用户速查区第 15～55 条反馈）
+                PH = re.compile(r'^[—－\-–/／无空×✕✓√?？…\s]*$')
+                for k in range(ncol):
+                    cells = [r[k] for r in info[1:] if k < len(r) and r[k] and (k + 1 >= len(r) or r[k + 1] is not None) and r[k][1]]
+                    cells = [x for x in cells if not PH.match(''.join(l[2] for l in x[1]))]
+                    if len(cells) < 2: continue
+                    # SD-180：引导语不加「•」——有「……：」+「–」/ ①② 分项的格是层级格，不按漏点计
+                    lead = lambda x: any(re.search(r'[：:]\s*$', a[2]) and re.match(r'\s*[–①-⑳]', b[2]) for a, b in zip(x[1], x[1][1:]))
+                    bul = [x for x in cells if x[1][0][2].lstrip().startswith('•')]
+                    # 没加点的格只算「句子」：≥ 12 字或以句号结尾；短值（持续 / ≥ 800m）和 ①② 步骤格不算不统一
+                    def sentence(x):
+                        t0 = ''.join(l[2] for l in x[1]).strip()
+                        return not re.match(r'[①-⑳]', t0) and '①' not in t0 and (len(re.sub(r'\s', '', t0)) >= 12 or t0.endswith('。'))
+                    # SD-119 修订（用户 2026-10-03「除了父子关系之外，去掉所有单独的句子之前的小圆点」）：单句格不加点是对的，
+                    # 只有没加点、格内却有多句（中间有「；」或「。」）的才算不统一
+                    multi = lambda x: len([p for p in re.split(r'[；]', ''.join(l[2] for l in x[1]).strip()) if len(p.strip()) >= 4]) >= 2
+                    nbs = [x for x in cells if x not in bul and sentence(x) and not lead(x)]   # SD-180：引导语格不算漏点，也不算加点格   # 2026-10-03 用户退回：一列要加点就整列都加（单句也加）
+                    # 取值列（有「持续」「≥ 800m」这类不带句号的短值格）：长的并列格加点、短值居中不加点，是允许的差异（用户第 52 条）
+                    valcol = any(len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) < 12 and not ''.join(l[2] for l in x[1]).strip().endswith('。')
+                                 for x in cells if x not in bul)
+                    if k > 0 and bul and nbs and not valcol:
+                        other = nbs[0]
+                        sug('T6', '%s 第 %d 页：第 %d 列有 %d 格分条加点、%d 格句子没有（如「%s」）——整列加点（col-bullet）或整列不加（col-center）' % (
+                            name, i + 1, k + 1, len(bul), len(nbs), other[1][0][2].strip()[:18]))
+                    def centered(x):
+                        cx = (x[0][0] + x[0][2]) / 2
+                        return all(abs((l[0] + l[1]) / 2 - cx) <= 4 for l in x[1]) and any((x[0][2] - x[0][0]) - (l[1] - l[0]) > PAD + 8 for l in x[1])
+                    def lefty(x):
+                        return all(l[0] - x[0][0] < PAD + 2 for l in x[1]) and any((x[0][2] - x[0][0]) - (l[1] - l[0]) > PAD + 8 for l in x[1])
+                    nb = [x for x in cells if x not in bul]
+                    # 表前有通栏说明行时，info[1] 是表头：最上面一格是 ≤ 8 字的短词（「步骤」「自动动作」），按表头处理，不算居中数据格
+                    hdrlike = lambda x: x is cells[0] and len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) <= 8
+                    # 列宽收窄到刚好放下（2026-10-05）后，填满格子的文字左右留白都很小，看不出是居中还是靠左：两边都不算
+                    full = lambda x: all((x[0][2] - x[0][0]) - (l[1] - l[0]) <= PAD + 24 for l in x[1])
+                    cen = [x for x in nb if centered(x) and not hdrlike(x) and not full(x)]; lef = [x for x in nb if lefty(x) and not centered(x) and not full(x)]
+                    if cen and lef:
+                        sug('T7', '%s 第 %d 页：第 %d 列 %d 格居中、%d 格左对齐（如「%s」）——统一对齐' % (
+                            name, i + 1, k + 1, len(cen), len(lef), lef[0][1][0][2].strip()[:18]))
+                # T13 首列靠左（SD-104，2026-10-01 用户：「一般第一列都是居中」）：首列是标签 / 短句却左对齐。首列是长句 / 问句 / 条件句（≥ 约 30 字或带句号）的允许左对齐，不报
+                try:
+                    fc = [r[0] for r in info[1:] if r and r[0] and r[0][1] and (len(r) < 2 or r[1] is not None)]
+                    fc = [x for x in fc if not PH.match(''.join(l[2] for l in x[1]))]
+                    def fct(x): return ''.join(l[2] for l in x[1]).strip()
+                    def fleft(x):
+                        cx = (x[0][0] + x[0][2]) / 2
+                        return any(abs((l[0] + l[1]) / 2 - cx) > 4 and l[0] - x[0][0] < PAD + 2 for l in x[1]) and any((x[0][2] - x[0][0]) - (l[1] - l[0]) > PAD + 8 for l in x[1])
+                    lf = [x for x in fc if fleft(x)]
+                    longs = [x for x in fc if vis(re.sub(r'[（(][^）)]*[）)]', '', fct(x))) > 60 or '。' in fct(x) or fct(x).startswith('•')]
+                    if len(fc) >= 2 and len(lf) >= max(2, len(fc) // 2) and len(longs) < 0.4 * len(fc):
+                        sug('T13', '%s 第 %d 页：首列「%s」等 %d 格左对齐——首列一般居中（标签 / 短句），表头标 col-center；首列是长句 / 问句的可保留左对齐' % (
+                            name, i + 1, fct(lf[0])[:16], len(lf)))
+                except Exception: pass
+                # T10 引语后的子项被排成同级（2026-09-30 用户，速查第 6 条）：「• ……：」后面紧跟的仍是「•」
+                for r in info[1:]:
+                    for x in r:
+                        if not x: continue
+                        ls = [l[2].strip() for l in x[1]]
+                        for a0, b0 in zip(ls, ls[1:]):
+                            # SD-180（2026-10-13）：引导语不再加「•」——以「：」结尾、不以「•」「–」开头的行后面紧跟「•」，也是子项排成了同级
+                            if re.search(r'[：:]$', a0) and not a0.startswith('–') and b0.startswith('•') and (a0.startswith('•') or not re.match(r'^[①-⑳\d]', a0)):
+                                sug('T10', '%s 第 %d 页：「%s」是引语，后面的子项应为「–」，现为「•」' % (name, i + 1, a0[:24])); break
+                # T9 两型对照列格式不一致（2026-09-30 全书复审，速查第 120 条）：表头有 737-NG 与 737-8 两列，一列有「•」、另一列同类句子格没有
+                try:
+                    hdrtxt = [''.join(l[2] for l in x[1]) if x else '' for x in info[0]]
+                    ng = [k for k, h in enumerate(hdrtxt) if re.search(r'737-NG', h) and '737-8' not in h]
+                    m8 = [k for k, h in enumerate(hdrtxt) if re.search(r'737-8', h) and '737-NG' not in h]
+                    if ng and m8:
+                        def colbul(k):
+                            cs = [r[k] for r in info[1:] if k < len(r) and r[k] and r[k][1]]
+                            cs = [x for x in cs if len(re.sub(r'\s', '', ''.join(l[2] for l in x[1]))) >= 12]
+                            return any(x[1][0][2].lstrip().startswith('•') for x in cs), any(not x[1][0][2].lstrip().startswith('•') for x in cs)
+                        a, b = colbul(ng[0]), colbul(m8[0])
+                        if (a[0] and not b[0] and b[1]) or (b[0] and not a[0] and a[1]):
+                            sug('T9', '%s 第 %d 页：737-NG / 737-8 对照两列一列分条加点、另一列没有——两列格式应一致（表头标 col-bullet 或 col-center）' % (name, i + 1))
+                except Exception: pass
+                # T8 末行孤字：改在 scan 之后统一用 layout_measure.measure() 实测（与 fit_fix 同一双眼睛，2026-10-05），这里不再自己另测
+                # SD-102：序号表（首列全是 ①② / 1、2）——T4 不报（序号表不分条）；T12 报自动加点；非序号表的说明类句子列没加点报 T11
+                try:
+                    ctext = lambda x: ''.join(l[2] for l in x[1]).strip() if x else ''
+                    # 序号列不一定在首列（2026-10-06 用户，2.3 B-1「类别｜序号｜条件」）：首列或表头为 序号 / # / 编号 / 步骤 / 条款 的列，与生成器 serialColOf 同口径
+                    _hd0 = [ctext(x) for x in info[0]] if info else []
+                    serial, sc = False, -1
+                    for _sc in range(min(3, len(_hd0))):
+                        if _sc > 0 and not re.fullmatch(r'(序号|#|编号|步骤|条款)', _hd0[_sc].replace(' ', '')): continue
+                        firsts = [ctext(r[_sc]) for r in info[1:] if r and _sc < len(r) and r[_sc]]
+                        firsts = [f[0] if re.match(r'[\u2460-\u2473]\s*\S', f) else f for f in firsts]   # 「① 加标签文字」首列按序号表（2026-10-06 用户）
+                        serial = len(firsts) >= 2 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in firsts)
+                        def _sv(t):
+                            t = re.sub(r'[\s（()）.、]', '', t)
+                            return ord(t) - 0x245F if re.fullmatch(r'[\u2460-\u2473]', t) else int(t) if t.isdigit() else ord(t.lower()) - 96 if re.fullmatch(r'[a-zA-Z]', t) else -1
+                        if not serial and len(firsts) >= 4:   # 末尾 1～2 行非编号补充行（如「特殊情况」），与生成器同口径
+                            for tn in (1, 2):
+                                hd = firsts[:-tn]
+                                if len(hd) >= 3 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in hd) and [_sv(f) for f in hd] == list(range(1, len(hd) + 1)):
+                                    serial = True; firsts = hd; break
+                        else:
+                            serial = serial and [_sv(f) for f in firsts] == list(range(1, len(firsts) + 1))   # 从 1 开始的连续编号才算（襟翼位置 10 / 15 / 25 不算）
+                        if serial: sc = _sc; break
+                    hdrs = [ctext(x) for x in info[0]] if info else []
+                    for k, h in enumerate(hdrs):
+                        if k == 0 or not h: continue
+                        ser_k = serial and k > sc   # 序号列右边的列才按序号表查
+                        cs = [ctext(r[k]) for r in info[1:] if k < len(r) and r[k]]
+                        cs = [c for c in cs if c and not re.fullmatch(r'[—\-–/无\s]+', c)]
+                        if len(cs) < 2: continue
+                        bul = sum(1 for c in cs if c.startswith('•') and '–' not in c)   # 「• 引语：」+「– 子项」是 F2 层级写法，不算自动加点
+                        single_b = sum(1 for c in cs if c.count('•') == 1 and '–' not in c and len(c) < 80)
+                        multi_b = any(c.count('•') >= 2 for c in cs)   # 2026-10-03 用户：一列要加点就整列都加——序号表这一列有多条加点时，单句加点是对的
+                        if ser_k and any('•' in c or '●' in c for c in cs):   # SD-140（2026-10-05 用户）：「有了序号就不要加小圆点」，无例外，报错
+                            err('T12', '%s 第 %d 页：序号表的「%s」列有小圆点——序号表其余列不加「•」（SD-140）' % (name, i + 1, h))
+                        if ser_k and not re.fullmatch(r'(时机|宣布时机|总则|类别)', h.replace(' ', '')):   # SD-140「后面的一列都是靠左」（类别等居中表头除外，2026-10-06 用户）：居中的格（左右留白相等且明显大于内边距）报错（M18-L015，2026-10-06）
+                            ctr = 0
+                            pad = (collections.Counter(round(l[0] - x[0][0]) for r in info[1:] for x in r if x for l in x[1] if l[2].strip()).most_common(1) or [(6, 0)])[0][0]   # 本表实际左内边距：取众数（悬挂缩进的「–」子项会更靠左，不能取最小）
+                            for r in info[1:]:
+                                x = r[k] if k < len(r) else None
+                                if not x or (k + 1 < len(r) and r[k + 1] is None): continue
+                                c, ls = x
+                                for l in ls:
+                                    if re.fullmatch(r'[—\-–/无\s]+', l[2].strip()): continue
+                                    lg, rg = l[0] - c[0], c[2] - l[1]
+                                    if lg > pad + 2.5 and abs(lg - rg) < 3: ctr += 1
+                            if ctr: err('T12', '%s 第 %d 页：序号表的「%s」列有 %d 行居中——序号表其余列一律靠左（SD-140）' % (name, i + 1, h, ctr))
+                        if any(re.match(r'([\u2460-\u2473]|\d+[.、])', c) for c in cs): continue   # 格内本身是 ①② / 1. 编号条目的列不报
+                        sent = ([c for c in cs if vis(c) >= 12 or re.search(r'[，。；、]', c)] if re.search(r'说明$', h)
+                                else [c for c in cs if vis(c) >= 36 or re.search(r'[，。；]', c)])   # 与生成器同口径，门槛略放宽避免临界误报
+                        # SD-119 修订：单句不加点；只有格内有多句（「；」「。」分开 ≥ 2 句）却整列没加点时才提示
+                        multi = [c for c in cs if len([p for p in re.split(r'[；]', c) if len(p.strip()) >= 4]) >= 2]
+                        if (not serial and bul == 0 and len(sent) >= 0.6 * len(cs) and h not in EXPLICIT_NOBULLET
+                                and (DESC_H.match(h) or re.search(r'(条件|要求|说明|逻辑|措施|处置|要点|内容)$', h))):
+                            sug('T11', '%s 第 %d 页：说明类句子列「%s」没有加「•」——整列左对齐加点（SD-102）' % (name, i + 1, h))
+                except Exception: serial = False
+                # T4 并列长句未分条（SD-78）：一格内 ≥2 个「；」、各分句 ≥ 20 字宽、却没有 •
+                for r in ([] if serial else info[1:]):
+                    for x in r:
+                        if not x: continue
+                        txt = ''.join(l[2] for l in x[1]).strip()
+                        if re.search(r'[•–▪①-⑳]', txt) or re.match(r'(注|解释|出处|公司差异)[：:]', txt): continue
+                        parts = [s for s in re.split(r'；', txt) if s.strip()]
+                        if len(parts) >= 3 and all(vis(s) >= 20 for s in parts[:-1]):
+                            sug('T4', '%s 第 %d 页：「%s…」含 %d 个并列长分句，考虑按语义分条加「•」' % (name, i + 1, txt[:20], len(parts)))
+    _par(lambda rng, first: _tpass(d if first else pymupdf.open(pdf), rng), len(d))
     return d
 
+# 2026-10-14 提速：单册的 scan 放进分叉子进程与全书同时跑；scan 只往 ERR / SUG 里添，子进程把新增条目原样传回、接在全书之后（顺序与串行相同）
+_qpid = _qfd = None
+if QON and hasattr(os, 'fork') and not os.environ.get('CHECK_SERIAL'):
+    import pickle
+    _n0 = (len(ERR), len(SUG)); _r, _w = os.pipe(); _qpid = os.fork()
+    if _qpid == 0:
+        os.close(_r)
+        try: scan(QREF, '单册', 'B737机型理论知识速查'); _out = ('ok', ERR[_n0[0]:], SUG[_n0[1]:])
+        except BaseException as _e: _out = ('fail', repr(_e), None)
+        with os.fdopen(_w, 'wb') as _f: pickle.dump(_out, _f)
+        os._exit(0)
+    os.close(_w); _qfd = _r
 book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录|目录|按主题查|主题目录)')   # SD-96 页眉左侧为章名
-if QON: scan(QREF, '单册', 'B737机型理论知识速查')   # SD-146 册名   # SD-139 单册停出：只有新近生成的单册才检查   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
+if _qpid:
+    with os.fdopen(_qfd, 'rb') as _f: _out = pickle.load(_f)
+    os.waitpid(_qpid, 0)
+    if _out[0] != 'ok': raise RuntimeError('单册 scan 子进程失败：' + _out[1])
+    ERR.extend(_out[1]); SUG.extend(_out[2])
+elif QON: scan(QREF, '单册', 'B737机型理论知识速查')   # SD-146 册名   # SD-139 单册停出：只有新近生成的单册才检查   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
 # T8 末行孤字（SD-84 / SD-85，错误级）：用 layout_measure.measure() 实测——与 fit_fix 的自动修复看同一批格子，
 # 检查器不再维护第二套测量（2026-10-05，APU 火警「1s」教训：两套眼睛必然漏）
 try:
@@ -527,12 +621,12 @@ for _f in sorted(_g.glob(os.path.join(REPO, 'notes_src/[1-5]*/*.md'))):
 
 # V 成品通用校验（verify.py：空白页、标签泄漏、异常项目符号、front matter）
 for pdf in (BOOK,) + ((QREF,) if QON else ()):
-    r = subprocess.run([sys.executable, os.path.join(T, 'verify.py'), pdf], capture_output=True, text=True)
+    r = _R('verify.py', pdf)
     if r.returncode: err('V1', '%s verify.py 未通过：%s' % (os.path.basename(pdf), ' / '.join(l for l in r.stdout.splitlines() if '[]' not in l)))
 
 # B 断表 / 孤行 / 标题孤立（SD-71 / SD-77 / SD-79）
 for pdf in (BOOK,) + ((QREF,) if QON else ()):
-    r = subprocess.run([sys.executable, os.path.join(T, 'check_splits.py'), pdf], capture_output=True, text=True)
+    r = _R('check_splits.py', pdf)
     for l in r.stdout.splitlines()[1:]:
         l = l.strip()
         rule = 'B1' if '本可整页' in l else 'B2' if '孤行' in l else 'B3'
