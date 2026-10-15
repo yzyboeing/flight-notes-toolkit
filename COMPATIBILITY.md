@@ -2,6 +2,14 @@
 
 此文件区分包结构、环境探测、脚本执行、模型行为与成品验收。不能用某一层通过推导其他层通过。
 
+## 2026-10-14：flight-doc-translate 1.2.0 发布核验
+
+- 源提交：`ce5d64059d377df6ded21ee9eaee938da9d32083`；本机完整包校验通过（1602 条术语、31 个行为用例、22 个触发用例，并完成外部私有关键词扫描）。对应 CI 检查通过。
+- 使用工具库构建器提交 `d9603c6c649fb8f862a6e17a10a13ac3d53ac71f` 构建；ZIP SHA-256：`b5c6ffd1f433015bedf5ee54c6d9479192ba2ea79369008ac0f8bf5c199eb85d`。已在隔离目录验证外部哈希、安全解包与安装。
+- Python 3.12.14 下 `doctor.py --stage rules` 和 `build` 依赖探测通过；`render` 阶段因当前运行时缺少 `fitz` 未通过。默认 Python 3.9.6 低于包要求，不作为验证环境。
+- `functional_test: not_run`，`visual_qa: not_run`；未据此声明真实航空翻译或跨 AI 行为通过。
+- GitHub Release `skill-v1.2.0` 已发布并回读确认包含 ZIP、规则文本和 SHA-256 文件；GitHub 页面显示 ZIP 与规则文本的摘要分别与本地记录一致。校验文件以 `.sha256.txt` 资产名发布，内容仍为构建器生成的原始校验清单。
+
 ## 2026-10-14：1.2.0 发布前复核
 
 - 已核对 `package.json`、`skill-package.json`、`ai-catalog.json` 和 `AI_INDEX.md` 的版本映射，均指向 `1.2.0`。
