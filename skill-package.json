@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "flight-theory-notes",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "repository": "https://github.com/yzyboeing/flight-notes-toolkit",
   "visibility": "public",
   "root": ".",
