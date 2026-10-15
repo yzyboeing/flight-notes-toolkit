@@ -13,7 +13,10 @@ from onenote_api import req, content, list_pages, create_page, patch_with_image,
 from onenote_conv import convert, page, strip_index, FONT, TABW
 NS = os.path.expanduser('~/flight-repos/gh-private/notes_src/')
 WORK = os.path.expanduser('~/flight-repos/_work/onenote')
-CHN = {'第一章': '第一章 系统理论', '第二章': '第二章 机组训练手册', '第三章': '第三章 运行手册', '第四章': '第四章 模拟机训练', '第五章': '第五章 技术提示'}
+CHN = {'第一章': '第一章 系统描述', '第二章': '第二章 机组训练手册', '第三章': '第三章 运行手册', '第四章': '第四章 模拟机训练', '第五章': '第五章 技术提示'}
+# 2026-10-15 SD-185 第一章改名「系统描述」；接口不能改分区名——OneNote 里还叫旧名时沿用旧分区写入，页眉照新名（用户在 OneNote 里右键改名即可）
+ALIAS = {'第一章 系统描述': '第一章 系统理论'}
+def sec_name(name, secs): return name if name in secs or ALIAS.get(name) not in secs else ALIAS[name]
 NB_ID = '0-A7EF8B8B1AAC2778!s8966e7df85744afd957d97c2f66eb275'   # 用户自己的「飞行」笔记本（2026-10-05 用户：「以后更新就在这里更新」）
 def locate(nb_id, group=''):
     """返回 ({分区名: id}, 新建分区用的父路径)。group 为空时分区直接在笔记本下。"""
@@ -94,9 +97,10 @@ def main():
     ap.add_argument('--notebook-id', default=NB_ID, help='默认：用户自己的「飞行」笔记本（另有同名共享只读本，必须按编号区分）')
     ap.add_argument('--group', default='', help='分区组名；留空表示分区直接放在笔记本下（2026-10-05 起）')
     ap.add_argument('--chapters', default='1-5')
+    ap.add_argument('--prune', action='store_true', help='整章重写后删掉本次写入分区里、标题不在新基线中的旧页（节号 / 节名变了时用）')
     ap.add_argument('--only', default=''); ap.add_argument('--figs-only', action='store_true'); ap.add_argument('--audit-only', action='store_true')
     a = ap.parse_args()
-    lo, hi = a.chapters.split('-'); want_ch = [NUM[str(n)] for n in range(int(lo), int(hi) + 1)]
+    lo, hi = (a.chapters.split('-') + [a.chapters])[:2]; want_ch = [NUM[str(n)] for n in range(int(lo), int(hi) + 1)]
     pages = [p for p in split(a.docx) if p['chap'] in want_ch]; L('拆页', len(pages), '节')
     secs, parent = locate(a.notebook_id, a.group)
     # 2026-10-10 用户：「onenote 模拟机训练章节我正在人工做修正和优化，没有我的允许从现在开始先不要主动去更改」——
@@ -105,10 +109,10 @@ def main():
     locked = {x.strip() for x in (open(lf, encoding='utf-8').read().splitlines() if os.path.exists(lf) else []) + os.environ.get('ONENOTE_LOCKED', '').split(',') if x.strip()}
     if locked: L('锁定分区（跳过）：', '、'.join(sorted(locked)))
     secs = {k: v for k, v in secs.items() if k not in locked}
-    pages = [p for p in pages if CHN[p['chap']] not in locked]
+    pages = [p for p in pages if CHN[p['chap']] not in locked and sec_name(CHN[p['chap']], secs) not in locked]
     only = [x for x in a.only.split(',') if x]
     for p in pages:
-        name = CHN[p['chap']]
+        name = sec_name(CHN[p['chap']], secs)
         if name not in secs: secs[name] = req('POST', parent + '/sections', {'displayName': name})['id']; L('建分区', name)
         sid = secs[name]; existing = {q['title']: q['id'] for q in list_pages(sid)}
         if a.audit_only: continue
@@ -121,7 +125,7 @@ def main():
         for q in list_pages(sid):
             if q['title'] == p['title']: delete_page(q['id'])
         src, _ = strip_index(p['html'])
-        pid = create_page(sid, p['title'], page(p['title'], convert(src), '%s ｜ %s' % (name, p['title'])))
+        pid = create_page(sid, p['title'], page(p['title'], convert(src), '%s ｜ %s' % (CHN[p['chap']], p['title'])))
         L('写', p['title'], 'OK' if pid else '!! 失败')
         if pid: add_figs(pid, p['title'])
         time.sleep(6)                     # 2026-10-06：1.5 秒会触发 429 限流
@@ -129,7 +133,7 @@ def main():
     for name, sid in secs.items():
         for q in list_pages(sid):
             if q['title']: continue
-            m = re.search(re.escape(name) + r' ｜ ([^<]+)', content(q['id']) or '')
+            m = re.search(r'第[一二三四五]章 [^｜<]+ ｜ ([^<]+)', content(q['id']) or '')
             if not m: continue
             for k in range(6):
                 try: req('PATCH', '/pages/%s/content' % q['id'], [{'target': 'title', 'action': 'replace', 'content': m.group(1).strip()}]); L('补标题', m.group(1).strip()); break
@@ -143,12 +147,18 @@ def main():
         for tt in {q['title'] for q in allp if q['title']}:
             same = sorted([q for q in allp if q['title'] == tt], key=lambda q: q['createdDateTime'], reverse=True)
             for q in same[1:]: delete_page(q['id']); L('删重复旧页', tt)
+    if a.prune and not only and not a.audit_only and not a.figs_only:
+        for name, sid in secs.items():
+            want = {p['title'] for p in pages if sec_name(CHN[p['chap']], secs) == name}
+            if not want: continue
+            for q in list_pages(sid):
+                if q['title'] not in want: delete_page(q['id']); L('删旧页（新基线无此节）', name, q['title'] or '（空标题）')
     # 只读核查
     bad = 0
     for name, sid in secs.items():
         ps = list_pages(sid); readable = [q for q in ps if content(q['id'])]
         titles = [q['title'] for q in readable]
-        want = [p['title'] for p in pages if CHN[p['chap']] == name]
+        want = [p['title'] for p in pages if sec_name(CHN[p['chap']], secs) == name]
         miss = [t for t in want if t not in titles]; dup = sorted({t for t in titles if titles.count(t) > 1})
         bad += len(miss) + len(dup)
         L('核查', name, '可读', len(readable), '/', len(ps), '缺', miss, '重复', dup)

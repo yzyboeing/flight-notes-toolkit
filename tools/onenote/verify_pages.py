@@ -5,7 +5,7 @@
 import argparse, html, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from onenote_api import content, list_pages, req
-from onenote_build import split, locate, NB_ID, CHN, NUM
+from onenote_build import split, locate, NB_ID, CHN, NUM, sec_name
 from onenote_conv import convert, strip_index, flat_lists
 Z = r'[\s​⁠­ 　]+'
 def plain(h): return re.sub(Z, '', html.unescape(re.sub(r'<[^>]+>', '', h)))
@@ -29,7 +29,7 @@ lo, hi = a.chapters.split('-'); want = [NUM[str(n)] for n in range(int(lo), int(
 secs, _ = locate(NB_ID); bad = 0
 for p in [p for p in split(a.docx) if p['chap'] in want]:
     exp = convert(strip_index(p['html'])[0])
-    sid = secs[CHN[p['chap']]]
+    sid = secs[sec_name(CHN[p['chap']], secs)]
     got = sorted([q for q in req('GET', '/sections/%s/pages?$select=id,title,createdDateTime&$top=100' % sid)['value'] if q['title'] == p['title']],
                  key=lambda q: q['createdDateTime'], reverse=True)          # 同名取最新建的可读页
     h = next((x for x in (content(q['id']) for q in got) if x), None)

@@ -7,7 +7,7 @@
 import argparse, difflib, html, os, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from onenote_api import req, content, list_pages
-from onenote_build import split, CHN, NB_ID, locate
+from onenote_build import split, CHN, NB_ID, locate, sec_name
 from onenote_conv import convert, strip_index
 def pt(s): return re.sub(r'[\s　 ]+', '', html.unescape(re.sub(r'<[^>]+>', '', s)))
 def top_ps(h):
@@ -27,7 +27,7 @@ def main():
     pages = [p for p in split(a.docx) if p['chap'] in CHN and any(p['title'].startswith(w + ' ') for w in want)]
     secs, _ = locate(a.notebook_id, a.group)
     for p in pages:
-        sid = secs[CHN[p['chap']]]
+        sid = secs[sec_name(CHN[p['chap']], secs)]
         cands = [q for q in list_pages(sid) if q['title'] == p['title'] and content(q['id'])]
         if len(cands) != 1: print('!!', p['title'], '可读页数', len(cands), '跳过'); continue
         pid = cands[0]['id']; cur = top_ps(content(pid, ids=True))
