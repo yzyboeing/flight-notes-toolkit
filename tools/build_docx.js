@@ -509,6 +509,7 @@ function htmlTable(html) {
      移出表格的前提 / 注解 / 警示段同样按 B7 父子层级——以「：」结尾的短引语（≤ 约 70 宽、引语本身无「，。；」）后面紧跟 ≥ 2 段的，
      引语加粗，后面各段排「– 子项」（悬挂）；子项到下一个引语、粗体「标签：」新项或注 / 警告为止；已编号 ①② 的子项不加短线。 */
   const pcPlain = (sg) => unesc(String(sg).replace(/<[^>]+>/g, '')).trim();
+  const DASH0 = /^[-–—]\s+/;   // 源文件以「- 」开头的段
   const pcVis = (p) => [...p].reduce((n, ch) => n + (/[\u2E80-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 2 : 1), 0);
   const pcParent = (p) => /[：:]$/.test(p) && pcVis(p) <= 70 && !/[，。；]/.test(p.replace(/[：:]$/, ''));
   const pcNewItem = (sg, p) => pcParent(p) || /^(注|警告|公司差异)[：:]/.test(p) || /^\s*<strong>[^<]{1,16}[：:]\s*<\/strong>/.test(sg);
@@ -519,10 +520,10 @@ function htmlTable(html) {
     return role; };
   const paras = (arr, kn) => arr.flatMap(r => { const segsR = balanceBr(rowText(r)).split(/<br\s*\/?>/).filter(x => x.trim()); const roleR = pcRoles(segsR);
     return segsR.map((sg, k, a) => new Paragraph({
-    children: runs((roleR[k] === 'c' ? '– ' : '') + sg.trim(), { size: 19, ...(roleR[k] === 'p' ? { bold: true, ...(!LEAD_OLD && !BW ? { color: INK } : {}) } : {}) }),   // SD-180：引导语深蓝
+    children: runs(((roleR[k] === 'c' || DASH0.test(pcPlain(sg))) ? '– ' : '') + sg.trim().replace(/^[-–—]\s+/, ''), { size: 19, ...(roleR[k] === 'p' ? { bold: true, ...(!LEAD_OLD && !BW ? { color: INK } : {}) } : {}) }),   // SD-180：引导语深蓝；源文件「- 」分项去掉原连字符（2026-10-14 校对：曾印成「– -」）
     spacing: { before: k ? 20 : 100, after: k === a.length - 1 ? 100 : 20, line: 290 },
     /* 警示 / 前提 / 注 行移出表格后保留左侧竖条与淡底色 */
-    indent: /warn|premise|note/.test(r.cls) ? (roleR[k] === 'c' ? { left: 300, right: 80, hanging: 180 } : roleR[k] === 'n' ? { left: 300, right: 80 } : { left: 120, right: 80 }) : undefined,
+    indent: /warn|premise|note/.test(r.cls) ? ((roleR[k] === 'c' || DASH0.test(pcPlain(sg))) ? { left: 300, right: 80, hanging: 180 } : roleR[k] === 'n' ? { left: 300, right: 80 } : { left: 120, right: 80 }) : undefined,
     shading: /warn|premise|note/.test(r.cls) ? { type: ShadingType.CLEAR, color: 'auto', fill: fillOf(r.cls) } : undefined,
     border: /warn|premise|note/.test(r.cls) ? { left: { style: BorderStyle.SINGLE, size: 14, color: barOf(r.cls), space: 8 } } : undefined,
     keepNext: kn || pre.includes(r)
@@ -698,7 +699,11 @@ function htmlTableCore(html) {
         if ((bulletCols.has(startCol[ri][k]) && c.colspan === 1) || /(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) {   // 显式整列加点：每段按「；」拆项（各 ≥ 约 6 字），延续句悬挂对齐
           const s1 = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
           const p1 = plainOf(c.text).replace(/\s+/g, '');
-          if (!s1.length || /^[—－\-–\/／空×✕✓√?？…（）()]*$/.test(p1) || s1.some(x => STRUCT.test(plainOf(x)) && !/^\s*[-–—]\s+/.test(plainOf(x)) && !/^注[：:]/.test(plainOf(x)))) return;
+          if (!s1.length || /^[—－\-–\/／空×✕✓√?？…（）()]*$/.test(p1)) return;
+          if (s1.some(x => STRUCT.test(plainOf(x)) && !/^\s*[-–—]\s+/.test(plainOf(x)) && !/^注[：:]/.test(plainOf(x)))) {
+            /* SD-180 补（2026-10-14 校对，4.3「② 评估是否脱离跑道：」）：已有 ①② 编号的格整体不动，但源文件写的「- 」分项仍要转成「–」缩进，否则原样印出连字符 */
+            if (s1.some(x => /^\s*[-–—]\s+/.test(plainOf(x)))) c.text = s1.map(x => /^\s*[-–—]\s+/.test(plainOf(x)) ? MK_C + x.replace(/^\s*[-–—]\s+/, '') : x).join('<br>');
+            return; }
           const out1 = [];
           const allDash = s1.length >= 2 && s1.every(x => /^\s*[-–—]\s+/.test(plainOf(x)));   // 整格都是「- 」：并列列表，排「•」（不是子项）
           if (allDash) { c.text = s1.map(x => MK_B + x.replace(/^\s*[-–—]\s+/, '')).join('<br>'); return; }
@@ -1769,7 +1774,7 @@ function htmlTableCore(html) {
       const cellCS = (() => { const lst = CONDENSE.get(tblSig); if (!lst) return 0;
         const nt = unesc(String(c.text).replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}]/gu, '');
         const hit = lst.find(([fk]) => fk && nt.startsWith(fk)); return hit ? ([0, -6, -10, -14, -18][Math.min(4, hit[1])]) : 0; })();   // 2026-10-06：末行孤字收紧字距 2 级 → 4 级（占满版心、没法加宽的表）
-      let leadSeen = false;   // SD-180：本格前面出现过引导语
+      let leadSeen = false, leadNum = false;   // SD-180：本格前面出现过引导语；引导语本身是否带编号
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
         const mk = (seg.match(/^[\uE001-\uE006]+/) || [''])[0]; seg = seg.slice(mk.length);
@@ -1781,8 +1786,11 @@ function htmlTableCore(html) {
         /* SD-180 版式体系（2026-10-13 用户「按照你的方案优化」）：引导语（父项）不加点、深蓝加粗当小标题；分项「–」缩进一级、折行对齐文字；
            无引导语的并列条目「•」悬挂不变。DOC_LEAD=old 退回 SD-93 / 10-04 写法（父项「•」、子项与圆点对齐） */
         const leadSeg = !LEAD_OLD && parentSeg && !isHdr && !c.head && !labelCol;
-        const numUnderLead = !LEAD_OLD && leadSeen && !leadSeg && (mk === '\uE005' || (mk !== '\uE001' && /^\s*(<[^>]+>\s*)*[\u2460-\u2473]/.test(seg)));   // 引导语后的 ①② 步骤与「–」分项同级缩进
-        if (leadSeg) leadSeen = true;
+        const isNumSeg = /^\s*(<[^>]+>\s*)*[\u2460-\u2473]/.test(seg);
+        /* 2026-10-14 校对（4.3）：引导语本身带编号（「② 评估是否脱离跑道：」）时，后面的 ③④ 是它的同级，不缩进；遇到普通段落（非分项、非编号）就结束该引导语的范围 */
+        const numUnderLead = !LEAD_OLD && leadSeen && !leadNum && !leadSeg && (mk === '\uE005' || (mk !== '\uE001' && isNumSeg));   // 引导语后的 ①② 步骤与「–」分项同级缩进
+        if (leadSeg) { leadSeen = true; leadNum = isNumSeg; }
+        else if (!isNumSeg && !mk.startsWith('\uE002') && mk !== '\uE005') leadSeen = false;
         const prefix = (SERIAL_T && ci > 0) ? ((mk.startsWith('\uE002') || (hierarchy && !parentFlags[pi] && hasParent)) ? '– ' : '') :   // SD-140：序号表其余列不加「•」，子项「–」保留
           leadSeg ? '' :
           hierarchy ? (parentFlags[pi] ? '• ' : (hasParent ? '– ' : '')) :   /* 父项统一「•」（Muse M5-149 / 258，2026-10-01） */ mk === '\uE001' ? '• ' : mk.startsWith('\uE002') ? '– ' : '';
