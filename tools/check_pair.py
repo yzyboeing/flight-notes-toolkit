@@ -48,12 +48,13 @@ def main():
     for qt in Q:
         qs = sig(qt)
         if len(qs) < 3: continue
-        best, bj = 0, -1
+        best, bj = (0, 0), -1
         for j, fs in enumerate(fsig):
             if not fs: continue
             k = len(qs & fs); s = k / min(len(qs), len(fs)) if k >= 3 else 0
-            if s > best: best, bj = s, j
-        if best < 0.5: continue
+            # 同分时取重合格多的：完整版有「只留现象」的子集表时（1.11 E-2 ⊂ 4.12 第 4 条，K-06），配对应落到完整表
+            if (s, k) > best: best, bj = (s, k), j
+        if best[0] < 0.5: continue
         ft = F[bj]
         # 速查汇编表（如「发动机限制差异」把完整版几张表合成一张）不是同一张表：速查行有 ≥ 3 行、≥ 30% 在这张完整版表里找不到 → 不比
         _fk = {norm(r[0]['t'])[:20] for r in body(ft) if r}; _qk = [norm(r[0]['t'])[:20] for r in body(qt) if r]
