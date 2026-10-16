@@ -26,7 +26,7 @@ def _nocmp_hdrs():   # SD-188：源文件首格标 no-cmp 的表（跨列格不�
         except Exception: continue
         for m in re.finditer(r'<tr class="hdr">(.*?)</tr>', t, re.S):
             ths = re.findall(r'<th([^>]*)>(.*?)</th>', m.group(1), re.S)
-            if ths and 'no-cmp' in ths[0][0]:
+            if ths and ('no-cmp' in ths[0][0] or 'no-share' in ths[0][0]):   # no-cmp：两型列按表头标注（可居中，SD-165 / 用户点名）；no-share：跨列格不是共有内容——T16 都跳过（共有格居中由生成器保证，SD-192 修订）
                 out.add(''.join(re.sub(r'<[^>]+>|\s', '', x[1]) for x in ths))
     return out
 NOCMP_HDRS = _nocmp_hdrs()

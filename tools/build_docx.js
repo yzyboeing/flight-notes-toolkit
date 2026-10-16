@@ -617,6 +617,13 @@ function htmlTableCore(html) {
     /* SD-119 对照表统一（2026-10-03 用户，速查第 11、40 条、1.6 C-4）：表头几列是并列的机型 / 方式（≥ 2 列含 737-NG / 737-8，或有跨列的共有格），
        同一张表只用一种逻辑——① 格子都是一两句短内容：整表居中、不加点（第 40 条）；② 有格子含 ≥ 3 段、父子层级或「- 」子项：
        共有格（跨列）居中，独有格靠左加点（第 11 条三种复飞）。表头已显式 col-bullet 的（用户点名加点）按 ②；首格 class="no-cmp" 不参与。 */
+    /* 跨列共有格一律居中、不加点（SD-156；2026-10-16 用户先选方案 C「多条靠左加点」，随即改回：「共有还是统一居中吧」）。
+       方案 C 的实现保留为开关（用户未采纳）：DOC_SHARED_BULLET=1 时两条以上的共有格靠左按段加点 */
+    const sharedMark = (c) => {
+      const segs = String(c.text).split(/<br\s*\/?>/).map(x => plainOf(x).trim()).filter(Boolean).filter(x => !/^[（(]/.test(x));
+      const multi = !!process.env.DOC_SHARED_BULLET && !/(^|\s)center(\s|$)/.test(c.cls || '') && segs.length >= 2 && segs.some(x => x.replace(/^[-–•]\s*/, '').length >= 10);
+      if (multi) { if (!/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) c.cls = ((c.cls || '') + ' cell-bullet').trim(); }
+      else { c.cls = ((c.cls || '') + ' center').trim(); c.cmpShared = true; } };
     { const hrC = parsed.find(r => r.cls.includes('hdr'));
       if (hrC && !process.env.NO_CMP && hrC.cells.every(c => c.colspan === 1) && hrC.cells.length >= 3 && !/(^|\s)no-cmp(\s|$)/.test(hrC.cells[0].cls || '')) {
         const hriC = parsed.indexOf(hrC), vh0 = hrC.cells.filter((c, k) => startCol[hriC][k] >= 1);
@@ -634,13 +641,13 @@ function htmlTableCore(html) {
             const sg = segsOf(c); return sg.length >= 3 || sg.some(x => /^[-–—]\s/.test(x)) || sg.slice(0, -1).some(x => /[：:]$/.test(x)); }));
           const strip = (t) => String(t || '').replace(/(^|\s)col-(center|bullet|plain|left)(?=\s|$)/g, ' ').trim();
           vh.forEach(c => { c.cls = (strip(c.cls) + (longT ? ' col-bullet' : ' col-center')).trim(); });
-          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) { c.cls = ((c.cls || '') + ' center').trim(); c.cmpShared = true; } }));
+          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) sharedMark(c); }));
           if (process.env.CMP_LOG) console.error('CMP', TBL_IDX, longT ? 'long' : 'short', vh.map(c => plainOf(c.text)).join(' | '));
         } else if (shared && !serialTable(parsed, startCol)) {
           /* SD-156（2026-10-06 用户，第 170 页减速板警告「抑制条件」）：「两列共有的内容」的表格都按对比原则——跨列的共有格去掉圆点、统一居中。
              不是机型对照 / 并列方式的表也适用（着陆 | 中断起飞、起飞 | 着陆、快速离机 | 紧急撤离……）；只动共有格，各列自己的加点 / 居中不变。
              跨列格不是「共有内容」的表（如 3.9 安保搜查、4.9 液压处置），首格标 no-cmp 排除。 */
-          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) { c.cls = ((c.cls || '') + ' center').trim(); c.cmpShared = true; } }));
+          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) sharedMark(c); }));
         }
         /* SD-188 ①（2026-10-15 用户，速查第 170 条减速板警告：「着陆和中断起飞共有的内容居中，各自有的靠左」；待改清单第 7 条）：
            有跨列共有格的表——共有格居中（上面已标），各列独有的文字格一律靠左（c.leftUniq，最终对齐判定优先于 SD-84 单句列居中）；
@@ -653,6 +660,13 @@ function htmlTableCore(html) {
             if (isVal(c)) { if (plainOf(c.text).trim()) { c.cls = ((c.cls || '') + ' center nodot').trim(); c.cmpShared = true; } }
             else c.leftUniq = true; }));
         } } }
+    /* SD-192 修订（2026-10-16，噜噜 1016R1 A-001～003 / A-019 / A-020）：首格 no-cmp 只让两型 / 并列列不参与自动识别（列样式按表头标注，SD-165 / 用户点名，如 #80 滑油表两列居中）；
+       表里从第二列起跨两列以上的共有格仍按 SD-156 去点居中。跨列格确实不是共有内容的表（3.2 运行类别、3.8 安保搜查、4.14 液压处置）首格另标 no-share。
+       显式 cell-bullet 的跨列格不动。DOC_NOSHARE_OFF=1 退回旧行为 */
+    { const hrN = parsed.find(r => r.cls.includes('hdr'));
+      if (hrN && !process.env.DOC_NOSHARE_OFF && /(^|\s)no-cmp(\s|$)/.test(hrN.cells[0].cls || '') && !/(^|\s)no-share(\s|$)/.test(hrN.cells[0].cls || '') && !serialTable(parsed, startCol)) {
+        parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+          r.cells.forEach((c, k) => { if (startCol[ri][k] >= 1 && c.colspan >= 2 && !c.cmpShared && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) sharedMark(c); }); }); } }
     /* SD-188 ②（2026-10-15 用户，速查第 41 页「F/D 指令杆再现后」：「只有两列那第二列就靠左前面加小圆点」；待改清单第 12、14 条）：
        只有两列的表，第二列整列靠左加点（单句格也加点）；序号表（首列 ①② / 1、2）除外——第二列靠左、不另加点；
        并列对照表（parallel，如 PF | PM）两列都加点。DOC_SD188_OFF=1 关闭 */
