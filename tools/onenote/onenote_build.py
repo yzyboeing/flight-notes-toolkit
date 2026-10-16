@@ -67,6 +67,10 @@ def figs_for(title):
         # OneNote 版删了「详见」行，不能当锚点（1.14-2）
         prev = [x for x in Ls[:i] if x.strip() and not re.match(r'\s*详见', x)][-1].strip(); nxt = [x for x in Ls[i + 1:] if x.strip()][0].strip()
         anchor = (re.sub(r'^#+\s*', '', nxt), 'before') if prev.startswith('<') else (re.sub(r'^#+\s*', '', prev), 'after')
+        if prev.startswith('</table') and nxt.startswith('<'):   # 2026-10-16：图夹在两张表之间（1.13-1）——用上一张表的表头文字找到该表，插在表后
+            k = max(j for j in range(i) if Ls[j].lstrip().startswith('<table'))
+            hdr = next((x for x in Ls[k:i] if '<th' in x or '<td' in x), '')
+            anchor = (plain(re.sub(r'<[^>]+>', ' ', hdr))[:12], 'after-table')
         if prev.startswith('%%FIG'): anchor = ([x.strip() for x in re.sub(r'^%%FIG(SIDE)?%%\s*', '', prev).split('|')][1], 'after')   # 连排几张图：接在上一张图注后（2026-10-11 重要天气预告图三张）
         out.append(dict(file=NS + fn, cap=cap, wmm=float(wmm or 120), anchor=anchor))
     return out
@@ -79,14 +83,18 @@ def add_figs(pid, title):
     for fg in figs_for(title):
         h = content(pid, ids=True) or ''
         if 'alt="%s"' % html.escape(fg['cap']) in h: L('   图已有', fg['cap'][:16]); continue
-        tid = find_anchor(h, fg['anchor'][0])
+        if fg['anchor'][1] == 'after-table':
+            tid = next((m.group(1) for m in re.finditer(r'<table\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</table>', h, re.S) if fg['anchor'][0] and fg['anchor'][0] in plain(m.group(2))), None)
+            pos = 'after'
+        else:
+            tid = find_anchor(h, fg['anchor'][0]); pos = fg['anchor'][1]
         if not tid: L('   !! 图找不到插入位置', fg['cap'][:16]); continue
         data = open(fg['file'], 'rb').read(); pw, ph = struct.unpack('>II', data[16:24])
         w = min(TABW, round(fg['wmm'] / 270 * TABW)); name = 'fig' + uuid.uuid4().hex[:8]
         c = ('<img src="name:%s" width="%d" height="%d" alt="%s"/>' % (name, w, round(w * ph / pw), html.escape(fg['cap'])) +
              '<p style="margin-top:0;margin-bottom:0"><span style="font-family:%s;font-size:9pt;color:#595959">%s</span></p>' % (FONT, html.escape(fg['cap'], quote=False)))
         try:
-            patch_with_image(pid, [{'target': tid, 'action': 'insert', 'position': fg['anchor'][1], 'content': c}], name, data); L('   补图', fg['cap'][:16], w)
+            patch_with_image(pid, [{'target': tid, 'action': 'insert', 'position': pos, 'content': c}], name, data); L('   补图', fg['cap'][:16], w)
         except RuntimeError as e:
             L('   !! 补图出错（可能已插入，重跑会自动跳过）', fg['cap'][:16], str(e)[:40]); time.sleep(20)
         time.sleep(2)
@@ -114,7 +122,10 @@ def main():
     for p in pages:
         name = sec_name(CHN[p['chap']], secs)
         if name not in secs: secs[name] = req('POST', parent + '/sections', {'displayName': name})['id']; L('建分区', name)
-        sid = secs[name]; existing = {q['title']: q['id'] for q in list_pages(sid)}
+        sid = secs[name]; existing = {}
+        for q in list_pages(sid):   # 2026-10-16：同名页有打不开的残页时，补图选能读的那张
+            if q['title'] in existing and a.figs_only and content(existing[q['title']]) is not None: continue
+            existing[q['title']] = q['id']
         if a.audit_only: continue
         if only and not any(p['title'].startswith(o + ' ') for o in only):
             if a.figs_only and p['title'] in existing: add_figs(existing[p['title']], p['title'])
