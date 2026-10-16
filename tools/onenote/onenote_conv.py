@@ -378,8 +378,19 @@ def unmerge(h):
             if miss:
                 left = max(w - sum(W[c:c + cs]), 30 * len(miss))
                 for k in miss: W[k] = left // len(miss)
-        out = []
+        # 2026-10-15 用户选方案 A（OneNote 适配版式，不再手工合并）：ONENOTE_MERGE=manual 时回到旧做法（拆开留空，按清单手工合并）
+        adapt = _os.environ.get('ONENOTE_MERGE', 'adapt') != 'manual'
+        GREY = '<span style="color:#808080">%s</span>'
+        vis = lambda x: re.sub(r'[\s\u200b\u2060\u00ad]+', '', html.unescape(re.sub(r'<[^>]+>', '', x)))
+        before, after, out = [], [], []
         for r in range(len(rows)):
+            full = [z for z in cells if z[0] == r and z[1] == 0 and z[2] >= n and z[3] == 1]
+            if adapt and full and len([z for z in cells if z[0] == r]) == 1:
+                # 通栏行（注、前提）：在表头之前 / 表尾的移出表格，作表前 / 表后段落；夹在中间的分组行仍留在表里（只第一格有字）
+                if all(any(z[0] == q and z[2] >= n for z in cells) for q in range(r)) and r == 0:
+                    before.append('<p>%s</p>' % full[0][5]); continue
+                if all(any(z[0] == q and z[2] >= n and z[3] == 1 for z in cells) and len([z for z in cells if z[0] == q]) == 1 for q in range(r, len(rows))):
+                    after.append('<p>%s</p>' % full[0][5]); continue
             tds = []
             for c in range(n):
                 o = grid.get((r, c))
@@ -387,11 +398,17 @@ def unmerge(h):
                 cell = next(z for z in cells if z[0] == o[0] and z[1] == o[1])
                 a = re.sub(r'\s(rowspan|colspan)="\d+"', '', cell[4])
                 a = re.sub(r'width:\d+px', 'width:%dpx' % W[c], a)
-                tds.append('<td%s>%s</td>' % (a, cell[5] if (r, c) == o else ''))
+                if (r, c) == o: x = cell[5]
+                elif not adapt or not vis(cell[5]): x = ''
+                elif cell[2] >= n: x = ''                                   # 夹在表中间的通栏分组行：其余格留空
+                elif r == o[0]: x = GREY % '同左'                            # 部分跨列：其余格「同左」
+                elif len(vis(cell[5])) <= 12: x = GREY % html.escape(html.unescape(re.sub(r'<[^>]+>', '', cell[5])).strip())   # 跨行的短标签：各行重复（浅灰）
+                else: x = GREY % '同上'                                      # 跨行的长文字：「同上」
+                tds.append('<td%s>%s</td>' % (a, x))
             out.append('<tr>%s</tr>' % ''.join(tds))
         head = re.match(r'<table[^>]*>', t).group(0)
         head = re.sub(r'width:\d+px', 'width:%dpx' % sum(W), head)
-        return head + ''.join(out) + '</table>'
+        return ''.join(before) + head + ''.join(out) + '</table>' + ''.join(after)
     return re.sub(r'<table border="1".*?</table>', one, h, flags=re.S)
 
 def unwrap_figside(h):

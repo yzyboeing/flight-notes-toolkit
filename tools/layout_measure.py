@@ -215,7 +215,10 @@ def _measure_pages(pdf, srcmd, pages):
                     slack = min(slack, capk[k0])
                     slack_s = 0 if (not nlk[k0] or wrk[k0] or anyw[k0]) else min(capk[k0], max(0, cw0 - PAD - mxs[k0] - 6))   # 有真折行的列不按严格口径收（只在「让给更挤的列」那一次收），防收窄 / 拉满来回拉锯
                     rows_sl.append((slack, slack_s))
-                    found.append({'page': i + 1, 'col': k0, 'extra_pt': round(slack, 1), 'extra_strict': round(slack_s, 1), 'wrapped': wrk[k0],
+                    # 2026-10-15 用户（速查第 61 条 EEC 备用方式：右列适当收窄、给孤字列加宽，总行数不增）：可借出宽度——
+                    # 本列每格按严格口径（本格行数不增、不制造末行不足 6 字）能让出的宽度；有折行的列也算（收窄 NW 才需要防拉锯，借宽是一次性让给别列）
+                    lend = 0 if not nlk[k0] else min(capk[k0], max(0, cw0 - PAD - mxs[k0] - 6))
+                    found.append({'page': i + 1, 'col': k0, 'extra_pt': round(slack, 1), 'extra_strict': round(slack_s, 1), 'lend': round(lend, 1), 'wrapped': wrk[k0],
                                   'anywrap': anyw[k0], 'nl': nlk[k0], 'tb': round(t.bbox[1], 1), 'bb': round(t.bbox[3], 1), 'ph': round(p.rect.height, 1), 'nc': ncol_t, 'head': (t.extract()[0][k0] or '')[:10] if t.extract() and k0 < len(t.extract()[0]) else '',
                                   'cell': '', 'first': '', 'prev': '',
                                   'orphan': False, 'nw': True,

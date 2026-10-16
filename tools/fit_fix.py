@@ -48,6 +48,7 @@ def to_pdf():
 
 # 状态：lv[sig] = 0（强制整表）/ 1～3（压缩级）；block＝放弃
 lv, block, wfix, wblock, splitok, pbreak, nwfix = {}, set(), {}, set(), set(), set(), {}
+bw, bwblock, bwtried = {}, set(), {}   # 2026-10-15 借宽：bw[(签名, 收列, 借出列)] = DXA；bwblock＝借过 3 次仍不行的 (签名, 收列)
 ffix = {}   # SD-148 实测拉满：F:列号:加宽DXA:签名（生成器落实，目标列做过不增行收窄时转给同表最挤的列）
 nlbase = {}   # (表, 列) → 收窄前的总行数
 nwlock = set()   # 收窄后又折行的 (表, 列)：本次运行不再收窄（2026-10-06 防拉锯）
@@ -68,6 +69,10 @@ for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
         _, k, dd, sg = l.split(':', 3); nwfix[(sg, int(k))] = int(dd)
     elif l.startswith('NWL:'):
         _, k, sg = l.split(':', 2); nwlock.add((sg, int(k)))   # 已证明收到极限的列（再收就多行），跨运行保留
+    elif l.startswith('BW:'):
+        _, k, j, dd, sg = l.split(':', 4); bw[(sg, int(k), int(j))] = int(dd)
+    elif l.startswith('BWB:'):
+        _, k, sg = l.split(':', 2); bwblock.add((sg, int(k)))
     elif l.startswith('F:'):
         _, k, dd, sg = l.split(':', 3); ffix[(sg, int(k))] = int(dd)
     elif l.startswith('C:'):
@@ -85,6 +90,8 @@ def save():
         for (sg, k) in sorted(wblock): f.write('WB:%d:%s\n' % (k, sg))
         for (sg, k), dd in sorted(nwfix.items()): f.write('NW:%d:%d:%s\n' % (k, dd, sg))
         for (sg, k), dd in sorted(ffix.items()): f.write('F:%d:%d:%s\n' % (k, dd, sg))
+        for (sg, k, j), dd in sorted(bw.items()): f.write('BW:%d:%d:%d:%s\n' % (k, j, dd, sg))
+        for (sg, k) in sorted(bwblock): f.write('BWB:%d:%s\n' % (k, sg))
         for (sg, k) in sorted(nwlock): f.write('NWL:%d:%s\n' % (k, sg))
         for sg in sorted(splitok): f.write('S:' + sg + '\n')
         for h in sorted(pbreak): f.write('P:' + h + '\n')
@@ -140,6 +147,8 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     for key in [k2 for k2 in wfix if k2[0] not in sigs]: del wfix[key]
     for key in [k2 for k2 in nwfix if k2[0] not in sigs]: del nwfix[key]
     for key in [k2 for k2 in ffix if k2[0] not in sigs]: del ffix[key]
+    for key in [k2 for k2 in bw if k2[0] not in sigs]: del bw[key]
+    bwblock = {k2 for k2 in bwblock if k2[0] in sigs}
     nwlock = {k2 for k2 in nwlock if k2[0] in sigs}
     wblock = {k2 for k2 in wblock if k2[0] in sigs}
     pdf = to_pdf(); last_pdf = os.path.splitext(OUT)[0] + '.fitfix.pdf'; shutil.copy2(pdf, last_pdf)   # 测量后临时目录会删，先留一份
@@ -149,7 +158,60 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     # SD-85 实测加宽：末行孤字、短格折行 → 这张表这一列加宽，下一遍重排（原文 <br> 主动换行的不算）
     sys.path.insert(0, T); from layout_measure import measure
     wadd, wgive, now, cadd, nwcand, nwwrap, grown_sg, nlnow = 0, 0, set(), 0, {}, set(), set(), {}
-    for x in measure(pdf, srcmd=MD):
+    _xs = measure(pdf, srcmd=MD)
+    # 2026-10-15 借宽：先按 (表, 源列) 汇总可借出宽度（跨页的表取各段最小值），再处理孤字 / 省行
+    def _srccol(x, tb):
+        Wt = tb.get('W') or []
+        if not Wt: return None
+        pos, acc, col = x['cx'] * sum(Wt) / max(x['tw'], 1), 0, len(Wt) - 1
+        for q, wq in enumerate(Wt):
+            acc += wq
+            if pos <= acc: return q
+        return col
+    lendm = {}
+    for x in _xs:
+        if not x.get('nw') or 'lend' not in x or x['col'] < 0: continue
+        for sg in match(x['table'], tbls):
+            tb = next(t for t in tbls if t['sig'] == sg); c = _srccol(x, tb)
+            if c is None: continue
+            lendm[(sg, c)] = min(lendm.get((sg, c), 10 ** 9), int(x['lend'] * 20))
+    TWO = re.compile(r'737-NG|737-8|两型')
+    bw_now = set()   # 本遍已借宽的表（每表每遍一次，免得几列同时借、互相挤）
+    def borrow(sg, tb, k, need, why):
+        if (sg, k) in bwblock or sg in bw_now: return False
+        eq, hdr = set(tb.get('eq') or []), tb.get('hdr') or []
+        if k in eq or any(s2 == sg and jj == k for (s2, _, jj) in bw): return False   # 等宽列、已在借出的列不收宽（防来回借）
+        donors = [(lendm.get((sg, j), 0), j) for j in range(len(tb.get('W') or [])) if j != k and j not in eq
+                  and not (j < len(hdr) and TWO.search(hdr[j] or '')) and not any(kk == j for (s2, kk, _) in bw if s2 == sg)]   # 两型对比列不借出；已在收宽的列不借出
+        donors = [d for d in donors if d[0] >= need]
+        if not donors: return False
+        lv0, j = max(donors)
+        bw[(sg, k, j)] = bw.get((sg, k, j), 0) + need; bwtried[(sg, k)] = bwtried.get((sg, k), 0) + 1
+        if bwtried[(sg, k)] > 3: bwblock.add((sg, k)); [bw.pop(kk) for kk in [kk for kk in bw if kk[0] == sg and kk[1] == k]]; return False
+        lendm[(sg, j)] = lv0 - need; bw_now.add(sg)
+        trace({'borrow': sg[:20], 'to': k, 'from': j, 'dxa': need, 'why': why})
+        return True
+    nbw = 0
+    # 借多了的退回：收宽列孤字已消、实测仍可让出 ≥ 10pt 时，退回多出的部分，只留约 6pt（与 T13 同口径；可让出宽度已保证退回后不增行、不再出孤字）
+    for (sg, k, j), dd in list(bw.items()):
+        lk = lendm.get((sg, k))
+        if lk is not None and lk >= 200:
+            nd = dd - (lk - 120)
+            if nd > 0: bw[(sg, k, j)] = nd
+            else: del bw[(sg, k, j)]
+            nbw += 1; trace({'borrow_back': sg[:20], 'to': k, 'from': j, 'dxa': min(dd, lk - 120)})
+    # 2026-10-15 首次试运行：省行借宽（growb）与 T14「空位让给折行列」互相打架、整表来回挪，借宽只用于消末行孤字；省行仍由 SD-144 / T14 处理
+    for x in [x0 for x0 in _xs if x0.get('orphan') and not x0.get('nw')]:   # 借宽：定宽满宽表的孤字，以及普通加宽已放弃（WB）的孤字
+        if True:
+            for sg in match(x['table'], tbls):
+                tb = next(t for t in tbls if t['sig'] == sg); k = _srccol(x, tb)
+                if k is None or x.get('span'): continue
+                if x.get('growb') and (tb.get('fixed') != 'full' and (sg, k) not in wblock): continue   # 省行借宽只给定宽满宽表和普通加宽已放弃的列（其余表由 SD-144 加宽 / 拉满处理）
+                if x.get('orphan') and tb.get('fixed') != 'full' and (sg, k) not in wblock: continue
+                if (x.get('prev') and x['prev'] + '|' in tb.get('br', '')): continue   # 止于原文 <br> 的是主动换行
+                need = int(x['extra_pt'] * 20) + 20
+                if borrow(sg, tb, k, need, 'orphan' if x.get('orphan') else 'growb'): nbw += 1
+    for x in _xs:
         for sg in match(x['table'], tbls):           # 速查区与正文同文的表一并加宽
             tb = next(t for t in tbls if t['sig'] == sg)
             fx = tb.get('fixed') or ''   # 2026-10-12：定宽表（w-NN）——满宽的生成器不吃任何实测调整，窄的只吃加宽（W:）；不再记账，免得每遍空转
@@ -177,6 +239,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
                 if sg not in grown_sg: ffix[key] = ffix.get(key, 0) + int(x['extra_pt'] * 20); wadd += 1
                 continue
             # 跨列格的孤字也先试加宽（加宽所跨的那一列即加宽整格，捐出列可能在格外）；加宽无效再收紧字距（2026-10-05）
+            if key in wblock and sg in bw_now and any(kk[0] == sg and kk[1] == col for kk in bw): now.add(key); continue   # 本遍刚借宽，先看效果再决定收紧字距
             if key in wblock:   # 加宽无效（表已占满版面、邻列太窄）（表已占满版面、邻列太窄）：只在末行孤字时收紧这一格的字距，最多两级
                 fk = (x.get('first') or '')[:10]
                 if fk and x.get('orphan') and condense.get((sg, fk), 0) < 4: condense[(sg, fk)] = condense.get((sg, fk), 0) + 1; cadd += 1
@@ -279,8 +342,9 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
         n, res['pages'], len(res['splits']), sum(s['fits'] for s in res['splits']), add, up, gave, len(changed),
         sum(1 for v in lv.values() if v), wadd, wgive, ladd, ('；匹配不到：' + '、'.join(miss)) if miss else ''))
     if cadd: print('fit_fix 第 %d 遍：末行孤字收紧字距 %d 格' % (n, cadd))
+    if nbw: print('fit_fix 第 %d 遍：借宽 %d 处（孤字 / 省行列向本表可借出宽度最多的列借）' % (n, nbw))
     print('fit_fix 第 %d 遍用时 %ds' % (n, time.time() - t0))
-    if not (add or up or gave or changed or wadd or wgive or ladd or cadd): break
+    if not (add or up or gave or changed or wadd or wgive or ladd or cadd or nbw): break
     hist.append((res['pages'], len(res['splits']), wadd + wgive, add or up or gave or changed or ladd or cadd))
     _sd = os.path.join(os.path.dirname(dump), 'p%d' % n); os.makedirs(_sd, exist_ok=True)   # 每遍留一份 docx / PDF，循环时挑好的那遍
     snap[n] = (wadd + wgive + cadd, shutil.copy2(OUT, os.path.join(_sd, 'o.docx')), shutil.copy2(last_pdf, os.path.join(_sd, 'o.pdf')))

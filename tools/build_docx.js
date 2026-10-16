@@ -403,6 +403,7 @@ let PROBE = false, TBL_IDX = -1, KEEP_LAST = false;
 /* KEEP_FORCE 文件（fit_fix.py 维护）：一行一个表签名＝强制整表同页；「~N:签名」＝整表同页并按第 N 级压缩（SD-80）；「!签名」＝已放弃（fit_fix 自用） */
 const NCOND = new Map();   // SD-130 表外注段落收紧字距（fit_fix 写入 N:）
 const FFIX = new Map();   // SD-148 实测拉满（fit_fix 写入 F:）
+const BWFIX = new Map();   // 2026-10-15 借宽（fit_fix 写入 BW:收列:借出列:DXA:签名）：孤字 / 省行列向本表可借出宽度最多的列借，表总宽不变，定宽表也生效
 const KEEP_FORCE = new Set(), SHRINK = new Map(), WFIX = new Map(), NWFIX = new Map(), SPLITOK = new Set(), PBREAK = new Set(), CONDENSE = new Map();   // CONDENSE：签名 → [[首行前 10 字, 级]]（末行孤字收紧字距，fit_fix 写入 C:）
 if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
   for (const l0 of fs.readFileSync(process.env.KEEP_FORCE, 'utf8').split('\n')) {
@@ -411,6 +412,9 @@ if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
     if (w) { if (!WFIX.has(w[3])) WFIX.set(w[3], []); WFIX.get(w[3]).push([+w[1], +w[2]]); continue; }
     const nw = l.match(/^NW:(\d+):(\d+):(.+)$/);   // SD-144 实测收窄：NW:列号:收窄DXA:签名（layout_measure 保证不增行）
     if (nw) { if (!NWFIX.has(nw[3])) NWFIX.set(nw[3], []); NWFIX.get(nw[3]).push([+nw[1], +nw[2]]); continue; }
+    const bw = l.match(/^BW:(\d+):(\d+):(\d+):(.+)$/);
+    if (bw) { if (!BWFIX.has(bw[4])) BWFIX.set(bw[4], []); BWFIX.get(bw[4]).push([+bw[1], +bw[2], +bw[3]]); continue; }
+    if (/^BWB:/.test(l)) continue;
     const ff = l.match(/^F:(\d+):(\d+):(.+)$/);
     if (ff) { if (!FFIX.has(ff[3])) FFIX.set(ff[3], []); FFIX.get(ff[3]).push([+ff[1], +ff[2]]); continue; }
     if (l.startsWith('S:')) { SPLITOK.add(l.slice(2)); continue; }   // SD-87 允许按块分页的块索引表
@@ -1365,6 +1369,18 @@ function htmlTableCore(html) {
         if (tot < 100) { const sigW = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
           for (const [k, dd] of (WFIX.get(sigW) || [])) { if (k >= nCols) continue;
             const f = Math.min(dd, Math.max(0, TOTAL - W.reduce((a2, b2) => a2 + b2, 0))); if (f > 0) W[k] += f; } } } } }
+  /* 借宽（2026-10-15 用户，速查第 61 条 EEC 备用方式：「最右侧一列适当收窄也不会增加总行数，可以适当收窄最后一列同时适当加宽第二列」）：
+     fit_fix 按实测写 BW:收列:借出列:DXA——借出列由 layout_measure 保证每格行数不增；定宽表（w-NN）也生效；col-eq 等宽列不收不借（两型列保持等宽） */
+  let bwHdr = [], bwEq = [];
+  { const hrB = parsed.find(r => r.cls.includes('hdr'));
+    if (hrB) { const hriB = parsed.indexOf(hrB); bwHdr = new Array(nCols).fill('');
+      hrB.cells.forEach((hc, hk) => { const c0 = startCol[hriB][hk]; if (c0 < nCols) bwHdr[c0] = unesc(String(hc.text).replace(/<[^>]+>/g, '')).trim();
+        if (hc.colspan === 1 && /(^|\s)col-eq(\s|$)/.test(hc.cls || '')) bwEq.push(c0); }); }
+    const sigB = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+    for (const [k, j, dd] of (BWFIX.get(sigB) || [])) {
+      if (k >= nCols || j >= nCols || k === j || bwEq.includes(k) || bwEq.includes(j)) continue;
+      const d = Math.min(dd, Math.max(0, W[j] - FLOOR));
+      if (d > 0) { W[k] += d; W[j] -= d; if (process.env.W_LOG) console.error('BORROW', j, '→', k, d); } } }
   /* col-eq（2026-10-06 用户，1.3 B-1 发动机防冰「737-NG」「737-8」两列单独调成宽度一致）：表头标 col-eq 的几列，总宽不变、平分 */
   { const hrE = parsed.find(r => r.cls.includes('hdr'));
     if (hrE) { const hriE = parsed.indexOf(hrE), eq = [];
@@ -1545,7 +1561,7 @@ function htmlTableCore(html) {
      绑定后放不下时排版软件会在末行前硬断、留下孤行（2026-09-30 Songti SC 实测：3.8 分类表估 9325 / 预算 9566，实际放不下） */
   /* SD-79 两遍排版：第一遍按估算（留 12% 余量）；成品 PDF 里「断开但两截加起来放得进一页」的表，由 fit_fix.py 记下签名，
      第二遍强制整表同页（KEEP_FORCE 文件，一行一个签名）。签名＝表内文字只留字母数字后的前 80 字。 */
-  if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, fixed: fixedW, onepage: /\bone-page\b/.test(String(html).slice(0, 80)), text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3), W: W.slice(),
+  if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, fixed: fixedW, hdr: bwHdr, eq: bwEq, onepage: /\bone-page\b/.test(String(html).slice(0, 80)), text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3), W: W.slice(),
     br: parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<br\s*\/?>/g, '\u0001').replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}\u0001]/gu, '').replace(/\u0001/g, '|')).join('')).join('') });
   const onePage = /^\s*<table[^>]*\bone-page\b/.test(String(html));
   const keepTogether = onePage ? true : splitRow ? estimate(FS) <= BUDGET * 0.95 : ((estimate(FS) <= BUDGET * 0.88 || KEEP_FORCE.has(tblSig)) && !SPLITOK.has(tblSig));   // split-ok：正常字号放得下一页就整表同页，放不下才行间分页   // SD-78 实测：Songti SC 下个别表实际比估算高约 12%（4.20 A/P 可用性表 估 8575 / 实 ≈ 9640），留 15% 余量
