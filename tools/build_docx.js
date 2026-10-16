@@ -638,7 +638,25 @@ function htmlTableCore(html) {
              不是机型对照 / 并列方式的表也适用（着陆 | 中断起飞、起飞 | 着陆、快速离机 | 紧急撤离……）；只动共有格，各列自己的加点 / 居中不变。
              跨列格不是「共有内容」的表（如 3.9 安保搜查、4.9 液压处置），首格标 no-cmp 排除。 */
           body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) { c.cls = ((c.cls || '') + ' center').trim(); c.cmpShared = true; } }));
+        }
+        /* SD-188 ①（2026-10-15 用户，速查第 170 条减速板警告：「着陆和中断起飞共有的内容居中，各自有的靠左」；待改清单第 7 条）：
+           有跨列共有格的表——共有格居中（上面已标），各列独有的文字格一律靠左（c.leftUniq，最终对齐判定优先于 SD-84 单句列居中）；
+           纯数值 / 极短取值格（数字带单位、—、是 / 否）仍居中、不加点。DOC_SD188_OFF=1 关闭 */
+        if (shared && body.length >= 2 && !serialTable(parsed, startCol) && !process.env.DOC_SD188_OFF) {
+          const isVal = (c) => { const t = plainOf(c.text).replace(/\s+/g, '').replace(/[（(][^）)]*[）)]/g, '');   // 括注（「在地面」「压力高度」）不算文字：「2.0%（在地面）；2.5%（在空中）」按数值
+            return !t || /^[—－\-–\/／无]$/.test(t) || /^(是|否|有|无|适用|不适用)$/.test(t)
+              || (/\d/.test(t) && /^[\d.,:：;；~～+\-−–≤≥<>%()（）\/°×±℃℉a-zA-Z·]*$/.test(t)); };
+          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] < 1 || c.colspan !== 1 || c.cmpShared) return;
+            if (isVal(c)) { if (plainOf(c.text).trim()) { c.cls = ((c.cls || '') + ' center nodot').trim(); c.cmpShared = true; } }
+            else c.leftUniq = true; }));
         } } }
+    /* SD-188 ②（2026-10-15 用户，速查第 41 页「F/D 指令杆再现后」：「只有两列那第二列就靠左前面加小圆点」；待改清单第 12、14 条）：
+       只有两列的表，第二列整列靠左加点（单句格也加点）；序号表（首列 ①② / 1、2）除外——第二列靠左、不另加点；
+       并列对照表（parallel，如 PF | PM）两列都加点。DOC_SD188_OFF=1 关闭 */
+    { const hr2 = parsed.find(r => r.cls.includes('hdr'));
+      if (hr2 && !process.env.DOC_SD188_OFF && hr2.cells.length === 2 && hr2.cells.every(c => (c.colspan || 1) === 1) && !serialTable(parsed, startCol)) {
+        const setB = (hc) => { hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(center|plain|left)(?=\s|$)/g, ' ') + ' col-bullet').trim(); };
+        setB(hr2.cells[1]); if (parTbl) setB(hr2.cells[0]); } }
     /* SD-102 句子列自动加点、时机类列居中（2026-10-01 用户，速查第 5、6、7、53、65、74、83、85、93、99、108、124 条等：
        「说明 / 条件 / 限制 / 定义」这类列「统一靠左，前面加小圆点」；「时机 / 总则 / 类别」列「整体居中」）：
        表头没有显式 col-* 标注时，非首列表头属下列说明类、且六成以上的格是句子（≥ 约 6 字或带句读）→ 视作 col-bullet；
@@ -1747,7 +1765,7 @@ function htmlTableCore(html) {
       if (process.env.NUM_LOG && numList && !semMarked && !hierarchy) console.error('NUMLIST', TBL_IDX, ci + 1, contentParas.length, Math.max(...contentParas.map(vis)), contentParas[0].slice(0, 30));
       const plainCenter = !isHdr && !c.head && ci > 0 && !semMarked && !hierarchy && !forceLeft && !(numList && !process.env.DOC_NUM_CENTER) && !(c.colspan === 1 && serialLeft.has(ci)) && !process.env.DOC_F12_LEFT;
       if (process.env.TXT_LOG && plainCenter && !placeholder && !isNote && !isPre && !isWarn && ci === nCols - 1 && c.colspan === 1) console.error('TXTCOL\t' + TBL_IDX + '\t' + (hdrRow ? unesc(String((hdrRow.cells[hdrRow.cells.length - 1] || {}).text || '').replace(/<[^>]+>/g, '')) : '') + '\t' + (hdrRow ? unesc(hdrRow.cells.map(x => String(x.text).replace(/<[^>]+>/g, '')).join(' / ')) : '') + '\t' + unesc(String(c.text).replace(/<br\s*\/?>/g, ' ¦ ').replace(/<[^>]+>|[\uE001-\uE006]/g, '')));
-      const center = !(blkLeft.has(ci) && !isHdr && !c.head) && !(SERIAL_T && ci > 0 && !isHdr && !c.head && !placeholder && !isNote && !isPre && !isWarn && !(CENTER_HDR.has(ci) && forcedCenterCols.has(ci))) && !(numList && ci > 0 && !process.env.DOC_NUM_CENTER) && (plainCenter || !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
+      const center = !(c.leftUniq && !isHdr && !c.head) && !(blkLeft.has(ci) && !isHdr && !c.head) && !(SERIAL_T && ci > 0 && !isHdr && !c.head && !placeholder && !isNote && !isPre && !isWarn && !(CENTER_HDR.has(ci) && forcedCenterCols.has(ci))) && !(numList && ci > 0 && !process.env.DOC_NUM_CENTER) && (plainCenter || !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
         || (!forceLeft && !hierarchy && ((labelShort && (!longCols.has(ci) || firstAllLabel)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
           || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
           ? (!isNote && !isPre && !isWarn &&

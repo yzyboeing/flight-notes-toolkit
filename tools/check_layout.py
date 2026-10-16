@@ -18,6 +18,18 @@ except ImportError:
 def arg(flag, default=None):
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
 REPO = os.path.abspath(os.path.expanduser(arg('--repo', '~/flight-repos/gh-private')))
+def _nocmp_hdrs():   # SD-188：源文件首格标 no-cmp 的表（跨列格不是共有内容 / 用户指定不按对比原则），T16 跳过；按表头文字识别
+    import glob as _gl
+    out = set()
+    for f in _gl.glob(os.path.join(REPO, 'notes_src', '*', '*.md')) + [os.path.join(REPO, '速查', '速查源.md')]:
+        try: t = open(f, encoding='utf-8').read()
+        except Exception: continue
+        for m in re.finditer(r'<tr class="hdr">(.*?)</tr>', t, re.S):
+            ths = re.findall(r'<th([^>]*)>(.*?)</th>', m.group(1), re.S)
+            if ths and 'no-cmp' in ths[0][0]:
+                out.add(''.join(re.sub(r'<[^>]+>|\s', '', x[1]) for x in ths))
+    return out
+NOCMP_HDRS = _nocmp_hdrs()
 T = os.path.dirname(os.path.abspath(__file__))
 BOOK = arg('--book') or os.path.join(REPO, 'build', 'B737机型理论知识笔记.pdf')
 QREF = arg('--qref') or os.path.join(REPO, 'build', 'B737机型理论知识速查.pdf')
@@ -336,11 +348,14 @@ def scan(pdf, name, header):
                         if 0 < need and need + 6 <= have:
                             sug('T2', '%s 第 %d 页：%s「%s」折成 %d 行，表内还有约 %.0fpt 空余可让它一行放下' % (
                                 name, i + 1, '表头' if ri == 0 else '短格', txt[:24], len(ls), have))
+                _hd188 = [''.join(l[2] for l in x[1]).strip() if x else '' for x in info[0]] if info else []
+                _span188 = any(any(k >= 1 and r[k] and k + 1 < len(r) and r[k + 1] is None for k in range(len(r))) for r in info[1:] if r)
+                _two188 = len(_hd188) == 2   # SD-188 ②：两列表第二列按规则靠左加点；① 共有格表独有文字格靠左、数值居中——T3 / T7 不按旧口径提示
                 # T3 整列都是一行短内容却没居中（SD-75 / SD-78），第 2 列起、至少 2 格；序号表（首列 ①②③ / 1 2 3）按 SD-90 左对齐，不查
                 first = [''.join(l[2] for l in r[0][1]).strip() for r in info[1:] if r and r[0] and r[0][1] and not (len(r) > 1 and all(x is None for x in r[1:]))]   # 跳过整行合并的说明行（SD-129 表后说明进表格末行）
                 _sr = lambda x: re.match(r'^([①-⑳]|\d{1,2}[.、]?)$', x)
                 serial = len(first) >= 2 and all(_sr(x) for x in (first if _sr(first[-1]) else first[:-1])) and len(first) - (0 if _sr(first[-1]) else 1) >= 2   # 末行可以是表后说明行（SD-129）
-                for k in (range(1, ncol) if not serial else []):
+                for k in (range(1, ncol) if not serial and not _two188 and not _span188 else []):
                     cells = [r[k] for r in info[1:] if k < len(r) and r[k] and (k + 1 >= len(r) or r[k + 1] is not None)]
                     cells = [x for x in cells if x[1]]
                     if len(cells) < 2 or any(len(x[1]) != 1 for x in cells): continue
@@ -385,7 +400,7 @@ def scan(pdf, name, header):
                     # 列宽收窄到刚好放下（2026-10-05）后，填满格子的文字左右留白都很小，看不出是居中还是靠左：两边都不算
                     full = lambda x: all((x[0][2] - x[0][0]) - (l[1] - l[0]) <= PAD + 24 for l in x[1])
                     cen = [x for x in nb if centered(x) and not hdrlike(x) and not full(x)]; lef = [x for x in nb if lefty(x) and not centered(x) and not full(x)]
-                    if cen and lef:
+                    if cen and lef and not _span188:
                         sug('T7', '%s 第 %d 页：第 %d 列 %d 格居中、%d 格左对齐（如「%s」）——统一对齐' % (
                             name, i + 1, k + 1, len(cen), len(lef), lef[0][1][0][2].strip()[:18]))
                 # T13 首列靠左（SD-104，2026-10-01 用户：「一般第一列都是居中」）：首列是标签 / 短句却左对齐。首列是长句 / 问句 / 条件句（≥ 约 30 字或带句号）的允许左对齐，不报
@@ -481,6 +496,34 @@ def scan(pdf, name, header):
                                 and (DESC_H.match(h) or re.search(r'(条件|要求|说明|逻辑|措施|处置|要点|内容)$', h))):
                             sug('T11', '%s 第 %d 页：说明类句子列「%s」没有加「•」——整列左对齐加点（SD-102）' % (name, i + 1, h))
                 except Exception: serial = False
+                # T15 / T16（SD-188，2026-10-15 用户；待改清单第 7、12、14 条）——用户定的排版规则，报错误
+                try:
+                    _ct = lambda x: ''.join(l[2] for l in x[1]).strip() if x else ''
+                    _ph = lambda t: not t or re.fullmatch(r'[—\-–/无\s]+', t)
+                    _pad = (collections.Counter(round(l[0] - x[0][0]) for r in info[1:] for x in r if x for l in x[1] if l[2].strip()).most_common(1) or [(6, 0)])[0][0]
+                    def _centered(x):
+                        c, ls = x; ls = [l for l in ls if l[2].strip()]
+                        return bool(ls) and all(l[0] - c[0] > _pad + 2.5 and abs((l[0] - c[0]) - (c[2] - l[1])) < 3 for l in ls)
+                    _hd = [_ct(x) for x in info[0]] if info else []
+                    _body = [r for r in info[1:] if r and not (_ct(r[0]).startswith('注') and all(x is None for x in r[1:]))]
+                    # T15：只有两列的表（非序号表），第二列每格靠左、首行带「•」
+                    if len(_hd) == 2 and not serial:
+                        bad = [r[1] for r in _body if len(r) > 1 and r[1] and not _ph(_ct(r[1])) and (not _ct(r[1]).startswith('•') or _centered(r[1])) and not re.search(r'[：:]\s*$', (r[1][1][0][2] if r[1][1] else '')) and not re.match(r'\s*([\u2460-\u2473]|\d{1,2}[.、)）]\s)', _ct(r[1]))]   # 格内自带 ①② / 1. 编号的条目不另加点（每项一个标记）   # 引导语开头（SD-180「以下任一：」+「–」分项）不加点
+                        if bad: err('T15', '%s 第 %d 页：两列表「%s」列有 %d 格没有靠左加点——两列表第二列一律靠左加「•」（SD-188 ②）' % (name, i + 1, _hd[1], len(bad)))
+                    # T16：有跨列共有格的表，独有的文字格不居中（纯数值格除外）
+                    _VAL = re.compile(r'[\d.,:：;；~～+\-−–≤≥<>%()（）/°×±℃℉a-zA-Z·•\s]*')
+                    if len(_hd) >= 3 and not serial and re.sub(r'\s', '', ''.join(_hd)) not in NOCMP_HDRS and any(any(k >= 1 and r[k] and k + 1 < len(r) and r[k + 1] is None for k in range(len(r))) for r in _body):
+                        cnt = 0
+                        for r in _body:
+                            for k in range(1, len(r)):
+                                x = r[k]
+                                if not x or (k + 1 < len(r) and r[k + 1] is None): continue
+                                t = _ct(x)
+                                tv = re.sub(r'[（(][^）)]*[）)]', '', t)   # 括注不算文字，与生成器同口径
+                                if _ph(t) or re.fullmatch(r'[•\s]*(是|否|有|无|适用|不适用)', t) or (re.search(r'\d', tv) and _VAL.fullmatch(tv)): continue
+                                if _centered(x): cnt += 1
+                        if cnt: err('T16', '%s 第 %d 页：有共有格的表里 %d 个独有文字格居中——共有格居中、独有格靠左（SD-188 ①）' % (name, i + 1, cnt))
+                except Exception: pass
                 # T4 并列长句未分条（SD-78）：一格内 ≥2 个「；」、各分句 ≥ 20 字宽、却没有 •
                 for r in ([] if serial else info[1:]):
                     for x in r:
