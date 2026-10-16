@@ -182,24 +182,36 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
         eq, hdr = set(tb.get('eq') or []), tb.get('hdr') or []
         if k in eq or any(s2 == sg and jj == k for (s2, _, jj) in bw): return False   # 等宽列、已在借出的列不收宽（防来回借）
         donors = [(lendm.get((sg, j), 0), j) for j in range(len(tb.get('W') or [])) if j != k and j not in eq
-                  and not (j < len(hdr) and TWO.search(hdr[j] or '')) and not any(kk == j for (s2, kk, _) in bw if s2 == sg)]   # 两型对比列不借出；已在收宽的列不借出
-        donors = [d for d in donors if d[0] >= need]
-        if not donors: return False
-        lv0, j = max(donors)
-        bw[(sg, k, j)] = bw.get((sg, k, j), 0) + need; bwtried[(sg, k)] = bwtried.get((sg, k), 0) + 1
+                  and not any(kk == j for (s2, kk, _) in bw if s2 == sg)]   # 等宽列（col-eq）不借出；已在收宽的列不借出（SD-192 起两型对比列也可让出）
+        # SD-192：单列让得出就向让得最多的一列借；单列不够、几列合起来够，就从可让最多的几列依次各借一部分（每列都不超过其可让宽度，不增行）
+        donors = sorted([d for d in donors if d[0] >= 40], reverse=True)   # 可让不足 2pt 的列不动
+        if not donors or sum(d[0] for d in donors) < need: return False
+        take, left = [], need
+        for lv0, j in donors:
+            if left <= 0: break
+            t = min(lv0, left); take.append((lv0, j, t)); left -= t
+        bwtried[(sg, k)] = bwtried.get((sg, k), 0) + 1
         if bwtried[(sg, k)] > 3: bwblock.add((sg, k)); [bw.pop(kk) for kk in [kk for kk in bw if kk[0] == sg and kk[1] == k]]; return False
-        lendm[(sg, j)] = lv0 - need; bw_now.add(sg)
-        trace({'borrow': sg[:20], 'to': k, 'from': j, 'dxa': need, 'why': why})
+        for lv0, j, t in take:
+            bw[(sg, k, j)] = bw.get((sg, k, j), 0) + t; lendm[(sg, j)] = lv0 - t
+            trace({'borrow': sg[:20], 'to': k, 'from': j, 'dxa': t, 'why': why})
+        bw_now.add(sg)
         return True
     nbw = 0
     # 借多了的退回：收宽列孤字已消、实测仍可让出 ≥ 10pt 时，退回多出的部分，只留约 6pt（与 T13 同口径；可让出宽度已保证退回后不增行、不再出孤字）
+    # SD-192（2026-10-16）：孤字借宽不再「借多了退回」——退回会让收宽列孤字复现、借出列反借回来，两列来回跳（第 452 页 4.11 安定面表 10 遍不收敛）。
+    # 改为：借出列本遍出现孤字 → 撤销这次借宽并锁定（BWB），收宽列改走收紧字距 / 接受
+    _orph_cols = set()
+    for x0 in _xs:
+        if x0.get('orphan') and not x0.get('nw'):
+            for sg0 in match(x0['table'], tbls):
+                tb0 = next(t for t in tbls if t['sig'] == sg0); c0 = _srccol(x0, tb0)
+                if c0 is not None: _orph_cols.add((sg0, c0))
     for (sg, k, j), dd in list(bw.items()):
-        lk = lendm.get((sg, k))
-        if lk is not None and lk >= 200:
-            nd = dd - (lk - 120)
-            if nd > 0: bw[(sg, k, j)] = nd
-            else: del bw[(sg, k, j)]
-            nbw += 1; trace({'borrow_back': sg[:20], 'to': k, 'from': j, 'dxa': min(dd, lk - 120)})
+        if (sg, j) in _orph_cols:
+            for kk in [kk for kk in bw if kk[0] == sg and kk[1] == k]: bw.pop(kk)
+            bwblock.add((sg, k)); bw_now.add(sg); nbw += 1
+            trace({'borrow_undo': sg[:20], 'to': k, 'from': j, 'dxa': dd, 'why': 'donor-orphan'})
     # 2026-10-15 首次试运行：省行借宽（growb）与 T14「空位让给折行列」互相打架、整表来回挪，借宽只用于消末行孤字；省行仍由 SD-144 / T14 处理
     for x in [x0 for x0 in _xs if x0.get('orphan') and not x0.get('nw')]:   # 借宽：定宽满宽表的孤字，以及普通加宽已放弃（WB）的孤字
         if True:
@@ -207,7 +219,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
                 tb = next(t for t in tbls if t['sig'] == sg); k = _srccol(x, tb)
                 if k is None or x.get('span'): continue
                 if x.get('growb') and (tb.get('fixed') != 'full' and (sg, k) not in wblock): continue   # 省行借宽只给定宽满宽表和普通加宽已放弃的列（其余表由 SD-144 加宽 / 拉满处理）
-                if x.get('orphan') and tb.get('fixed') != 'full' and (sg, k) not in wblock: continue
+                # SD-192（2026-10-16 用户「可在不增加行数的情况下适当收窄其余列宽度以减少本列的孤字问题」）：孤字一律先借宽（同表别列可让出、不增行；表总宽不变，不与加宽 / 拉满互相拉锯），借不到才走加宽 / 收紧字距
                 if (x.get('prev') and x['prev'] + '|' in tb.get('br', '')): continue   # 止于原文 <br> 的是主动换行
                 need = int(x['extra_pt'] * 20) + 20
                 if borrow(sg, tb, k, need, 'orphan' if x.get('orphan') else 'growb'): nbw += 1
@@ -239,7 +251,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
                 if sg not in grown_sg: ffix[key] = ffix.get(key, 0) + int(x['extra_pt'] * 20); wadd += 1
                 continue
             # 跨列格的孤字也先试加宽（加宽所跨的那一列即加宽整格，捐出列可能在格外）；加宽无效再收紧字距（2026-10-05）
-            if key in wblock and sg in bw_now and any(kk[0] == sg and kk[1] == col for kk in bw): now.add(key); continue   # 本遍刚借宽，先看效果再决定收紧字距
+            if sg in bw_now and any(kk[0] == sg and kk[1] == col for kk in bw): now.add(key); continue   # 本遍刚借宽（含 SD-192 加宽后借宽），先看效果，不叠加加宽 / 收紧字距
             if key in wblock:   # 加宽无效（表已占满版面、邻列太窄）（表已占满版面、邻列太窄）：只在末行孤字时收紧这一格的字距，最多两级
                 fk = (x.get('first') or '')[:10]
                 if fk and x.get('orphan') and condense.get((sg, fk), 0) < 4: condense[(sg, fk)] = condense.get((sg, fk), 0) + 1; cadd += 1
@@ -345,7 +357,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     if nbw: print('fit_fix 第 %d 遍：借宽 %d 处（孤字 / 省行列向本表可借出宽度最多的列借）' % (n, nbw))
     print('fit_fix 第 %d 遍用时 %ds' % (n, time.time() - t0))
     if not (add or up or gave or changed or wadd or wgive or ladd or cadd or nbw): break
-    hist.append((res['pages'], len(res['splits']), wadd + wgive, add or up or gave or changed or ladd or cadd))
+    hist.append((res['pages'], len(res['splits']), wadd + wgive, add or up or gave or changed or ladd or cadd or nbw))   # 2026-10-16：借宽的一遍不算「状态重复」
     _sd = os.path.join(os.path.dirname(dump), 'p%d' % n); os.makedirs(_sd, exist_ok=True)   # 每遍留一份 docx / PDF，循环时挑好的那遍
     snap[n] = (wadd + wgive + cadd, shutil.copy2(OUT, os.path.join(_sd, 'o.docx')), shutil.copy2(last_pdf, os.path.join(_sd, 'o.pdf')))
     _td = os.path.join(os.path.dirname(OUT), 'tbl_dump_' + os.path.splitext(os.path.basename(OUT))[0] + '.jsonl')   # 2026-10-16：表格排版导出跟着这一遍留一份
@@ -357,7 +369,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
             if os.path.exists(os.path.join(os.path.dirname(snap[best][1]), 'tbl.jsonl')): shutil.copy2(os.path.join(os.path.dirname(snap[best][1]), 'tbl.jsonl'), _td)
         print('fit_fix：第 %d 遍与第 %d 遍结果相同（页数、断表、列宽调整量），列宽在两种状态间来回跳，提前停止；成品取第 %d 遍（待调整 %d 处）' % (n, n - 2, best, snap[best][0]))
         trace({'best': best, 'why': 'two-state'}); break   # 2026-10-07 实测：±60 / ±25 两遍一循环，跑满 10 遍也一样
-    calm = not (add or up or gave or changed or ladd or cadd) and wadd + wgive <= 3   # 只剩零星列宽微调
+    calm = not (add or up or gave or changed or ladd or cadd or nbw) and wadd + wgive <= 3   # 只剩零星列宽微调（借宽的一遍不算平稳）
     if calm and prev_calm:
         print('fit_fix：连续两遍只有零星列宽微调（≤ 3 处），提前停止'); break
     prev_calm = calm

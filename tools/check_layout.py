@@ -210,6 +210,7 @@ try:
     FIXW_SIGS = [nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12] for _m in re.finditer(r'<tr class="hdr">((?:(?!</tr>).)*\bw-\d+(?:(?!</tr>).)*)</tr>', _bm, re.S)]
 except Exception:
     FIXW_SIGS = []
+BWB = set()
 NWL = set()   # fit_fix 实测证明「再收就多行」的列（keep_force 的 NWL: 记录）：已收到「不增行」的极限，T13 不报
 try:
     for _kf in ('keep_force_B737机型理论知识笔记.txt', 'keep_force_B737机型理论知识速查.txt'):   # 全书与速查各有一份记录
@@ -217,6 +218,8 @@ try:
         for _l in open(os.path.join(REPO, 'build', _kf), encoding='utf-8'):
             if _l.startswith('NWL:'):
                 _k, _sg = _l.strip()[4:].split(':', 1); NWL.add((_sg[:20], int(_k)))
+            if _l.startswith('BWB:'):   # SD-192：借过宽、借出列因此出孤字已撤销的列——借不到，T8 按建议
+                _k, _sg = _l.strip()[4:].split(':', 1); BWB.add(_sg[:20])
 except Exception:
     pass
 
@@ -603,6 +606,27 @@ try:
                 _dk, _dv = max(_don, key=lambda kv: kv[1]['extra_strict'])
                 err('T14', '%s 第 %d 页：第 %d 列「%s」折成 2 行，第 %d 列（「%s」）右侧仍空约 %.0fpt——把空位让给折行的列（定宽表用 autow --from-report 重定）' % (
                     _nm, _x['page'], _x['col'] + 1, _x['cell'][:20], _dk + 1, _dv.get('head', ''), _have))
+        # T8 末行孤字（SD-192，2026-10-16 用户：「可在不增加行数的情况下适当收窄其余列宽度以减少本列的孤字问题」）：
+        # 同表另有列实测可让出（收窄后本列行数不增）≥ 所需宽度却留着孤字 → 错误（fit_fix 应借宽）；同表没有列能让 → 建议（SD-172 个别接受）
+        # 可让宽度与 fit_fix 同口径：跨页的表按各段（同组）最小值；单列不够时几列合计（每列 ≥ 2pt 才算）
+        _lendg = {}
+        for _g, _ks in _byg.items():
+            for _k in _ks:
+                for _e in _segs[_k]:
+                    _key = (_g, _e['col']); _lendg[_key] = min(_lendg.get(_key, 10 ** 9), _e.get('lend') or 0)
+        _gof = {}
+        for _k, _g in _grp.items():
+            for _e in _segs[_k]: _gof[(_k[0], _e.get('table', ''))] = _g
+        for _x in _res:
+            if not _x.get('orphan'): continue
+            _g = _gof.get((_x['page'], _x.get('table', '')))
+            _don = sorted([(v, c) for (g, c), v in _lendg.items() if g == _g and c != _x['col'] and v >= 2], reverse=True) if _g else []
+            _tried = any(nosp(_x.get('table', '')).startswith(b) for b in BWB)   # 借过宽、借出列因此出孤字已撤销 → 借不到
+            if _don and sum(v for v, c in _don) >= _x['extra_pt'] + 1 and not _x.get('span') and not _tried:   # 跨列格不借宽（fit_fix 同口径），按建议
+                err('T8', '%s 第 %d 页：「%s…」末行只剩一两个字，需约 %.0fpt；同表%s 可让出（不增行）——向这些列借宽（SD-192）' % (
+                    _nm, _x['page'], _x['cell'][:16], _x['extra_pt'], '、'.join('第 %d 列约 %.0fpt' % (c + 1, v) for v, c in _don[:3])))
+            else:
+                sug('T8', '%s 第 %d 页：「%s…」末行只剩一两个字（上一行止于「…%s」）——%s，个别接受（SD-172 / 192）' % (_nm, _x['page'], _x['cell'][:16], _x['prev'][-10:], '借宽后借出列出孤字已撤销' if _tried else '同表没有可让出宽度的列'))
         if _nm != '全书': continue
     # T14（续，2026-10-10 用户：速查第 23 条 N1 表）：定宽表右侧有空位、长句列却折行（fixw_grow.py 同口径；--apply 可直接改）
     try:
@@ -612,9 +636,6 @@ try:
                 _v['book'], _v['page'], os.path.basename(_f), '、'.join('第 %d 列可加宽约 %.0fpt' % (c + 1, e) for c, e in _v['cols'].items())))
     except Exception as _e:
         sug('T14', '定宽表加宽检查未能运行：%s' % _e)
-    for _x in _lm_measure(BOOK):
-        if _x.get('orphan'):
-            sug('T8', '全书 第 %d 页：「%s…」末行只剩一两个字（上一行止于「…%s」）——fit_fix 已自动处理；个别剩下的接受，不手工反复调（SD-172）' % (_x['page'], _x['cell'][:16], _x['prev'][-10:]))
 except Exception as _e:
     sug('T8', '末行孤字实测未能完成：%s' % _e)
 
