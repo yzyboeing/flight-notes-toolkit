@@ -348,10 +348,13 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     hist.append((res['pages'], len(res['splits']), wadd + wgive, add or up or gave or changed or ladd or cadd))
     _sd = os.path.join(os.path.dirname(dump), 'p%d' % n); os.makedirs(_sd, exist_ok=True)   # 每遍留一份 docx / PDF，循环时挑好的那遍
     snap[n] = (wadd + wgive + cadd, shutil.copy2(OUT, os.path.join(_sd, 'o.docx')), shutil.copy2(last_pdf, os.path.join(_sd, 'o.pdf')))
+    _td = os.path.join(os.path.dirname(OUT), 'tbl_dump_' + os.path.splitext(os.path.basename(OUT))[0] + '.jsonl')   # 2026-10-16：表格排版导出跟着这一遍留一份
+    if os.path.exists(_td): shutil.copy2(_td, os.path.join(_sd, 'tbl.jsonl'))
     if len(hist) >= 3 and not hist[-1][3] and hist[-1][:2] == hist[-3][:2] and abs(hist[-1][2] - hist[-3][2]) <= max(3, hist[-3][2] // 10):
         best = min((n - 1, n), key=lambda q: snap[q][0])   # 两种状态取待调整更少的一遍作成品
         if best != n:
             shutil.copy2(snap[best][1], OUT); shutil.copy2(snap[best][2], last_pdf)
+            if os.path.exists(os.path.join(os.path.dirname(snap[best][1]), 'tbl.jsonl')): shutil.copy2(os.path.join(os.path.dirname(snap[best][1]), 'tbl.jsonl'), _td)
         print('fit_fix：第 %d 遍与第 %d 遍结果相同（页数、断表、列宽调整量），列宽在两种状态间来回跳，提前停止；成品取第 %d 遍（待调整 %d 处）' % (n, n - 2, best, snap[best][0]))
         trace({'best': best, 'why': 'two-state'}); break   # 2026-10-07 实测：±60 / ±25 两遍一循环，跑满 10 遍也一样
     calm = not (add or up or gave or changed or ladd or cadd) and wadd + wgive <= 3   # 只剩零星列宽微调

@@ -6,12 +6,15 @@
 const {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, TableOfContents,
   WidthType, ShadingType, BorderStyle, AlignmentType, VerticalAlign, HeadingLevel,
-  PageBreak, ImageRun, Footer, Header, SimpleField, TabStopType, SectionType, PageNumber, PageOrientation, Bookmark, PageReference, InternalHyperlink, TableLayoutType, LeaderType, TableBorders
+  PageBreak, ImageRun, Footer, Header, SimpleField, TabStopType, SectionType, PageNumber, PageOrientation, Bookmark, PageReference, InternalHyperlink, TableLayoutType, LeaderType, TableBorders, UnderlineType
 } = require('docx');
 const fs = require('fs');
 
 const SRC = process.argv[2] || 'flight_theory_notes_prompt_v5.md';
 const OUT = process.argv[3] || 'prompt.docx';
+/* 表格排版导出（2026-10-16）：TBL_DUMP=1 → 写到输出文件旁 tbl_dump_<名>.jsonl（每次运行覆盖，fit_fix 多遍时留下最后一遍） */
+const TBL_DUMP_F = process.env.TBL_DUMP ? require('path').join(require('path').dirname(OUT), 'tbl_dump_' + require('path').basename(OUT).replace(/\.docx$/, '') + '.jsonl') : '';
+if (TBL_DUMP_F) require('fs').writeFileSync(TBL_DUMP_F, '');
 
 // 字体：LibreOffice 导出 PDF 时，苹方 / Helvetica Neue 的粗体和数学符号会被拆成多种替代字体。
 // SD-107（2026-10-01 用户看样张选第三种）：正文思源宋体 Medium，粗体用同字族 Bold（见 BOLDF）；覆盖中英文、数学符号与 ①～⑳。
@@ -1701,6 +1704,8 @@ function htmlTableCore(html) {
     r.cells.forEach((c, ck) => { if (startCol[ri][ck] === 0 && c.colspan === 1 && !c.head) { fcN++; if (shortTxt(c.text)) fcS++; } }); });
   const firstIsLabel = fcN > 0 && (fcS >= 0.6 * fcN || forcedCenterCols.has(0));   // 首列显式 col-center：按标签列居中加粗（SD-104）
   if (process.env.FC_LOG && nCols > 1 && (!firstIsLabel || parallel)) console.error('FCLEFT', parallel ? 'parallel' : 'nolabel', fcS + '/' + fcN, String(hdrRow ? hdrRow.cells.map(c => c.text).join(' / ') : '').replace(/<[^>]+>/g, '').slice(0, 50), '||', unesc(String((parsed.find(r => !/hdr|note|premise|warn/.test(r.cls)) || {cells:[{text:''}]}).cells[0].text)).replace(/<[^>]+>/g, '').slice(0, 30));
+  /* 2026-10-16（待改清单第 6 / 16 条）：TBL_DUMP=文件 时逐表写出排版结果（每格对齐、各段前缀、列宽占比），供两本同表对比（check_pair.py） */
+  const DUMP = (process.env.TBL_DUMP && !PROBE) ? [] : null;
   const trs = parsed.map((r, ri) => {
     const isHdr = r.cls.includes('hdr');
     const isNote = r.cls.includes('note');
@@ -1716,6 +1721,7 @@ function htmlTableCore(html) {
       return vis(t2.trim()) <= 30 && !/[，。；]/.test(t2); }));   // 首列每格去掉括注后都是短标签：括注再长也整列居中（R2）
     const cells = r.cells.map((c, ck) => {
       const ci = startCol[ri][ck];
+      const dumpP = DUMP ? [] : null;
       let w = 0;
       for (let k = 0; k < c.colspan; k++) w += W[Math.min(ci + k, nCols - 1)];
       const isFirstCol = (ci === 0) && !isPre && !isNote && !isWarn;
@@ -1809,6 +1815,15 @@ function htmlTableCore(html) {
         const nt = unesc(String(c.text).replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}]/gu, '');
         const hit = lst.find(([fk]) => fk && nt.startsWith(fk)); return hit ? ([0, -6, -10, -14, -18][Math.min(4, hit[1])]) : 0; })();   // 2026-10-06：末行孤字收紧字距 2 级 → 4 级（占满版心、没法加宽的表）
       let leadSeen = false, leadNum = false;   // SD-180：本格前面出现过引导语；引导语本身是否带编号
+      /* SD-191（2026-10-16 用户：「所有父子关系父前面也加小圆点吧这样子跟其他并列条目统一」→ Claude 建议分情况）：
+         格内一级条目（「•」并列条目 + 引导语父项）≥ 2 个时，父项也加「•」与并列条目同级；只有一个父项单独引出分项时仍不加点。DOC_LEAD_DOT=0 关闭 */
+      const NUM_RE = /^\s*(<[^>]+>\s*)*[\u2460-\u2473]/;
+      const topCnt = rawParas.reduce((n0, sg, pj) => { const m0 = (sg.match(/^[\uE001-\uE006]+/) || [''])[0], body = sg.slice(m0.length);
+        const nm = ((rawParas[pj + 1] || '').match(/^[\uE001-\uE006]+/) || [''])[0];
+        const par = /[：:]\s*(<\/[^>]+>\s*)*$/.test(body) && pj + 1 < rawParas.length && !NUM_RE.test(body)
+          && (nm.startsWith('\uE002') || nm === '\uE005' || c.cmpShared || NUM_RE.test(String(rawParas[pj + 1]).replace(/^[\uE001-\uE006]+/, '')));   // 与下面 parentSeg 判定一致；带编号的引导语不算
+        return n0 + ((m0 === '\uE001' || par) ? 1 : 0); }, 0);
+      const leadDot = !LEAD_OLD && !hierarchy && !SERIAL_T && process.env.DOC_LEAD_DOT !== '0' && topCnt >= 2;
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
         const mk = (seg.match(/^[\uE001-\uE006]+/) || [''])[0]; seg = seg.slice(mk.length);
@@ -1826,16 +1841,17 @@ function htmlTableCore(html) {
         if (leadSeg) { leadSeen = true; leadNum = isNumSeg; }
         else if (!isNumSeg && !mk.startsWith('\uE002') && mk !== '\uE005') leadSeen = false;
         const prefix = (SERIAL_T && ci > 0) ? ((mk.startsWith('\uE002') || (hierarchy && !parentFlags[pi] && hasParent)) ? '– ' : '') :   // SD-140：序号表其余列不加「•」，子项「–」保留
-          leadSeg ? '' :
+          leadSeg ? ((leadDot && !isNumSeg) ? '• ' : '') :
           hierarchy ? (parentFlags[pi] ? '• ' : (hasParent ? '– ' : '')) :   /* 父项统一「•」（Muse M5-149 / 258，2026-10-01） */ mk === '\uE001' ? '• ' : mk.startsWith('\uE002') ? '– ' : '';
         const prefix2 = (prefix === '– ' && /^\s*(<[^>]+>\s*)*([\u2460-\u2473]|\d+[.、)）])/.test(seg)) ? '' : prefix;   // ① 子项已编号不加短线
         const CHW = FS * 10;   // 一个汉字宽（twip）
         const childInd = LEAD_OLD ? null : prefix === '– ' ? (prefix2 ? { left: Math.round(CHW * 1.75), hanging: Math.round(CHW * 0.85) } : { left: Math.round(CHW * 0.9) }) : null;
+        if (dumpP) dumpP.push(((/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? 'C' : (hierarchy || semMarked) ? 'L' : (center ? 'C' : 'L')) + (prefix2 || '').trim());
         return new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
           children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS, ...(leadSeg && !BW ? { color: INK } : {}) }),
           spacing: shrinkLv >= 4 ? { before: 0, after: 0, line: LN } : { before: 20, after: 20, line: LN },   // 4 级（one-page 超大表）：格内段间距取 0（1.4 D-2 约 70 段，段间距合计约 140pt）
-          indent: leadSeg ? { left: 0 } : childInd ? childInd : numUnderLead ? { left: Math.round(CHW * 2.2), hanging: Math.round(CHW * 1.3) } : hierarchy ? { left: 0, hanging: 120 } : (mk === '\uE001' || mk.startsWith('\uE002')) ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : undefined,   // 用户 2026-10-04 样本：子项「–」与圆点对齐（都悬挂在左留白），子项文字与父项文字对齐；编号子项、单句同一起点（SD-180 起子项缩进一级，DOC_LEAD=old 时仍按此）   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
+          indent: leadSeg ? ((leadDot && !isNumSeg) ? { left: 0, hanging: 120 } : { left: 0 }) : childInd ? childInd : numUnderLead ? { left: Math.round(CHW * 2.2), hanging: Math.round(CHW * 1.3) } : hierarchy ? { left: 0, hanging: 120 } : (mk === '\uE001' || mk.startsWith('\uE002')) ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : undefined,   // 用户 2026-10-04 样本：子项「–」与圆点对齐（都悬挂在左留白），子项文字与父项文字对齐；编号子项、单句同一起点（SD-180 起子项缩进一级，DOC_LEAD=old 时仍按此）   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
           /* 单格居中（<td class="center">，2026-10-01 用户，速查 120「条件」跨列格）优先于列规则 */
           alignment: (/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? AlignmentType.CENTER : (hierarchy || semMarked) ? undefined : (center ? AlignmentType.CENTER : undefined)
@@ -1850,6 +1866,11 @@ function htmlTableCore(html) {
                       : { style: BorderStyle.SINGLE, size: 2, color: LINE },
         right: { style: BorderStyle.SINGLE, size: 2, color: LINE }
       };
+      /* 第 7 条（2026-10-16）：源文件手工 <br> 分成两段、合起来按当前格宽一行排得下 → 记 br，check_pair 报「多余手工换行」候选 */
+      const brSeg = String(c.text).split(/<br\s*\/?>/).map(x => unesc(x.replace(/<[^>]+>/g, '').replace(/[\uE001-\uE006]/g, '')).trim()).filter(Boolean);
+      const brFit = DUMP && brSeg.length === 2 && !isHdr && !isNote && !isPre && !isWarn && (() => { let n = 0; for (const ch of brSeg.join(' ')) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1;
+        return n * 96 * FS / 18 * 0.93 + 260 <= w; })();
+      if (DUMP) DUMP.push({ r: ri, c: ci, cs: c.colspan, h: isHdr ? 1 : 0, ...(brFit ? { br: brSeg } : {}), t: unesc(String(c.text).replace(/<[^>]+>/g, '').replace(/[\uE001-\uE006]/g, '')).replace(/\s+/g, ' ').trim().slice(0, 60), p: dumpP });
       return new TableCell({
         width: { size: w, type: WidthType.DXA },
         columnSpan: c.colspan > 1 ? c.colspan : undefined,
@@ -1865,6 +1886,7 @@ function htmlTableCore(html) {
     return new TableRow({ tableHeader: false, cantSplit: true, children: cells });   // 不重复表头（用户要求，2026-09-28）
   });
   /* 固定列宽：Word 默认「根据内容自动调整」会改写按内容算好的列宽，导致首列等短列被拉宽 */
+  if (DUMP) { const sw = W.reduce((a, b) => a + b, 0); require('fs').appendFileSync(TBL_DUMP_F, JSON.stringify({ t: TBL_IDX, w: W.map(x => Math.round(x * 1000 / TOTAL) / 10), tw: Math.round(sw * 1000 / TOTAL) / 10, cells: DUMP }) + '\n'); }
   return new Table({ layout: TableLayoutType.FIXED, columnWidths: W, width: { size: W.reduce((a,b)=>a+b,0), type: WidthType.DXA }, rows: trs.filter((_, ri) => !/(^|\s)ghost(\s|$)/.test(parsed[ri].cls || '')) });   // ghost 表头不印
 }
 
@@ -2166,8 +2188,9 @@ function bodyTopicPage() {
   out.push(new Paragraph({ alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 0, line: 20 }, children: [new TextRun({ text: '', size: 2 })],
     border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
   const NAV_AT = out.length, NAV = [];   // 2026-10-11 用户（方案 A）：段导航行（标题线下、图例上），循环后插回这里
-  if (qrMode) out.push(new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 40, after: 0 }, children: [   // 2026-10-07：交叉条目图例
-    new TextRun({ text: '↗ 灰字', font: FF, size: 16, color: '808080' }), new TextRun({ text: '：其他主题的条目，在此也可查', font: FF, size: 16, color: '808080' })] }));
+  out.push(new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 40, after: 0 }, children: [   // 2026-10-07：交叉条目图例；2026-10-16：加点击提示（两本）
+    new TextRun({ text: '点击段名、主题或条目可跳转', font: FF, size: 16, color: '808080' }),
+    ...(qrMode ? [new TextRun({ text: '　·　', font: FF, size: 16, color: 'A6A6A6' }), new TextRun({ text: '↗ 灰字', font: FF, size: 16, color: '808080' }), new TextRun({ text: '：其他主题的条目，在此也可查', font: FF, size: 16, color: '808080' })] : [])] }));
   let bad = 0, firstDim = true;
   const NC = PORTRAIT ? 2 : 3, GAP = 300, colW = Math.floor((TOTAL - GAP * (NC - 1)) / NC), NUMW = qrMode ? 540 : 820;
   const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
@@ -2226,7 +2249,7 @@ function bodyTopicPage() {
     const kids = [];
     const half = NAV.length > 6 ? Math.ceil(NAV.length / 2) : 0;   // 段多时分两行、每行一半，不靠自动折行（LibreOffice 会在「10」后断开）
     NAV.forEach((n, k) => { if (k && k === half) kids.push(new TextRun({ text: '', break: 1 })); else if (k) kids.push(new TextRun({ text: '　·　', font: FF, size: 18, color: 'A6A6A6' }));
-      kids.push(new InternalHyperlink({ anchor: n.id, children: [new TextRun({ text: n.text.replace(/ /g, '\u00A0'), font: FF_HEAD, size: 18, bold: true, color: H2_C })] })); });   // 段名内不折行
+      kids.push(new InternalHyperlink({ anchor: n.id, children: [new TextRun({ text: n.text.replace(/ /g, '\u00A0'), font: FF_HEAD, size: 18, bold: true, color: H2_C, underline: { type: UnderlineType.SINGLE, color: H2_C } })] })); });   // 2026-10-16 用户：「01-09 下面加一根横线……让人知道点击就可以跳转」   // 段名内不折行
     out.splice(NAV_AT, 0, new Paragraph({ keepNext: true, alignment: AlignmentType.CENTER, spacing: { before: 100, after: 40, line: 260 }, children: kids }));
   }
   /* 网格最后一行贴近页底时，表后必需的那个段落会溢出成一张空白页：让它只占 1pt，并收掉最后一行的底部留白 */

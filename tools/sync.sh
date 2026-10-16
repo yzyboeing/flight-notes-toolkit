@@ -158,6 +158,7 @@ if [ "$BUILD" = 1 ]; then
   # DOC_TOPICINDEX="${DOC_TOPICINDEX:-$ROOT/主题线索引.md}"; export DOC_TOPICINDEX
   # 印刷方式（可选）：git config notes.docBW 1（黑白：限制值改黑色加粗 + 下划线）；git config notes.docDuplex 1（双面：镜像页边距、奇偶页页眉页脚、每章从右页开始）
   DOC_BW="${DOC_BW:-$(cfg notes.docBW)}"; export DOC_BW
+  TBL_DUMP="${TBL_DUMP:-1}"; export TBL_DUMP   # 2026-10-16：表格排版导出 build/tbl_dump_*.jsonl，check_pair.py 比对两本同表
   DOC_DUPLEX="${DOC_DUPLEX:-$(cfg notes.docDuplex)}"; export DOC_DUPLEX
 
   echo; info "[4/5] 渲染 docx"
@@ -241,6 +242,10 @@ PYEOF
     # 速查版（SD-146）：速查/速查源.md 生成单册；放在总检查之前，让 check_layout 查到的是本次生成的速查版（2026-10-06）
     if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/quickref.py" ]; then
       python3 "$TOOLKIT/quickref.py" --repo "$ROOT" 2>/dev/null | tail -1 | sed 's/^/  /' || warn "速查版生成失败（不影响完整版）"
+    fi
+    # 2026-10-16（待改清单第 6 / 16 条）：两本同表对比——同格排法不同、表头 / 列数不同报错误；收工前改到 0
+    if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/check_pair.py" ]; then
+      if python3 "$TOOLKIT/check_pair.py" --repo "$ROOT" | sed 's/^/  /'; then :; else warn "两本同表有错误 → build/两本同表对照报告.md（收工前须改到 0）"; fi
     fi
     # SD-79 总检查器：规则见 pub/prompt/layout-checklist.md。报告写 build/排版检查报告.md；
     # 有「错误」只警告不中止（成品仍要交给用户看），但收工前必须改到 0。

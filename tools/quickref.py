@@ -84,7 +84,7 @@ def main():
         out = []
         for row in re.findall(r'<tr(?![^>]*class="(?:hdr|premise|note)")[^>]*>\s*<td[^>]*>(.*?)</td>', m.group(1), re.S):
             t = re.split(r'<br\s*/?>|（|\(', row)[0]
-            t = re.sub(r'<[^>]+>', '', t).replace('&gt;', '>').replace('&lt;', '<').strip()
+            t = re.sub(r'<[^>]+>', '', t).replace('&gt;', '>').replace('&lt;', '<').strip().rstrip('：:').strip()   # 2026-10-16：引语格「起飞时 APU 供电：」去掉冒号
             if not t or re.match(r'^[①-⑳\d]', t) or len(t) > 16 or t in out: continue
             out.append(t)
         return out if len(out) >= 3 else []
@@ -102,6 +102,12 @@ def main():
                    and not any(e['t'].startswith(x) for x in exc) and any(('%s %s' % (s, b)) in keys for s, b in e['binds'] if b))]
             # 2026-10-12 用户（方案 A）：主题目录按逻辑顺序——本主题条目在前（正文顺序），↗ 交叉条目统一排在后面
             hit = [e for e in sorted(hit, key=lambda x: (x['g'] != tp['theme'], x['n'])) if e['g'] == tp['theme'] or is_see(e) or e['n'] not in seen]
+            # 2026-10-16 用户（待改清单第 2 条「包括灰字主题的顺序」）：theme 可写 order（条目标题前缀，按飞行流程）——交叉条目按 order 排，未列的排在后面（仍按编号）
+            if tp.get('order'):
+                od = tp['order']; rank = lambda e: next((k for k, x in enumerate(od) if e['t'].startswith(x)), len(od))
+                for x in od:
+                    if not any(e['t'].startswith(x) for e in hit): print('  警告  按主题查 order 找不到条目：%s → %s' % (tp['theme'], x))
+                hit = [e for e in hit if e['g'] == tp['theme']] + sorted([e for e in hit if e['g'] != tp['theme']], key=lambda e: (rank(e), e['n']))
             for x in see:
                 if not any(e['t'].startswith(x) for e in ents): print('  警告  按主题查 see 找不到条目：%s → %s' % (tp['theme'], x))
             seen |= {e['n'] for e in hit}
