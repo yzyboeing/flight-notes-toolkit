@@ -17,7 +17,7 @@ if not os.path.exists(QF): sys.exit(0)
 def blocks(text, sid):
     out = {}
     for m in re.finditer(r'(?ms)^#{3,4} ([A-Z]-\d+)　[^\n]*\n(.*?)(?=^#{3,4} |\Z)', text): out[m.group(1)] = m.group(2)
-    if sid[0] in '45':
+    if True:   # SD-201：全书「### N. 标题」
         for m in re.finditer(r'(?ms)^### (\d+)\. [^\n]*\n(.*?)(?=^### |\Z)', text): out[m.group(1)] = m.group(2)
     return out
 norm = lambda s: re.sub(r'\s+', '', re.sub(r'[^\n]*详见[^\n]*', '', re.sub(r'<!--.*?-->', '', s, flags=re.S)))

@@ -78,10 +78,11 @@ try:
     for _it in re.split(r'(?m)^(?=### \d+\. )', _q):
         _m = re.match(r'### (\d+)\. (.+)', _it)
         if not _m: continue
-        for _sec, _addr in re.findall(r'\|(\d\.\d+) ([A-Z]-\d+)\]\]', _it):
+        for _sec, _addr in re.findall(r'\|(\d\.\d+) ([A-Z]-\d+|第 ?\d+ ?条)\]\]', _it):   # SD-201：全书「x.y 第 N 条」
             if _sec not in _files: continue
             _s = open(_files[_sec], encoding='utf-8').read()
-            _a = re.search(r'(?m)^### ' + re.escape(_addr) + r'[\s\u3000]', _s)
+            _n = re.match(r'第 ?(\d+) ?条', _addr)
+            _a = re.search(r'(?m)^### ' + (_n.group(1) + r'\. ' if _n else re.escape(_addr) + r'[\s\u3000]'), _s)
             if not _a: continue
             _nx = re.search(r'(?m)^### ', _s[_a.end():]); _b = _s[_a.start(): _a.end() + (_nx.start() if _nx else len(_s))]
             for _hq, _cq in _hdr_tables(_it):

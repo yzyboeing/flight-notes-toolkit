@@ -138,7 +138,7 @@ def main():
         secs[sid] = t
         for m in re.finditer(r'(?ms)^#{3,4} ([A-Z]-\d+)　[^\n]*\n(.*?)(?=^#{3,4} |\Z)', t):
             blocks[(sid, m.group(1))] = m.group(2)
-        if sid.split('.')[0] in ('4', '5'):          # 第 4、5 章条目「### N. 标题」，地址写「第 N 条」（SD-30）
+        if True:                                     # 条目「### N. 标题」，地址写「第 N 条」（SD-30；SD-201 起全书）
             for m in re.finditer(r'(?ms)^### (\d+)\. [^\n]*\n(.*?)(?=^### |\Z)', t):
                 blocks[(sid, '第 %s 条' % m.group(1))] = m.group(2)
     errs, warns, n_ptr, n_own = [], [], 0, 0

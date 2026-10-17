@@ -9,8 +9,8 @@
 专查「块编号形态」是否自洽——任何模型整理完都必须跑过这一关，不靠人肉复核。
 
 检查项：
-  1  块字母从 A 起连续，不跳号
-  2  每块内条目从 1 起连续，不跳号
+  1  条目「### N. 标题」每节从 1 连续编号（SD-201：全书取消 A-1 块编号）
+  2  不设块标题、#### 条目
   3  条目标题在本节内唯一
   4  全书不设块索引（第零章 SD-23、第一章 SD-185、第二 / 三章 SD-199），有就报错
   5  关键数字总表里每个「出处」引用的块编号，在本节确实存在
@@ -50,8 +50,16 @@ def check(path):
     if '.' not in name.split()[0]:               # 扁平节（第零章速查区，SD-23）
         return check_flat(name, body)
 
-    if name.split('.')[0] in ('4', '5'):         # 第 4、5 章不分块（SD-30）
-        return check_numbered(name, body)
+    # SD-201（2026-10-16 用户「按方案 ① 全量改号」）：全书条目一律「### N. 标题」、每节从 1 连续编号（原第 1～3 章「A-1」块编号取消）
+    errs, warns = check_numbered(name, body)
+    fid = re.search(r'^id:\s*"?([0-9.]+)"?\s*$', m.group(0), re.M)
+    pre = name.split()[0]
+    if fid and fid.group(1) != pre:
+        errs.append('%s：front matter id 为 %s，与文件名前缀 %s 不符' % (name, fid.group(1), pre))
+    h1 = re.search(r'(?m)^#\s+([0-9.]+)\s*　', body)
+    if h1 and h1.group(1) != pre:
+        errs.append('%s：H1 编号为 %s，与文件名前缀 %s 不符' % (name, h1.group(1), pre))
+    return errs, warns
 
     blocks = BLK.findall(body)
     items  = ITEM.findall(body)
@@ -118,10 +126,10 @@ def check(path):
     return errs, warns
 
 def check_numbered(name, body):
-    """SD-30：第 4、5 章——不设块索引与块标题，条目「### N. 标题」每节从 1 连续编号"""
+    """SD-30 / SD-201：全书——不设块索引与块标题，条目「### N. 标题」每节从 1 连续编号"""
     errs, warns = [], []
-    if re.search(r'(?m)^### 块索引', body): errs.append('%s：第 4、5 章不设块索引（SD-30）' % name)
-    if re.search(r'(?m)^#### |^### [A-Z]　', body): errs.append('%s：第 4、5 章不应有块标题或 #### 条目（SD-30）' % name)
+    if re.search(r'(?m)^### 块索引', body): errs.append('%s：全书不设块索引（SD-199）' % name)
+    if re.search(r'(?m)^#### |^### [A-Z]　', body): errs.append('%s：不应有块标题或 #### 条目（SD-30 / 201）' % name)
     head = body.split('### ', 1)[0]
     if re.search(r'本节共\s*<strong>', head) or re.search(r'(?m)^<strong>20\d\d-\d\d-\d\d', head):
         errs.append('%s：节首还有整理说明（SD-30）' % name)
@@ -135,8 +143,8 @@ def check_numbered(name, body):
     dup = {x for x in titles if titles.count(x) > 1}
     if dup: errs.append('%s：条目标题重复 %s' % (name, sorted(dup)))
     if NEST.search(body): errs.append('%s：<strong>/<em> 嵌套' % name)
-    stale = re.findall(r'(?<![0-9A-Za-z.\-])[A-H]-\d{1,2}(?!\d)', re.sub(r'\d+\.\d+\s*[A-H]-\d{1,2}', '', re.sub(r'(?m)^#.*$', '', strip_tags(body))))   # 「x.y A-n」是跨章地址（第 1–3 章），合法   # 4 位数的 B-xxxx 是飞机注册号（SD-32），不算块编号
-    if stale: warns.append('%s：正文里还有块编号式引用 %s（第 4、5 章已改为「第 N 条」）' % (name, sorted(set(stale))[:5]))
+    stale = re.findall(r'(?<![0-9A-Za-z.\-])(?<!JET )[A-H]-\d{1,2}(?!\d)', re.sub(r'\d+\.\d+\s*[A-H]-\d{1,2}', '', re.sub(r'(?m)^#.*$', '', strip_tags(body))))   # 「x.y A-n」是跨章地址（第 1–3 章），合法   # 4 位数的 B-xxxx 是飞机注册号（SD-32），不算块编号
+    if stale: warns.append('%s：正文里还有块编号式引用 %s（全书已改为「x.y 第 N 条」，SD-201）' % (name, sorted(set(stale))[:5]))
     return errs, warns
 
 def check_flat(name, body):

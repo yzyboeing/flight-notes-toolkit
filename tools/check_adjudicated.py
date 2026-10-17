@@ -10,7 +10,7 @@ LEDGER = os.path.expanduser('~/flight-repos/gh-private/内容裁定台账.json')
 
 def keys_of(e):
     t = e['地址']
-    ks = set(re.findall(r'\d\.\d+\s*[A-H]?-?\d*', t)) | set(re.findall(r'M1[4-9]-[A-Z]?\d+', t + e.get('轮', '')))
+    ks = set(re.findall(r'\d\.\d+\s*(?:第\s*\d+\s*条|[A-H]-\d+)?', t))   # SD-201：「x.y 第 N 条」 | set(re.findall(r'M1[4-9]-[A-Z]?\d+', t + e.get('轮', '')))
     ks |= set(re.findall(r'[A-Z]{2,}[  ]?[A-Z/]*', t)) - {'PDF', 'FCOM', 'QRH', 'AFM', 'SOP', 'MEL'}
     ks |= set(re.findall(r'\d+(?:±\d+)?(?:ft|kt|psi|℃|m|s|min|V|Hz)', t))
     for w in re.findall(r'[一-鿿]{4,8}', t): ks.add(w)
