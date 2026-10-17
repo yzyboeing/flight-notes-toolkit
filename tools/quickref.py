@@ -108,7 +108,9 @@ def main():
                 od = tp['order']; rank = lambda e: next((k for k, x in enumerate(od) if e['t'].startswith(x)), len(od))
                 for x in od:
                     if not any(e['t'].startswith(x) for e in hit): print('  警告  按主题查 order 找不到条目：%s → %s' % (tp['theme'], x))
-                hit = [e for e in hit if e['g'] == tp['theme']] + sorted([e for e in hit if e['g'] != tp['theme']], key=lambda e: (rank(e), e['n']))
+                # 2026-10-17 自审 D-009：order 也能排本组条目（阶段主题按飞行流程）；没写进 order 的本组条目仍在最前
+                _own_un = [e for e in hit if e['g'] == tp['theme'] and rank(e) == len(od)]
+                hit = _own_un + sorted([e for e in hit if not (e['g'] == tp['theme'] and rank(e) == len(od))], key=lambda e: (rank(e), e['n']))
             for x in see:
                 if not any(e['t'].startswith(x) for e in ents): print('  警告  按主题查 see 找不到条目：%s → %s' % (tp['theme'], x))
             seen |= {e['n'] for e in hit}
