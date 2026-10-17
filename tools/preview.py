@@ -16,6 +16,23 @@ import sys, os, re, subprocess, shutil, json
 
 T = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.getcwd()
+# 2026-10-17：与 sync.sh 共用构建锁，另一个构建在跑时不预览（会改写 keep_force 与 build/ 临时文件）
+_LOCK = os.path.join(ROOT, 'build', '.build.lock')
+def _lock():
+    import atexit, shutil
+    os.makedirs(os.path.join(ROOT, 'build'), exist_ok=True)
+    try:
+        os.mkdir(_LOCK)
+    except FileExistsError:
+        try:
+            old = int(open(os.path.join(_LOCK, 'pid')).read().strip()); os.kill(old, 0)
+            sys.exit('另一个构建正在进行（进程 %d，%s），请等它结束再预览' % (old, open(os.path.join(_LOCK, 'info')).read().strip()))
+        except (ValueError, OSError, ProcessLookupError):
+            shutil.rmtree(_LOCK, ignore_errors=True); os.mkdir(_LOCK)
+    open(os.path.join(_LOCK, 'pid'), 'w').write(str(os.getpid()))
+    open(os.path.join(_LOCK, 'info'), 'w').write('preview.py ' + ' '.join(sys.argv[1:]))
+    atexit.register(lambda: shutil.rmtree(_LOCK, ignore_errors=True))
+_lock()
 secs = [a for a in sys.argv[1:] if re.fullmatch(r'\d\.\d{1,2}', a)]
 if not secs: print(__doc__); sys.exit(1)
 B = os.path.join(ROOT, 'build'); P = os.path.join(B, 'preview'); os.makedirs(P, exist_ok=True)

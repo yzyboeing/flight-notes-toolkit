@@ -268,6 +268,8 @@ def scan(pdf, name, header):
     if not d.get_toc(): err('L3', name + ' 没有书签')
     ut = [x[1] for x in d.get_toc() if '（单位：' in x[1]]
     if ut: err('L3', '%s 书签目录里有单位括注 %d 条（如「%s」）——目录不写「（单位：…）」（2026-10-01 用户）' % (name, len(ut), ut[0][:30]))
+    mt = [x[1] for x in d.get_toc() if '【737' in x[1]]
+    if mt: err('L3', '%s 书签目录里有机型标签 %d 条（如「%s」）——目录、书签不写机型（F11 / SD-195）' % (name, len(mt), mt[0][:30]))
     if 'UseOutlines' not in (d.pdf_catalog() and d.xref_get_key(d.pdf_catalog(), 'PageMode')[1] or ''):
         err('L3', name + ' 打开时未展开书签栏（PageMode 应为 UseOutlines）')
     # C 封面（SD-73 / SD-74）
@@ -334,6 +336,17 @@ def scan(pdf, name, header):
                         colw[k] = max(colw[k], c[2] - c[0])
                         colused[k] = max(colused[k], max((l[1] - l[0] for l in ls), default=0))
                 spare = [max(0, colw[k] - colused[k] - PAD) for k in range(ncol)]
+                # T17 列宽比例失调（SD-195，2026-10-16 自审 K-15：1.1 C-3「保障对象」列逐字折行、右列大片空白，T14 没报出）：
+                # 某列有格折成 ≥ 3 行且每行平均 ≤ 6 字，同表另有列右侧空白 ≥ 30% 列宽 → 建议（用 autow 实测定宽）
+                _nar = []
+                for k in range(ncol):
+                    _seg = [len(''.join(l[2] for l in x[1]).replace(' ', '')) / len(x[1]) for r in info for kk, x in enumerate(r)
+                            if kk == k and x and len(x[1]) >= 3 and not (kk + 1 < len(r) and r[kk + 1] is None)]
+                    if _seg and max(_seg) <= 6: _nar.append(k)
+                _wide = [k for k in range(ncol) if k not in _nar and colw[k] and spare[k] >= 0.3 * colw[k]]
+                if _nar and _wide:
+                    sug('T17', '%s 第 %d 页：第 %s 列逐字折行（每行 ≤ 6 字），第 %s 列右侧空白 ≥ 30%%——列宽比例失调，用 autow 按实测定宽' % (
+                        name, i + 1, '、'.join(str(k + 1) for k in _nar), '、'.join(str(k + 1) for k in _wide)))
                 # T13 改由 layout_measure 实测统一检查（见 scan 之后，跨页表按各段最小余量），这里不再单页判断
                 # T2 有剩余宽度却折行（SD-72）：表头、以及 20 个字宽以内的短格
                 for ri, r in enumerate(info):

@@ -41,6 +41,19 @@ done
 # ---------- 定位 ----------
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "当前目录不在任何 git 仓库里"
+# 2026-10-17：构建锁——两个会话同时跑构建会互相冲掉 build/ 里的临时文件（10-16 分叉会话撞车）。--check 只校验不构建，不加锁
+if [ "$CHECK_ONLY" != 1 ]; then
+  LOCK="$ROOT/build/.build.lock"; mkdir -p "$ROOT/build"
+  if ! mkdir "$LOCK" 2>/dev/null; then
+    OLD="$(cat "$LOCK/pid" 2>/dev/null || true)"
+    if [ -n "$OLD" ] && kill -0 "$OLD" 2>/dev/null; then
+      die "另一个构建正在进行（进程 $OLD，$(cat "$LOCK/info" 2>/dev/null)），请等它结束再跑"
+    fi
+    rm -rf "$LOCK"; mkdir "$LOCK" || die "构建锁创建失败：$LOCK"   # 上次异常退出留下的锁
+  fi
+  echo $$ > "$LOCK/pid"; printf '%s %s\n' "$(date '+%m-%d %H:%M')" "sync.sh ${MSG:-}" > "$LOCK/info"
+  trap 'rm -rf "$LOCK"' EXIT
+fi
 cd "$ROOT" || die "无法进入 $ROOT"
 [ -d notes_src ] || die "仓库根目录没有 notes_src/，这不是笔记库"
 
@@ -231,6 +244,7 @@ p = sys.argv[1]; d = pymupdf.open(p); d.set_pagemode('UseOutlines')
 toc = d.get_toc(simple=False); ch = 0
 for e in toc:
     t = re.sub(r'\s*（单位：(?:[^（）]|（[^（）]*）)*）', '', e[1])
+    t = re.sub(r'\s*【737[^】]*】', '', t)   # SD-195（F11）：书签不写机型标签，正文标题保留（2026-10-16）
     if t != e[1]: e[1] = t; ch += 1
 if ch: d.set_toc(toc)
 d.save(p + '.tmp', garbage=3, deflate=True); d.close(); os.replace(p + '.tmp', p)

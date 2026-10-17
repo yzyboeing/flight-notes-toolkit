@@ -24,7 +24,7 @@ if not os.path.exists(IDX): IDX = os.path.join(REPO, '按主题查索引.json')
 BUILD = os.path.join(REPO, 'build')
 SINGLE_MD = os.path.join(BUILD, 'qr_single.md')
 DIMS_JSON = os.path.join(BUILD, 'qr_dims.json')
-NO_XREF = {'737-NG / 737-8 机型差异对照'}   # 汇总性的分组只挂在自己名下，不按绑定块交叉挂到其他主题（2026-10-07）
+NO_XREF = {'737-NG 与 737-8 差异', '737-NG / 737-8 机型差异对照'}   # 1016R4 改名（SD-195），旧名保留兼容   # 汇总性的分组只挂在自己名下，不按绑定块交叉挂到其他主题（2026-10-07）
 OUT_DOCX = os.path.join(BUILD, 'B737机型理论知识速查.docx')
 
 def parse_src():
@@ -85,6 +85,7 @@ def main():
         for row in re.findall(r'<tr(?![^>]*class="(?:hdr|premise|note)")[^>]*>\s*<td[^>]*>(.*?)</td>', m.group(1), re.S):
             t = re.split(r'<br\s*/?>|（|\(', row)[0]
             t = re.sub(r'<[^>]+>', '', t).replace('&gt;', '>').replace('&lt;', '<').strip().rstrip('：:').strip()   # 2026-10-16：引语格「起飞时 APU 供电：」去掉冒号
+            t = re.sub(r'\s*【737[^】]*】\s*', '', t).strip()   # SD-195（F11）：主题目录小项不写机型标签
             if not t or re.match(r'^[①-⑳\d]', t) or len(t) > 16 or t in out: continue
             out.append(t)
         return out if len(out) >= 3 else []
@@ -145,7 +146,7 @@ def main():
     try:   # 与 sync.sh 全书同：打开即展开书签栏；书签去掉「（单位：…）」，正文标题保留
         import pymupdf
         d = pymupdf.open(pdf); d.set_pagemode('UseOutlines'); toc = d.get_toc(simple=False)
-        for e in toc: e[1] = re.sub(r'\s*（单位：(?:[^（）]|（[^（）]*）)*）', '', e[1])
+        for e in toc: e[1] = re.sub(r'\s*【737[^】]*】', '', re.sub(r'\s*（单位：(?:[^（）]|（[^（）]*）)*）', '', e[1]))   # SD-195：书签也不写机型标签
         d.set_toc(toc); np = len(d)
         d.save(pdf + '.tmp', garbage=3, deflate=True); d.close(); os.replace(pdf + '.tmp', pdf)
     except Exception: np = '?'
