@@ -523,7 +523,8 @@ def scan(pdf, name, header):
                     _hd = [_ct(x) for x in info[0]] if info else []
                     _body = [r for r in info[1:] if r and not (_ct(r[0]).startswith('注') and all(x is None for x in r[1:]))]
                     # T15：只有两列的表（非序号表），第二列每格靠左、首行带「•」
-                    if len(_hd) == 2 and not serial:
+                    # SD-198（2026-10-16 用户）：首列表头标 no-cmp 的同类并列两列表（如 1.13 A-1 系统 A ｜ 系统 B）第二列居中不加点，T15 跳过
+                    if len(_hd) == 2 and not serial and re.sub(r'\s', '', ''.join(_hd)) not in NOCMP_HDRS:
                         bad = [r[1] for r in _body if len(r) > 1 and r[1] and not _ph(_ct(r[1])) and (not _ct(r[1]).startswith('•') or _centered(r[1])) and not re.search(r'[：:]\s*$', (r[1][1][0][2] if r[1][1] else '')) and not re.match(r'\s*([\u2460-\u2473]|\d{1,2}[.、)）]\s)', _ct(r[1]))]   # 格内自带 ①② / 1. 编号的条目不另加点（每项一个标记）   # 引导语开头（SD-180「以下任一：」+「–」分项）不加点
                         if bad: err('T15', '%s 第 %d 页：两列表「%s」列有 %d 格没有靠左加点——两列表第二列一律靠左加「•」（SD-188 ②）' % (name, i + 1, _hd[1], len(bad)))
                     # T16：有跨列共有格的表，独有的文字格不居中（纯数值格除外）

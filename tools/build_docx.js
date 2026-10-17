@@ -671,7 +671,8 @@ function htmlTableCore(html) {
        只有两列的表，第二列整列靠左加点（单句格也加点）；序号表（首列 ①② / 1、2）除外——第二列靠左、不另加点；
        并列对照表（parallel，如 PF | PM）两列都加点。DOC_SD188_OFF=1 关闭 */
     { const hr2 = parsed.find(r => r.cls.includes('hdr'));
-      if (hr2 && !process.env.DOC_SD188_OFF && hr2.cells.length === 2 && hr2.cells.every(c => (c.colspan || 1) === 1) && !serialTable(parsed, startCol)) {
+      if (hr2 && !process.env.DOC_SD188_OFF && hr2.cells.length === 2 && hr2.cells.every(c => (c.colspan || 1) === 1) && !serialTable(parsed, startCol)
+          && !/(^|\s)no-cmp(\s|$)/.test(hr2.cells[0].cls || '')) {   // SD-198：首列表头标 no-cmp 的同类并列两列表（如 1.13 A-1 系统 A ｜ 系统 B）不自动加点，按表头 col-center 整列居中
         const setB = (hc) => { hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(center|plain|left)(?=\s|$)/g, ' ') + ' col-bullet').trim(); };
         setB(hr2.cells[1]); if (parTbl) setB(hr2.cells[0]); } }
     /* SD-102 句子列自动加点、时机类列居中（2026-10-01 用户，速查第 5、6、7、53、65、74、83、85、93、99、108、124 条等：
