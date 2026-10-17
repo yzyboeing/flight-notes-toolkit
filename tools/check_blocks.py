@@ -12,7 +12,7 @@
   1  块字母从 A 起连续，不跳号
   2  每块内条目从 1 起连续，不跳号
   3  条目标题在本节内唯一
-  4  块索引存在（有并列条目的节；第零章不设，SD-23；第一章不设，SD-185），且与正文条目**逐条一一对应**（编号 + 标题、顺序一致）
+  4  全书不设块索引（第零章 SD-23、第一章 SD-185、第二 / 三章 SD-199），有就报错
   5  关键数字总表里每个「出处」引用的块编号，在本节确实存在
   6  正文无 <strong>/<em> 嵌套（渲染器会把标签当文字打出来）
   7  面向人的段落里没有漏出 Markdown / HTML 语法名（###、<code> 等）
@@ -55,7 +55,7 @@ def check(path):
 
     blocks = BLK.findall(body)
     items  = ITEM.findall(body)
-    if blocks: errs.append('%s：正文里不再写「### A　块主题」块标题，块主题只在块索引里（SD-43）' % name)
+    if blocks: errs.append('%s：正文里不写「### A　块主题」块标题（SD-43；块索引已取消，SD-199）' % name)
     if re.search(r'(?m)^#### [A-Z]-\d+　', body): errs.append('%s：条目标题应为「### A-1　…」（SD-43）' % name)
     if not items:
         return errs, warns                       # 单表节（SD-19），不再往下查
@@ -79,25 +79,9 @@ def check(path):
     dup = {x for x in titles if titles.count(x) > 1}
     if dup: errs.append('%s：条目标题重复 %s' % (name, sorted(dup)))
 
-    # 4 块索引与正文逐条对齐（第零章速查区不设块索引，SD-23）
+    # 4 全书不设块索引：第零章 SD-23、第一章 SD-185、第二 / 三章 SD-199（2026-10-16 用户：「去掉所有内容之前的块索引」）
     mi = re.search(r'(?s)### 块索引\n(.*?)(?=\n### |\Z)', body)
-    if name.startswith('0.'):
-        if mi: errs.append('%s：第零章不设块索引（SD-23）' % name)
-    elif name.startswith('1.'):   # SD-185（2026-10-15 用户）：第一章系统描述去掉块索引
-        if mi: errs.append('%s：第一章不设块索引（SD-185）' % name)
-    elif not mi:
-        errs.append('%s：缺「块索引」' % name)
-    else:
-        idx = [(c, ti.strip()) for c, ti in IDXE.findall(mi.group(1))]
-        real = [('%s-%s' % (L, n), ti.strip()) for L, n, ti in items]
-        if idx != real:
-            only_i = [x for x in idx if x not in real]
-            only_r = [x for x in real if x not in idx]
-            if only_i or only_r:
-                errs.append('%s：块索引与正文不符　索引多出 %s　正文多出 %s'
-                            % (name, only_i[:4], only_r[:4]))
-            else:
-                errs.append('%s：块索引与正文条目顺序不一致' % name)
+    if mi: errs.append('%s：全书不设块索引（SD-23 / 185 / 199）' % name)
 
     # 5 数字总表出处存在
     mn = re.search(r'(?s)### 关键数字总表\n(.*?)(?=\n### |\Z)', body)
