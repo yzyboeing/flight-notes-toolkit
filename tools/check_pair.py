@@ -85,21 +85,44 @@ def qr_entries():
         cur['lines'].append(l)
     return ents
 
+def _strip_label(s):
+    """去掉「注：××——」「公司差异：××——」「注意：」等标签，只比正文（2026-10-16 P6 / P7 调准）"""
+    s = re.sub(r'<[^>]+>', '', s)
+    s = re.sub(r'^\s*(注|公司差异|注意|警告)[：:]\s*', '', s)
+    return re.sub(r'^[^——。；]{1,30}——', '', s)
+
+def _cover(q, c):
+    """q 的字有多少比例按顺序出现在 c 里（速查精简时 q 是 c 的子序列）"""
+    if not q: return 1.0
+    return sum(m.size for m in SequenceMatcher(None, q, c, autojunk=False).get_matching_blocks()) / len(q)
+
 def compare():
+    """P6：两本文字相近但不同（去标签后相似度 ≥ 0.6，且速查的字不全在完整版里）；
+    P7：绑定块的段落和表格格子里都找不到对应文字（覆盖率 < 0.6）。速查有意精简（覆盖率 ≥ 0.9）不报。"""
     blk = full_blocks(); tips = []
+    # 已逐条核过、结论为「不改」的条目（键：速查条目标题｜去标签正文前 20 字），只报新出现的差异
+    _ok_f = os.path.join(REPO, '两本注比对已核.json')
+    OK = json.load(open(_ok_f, encoding='utf-8')) if os.path.exists(_ok_f) else {}
+    show = lambda s: re.sub(r'<[^>]+>', '', s).replace('&lt;', '<').replace('&gt;', '>')[:40]
     for e in qr_entries():
         if not e['binds']: continue
         fl = [l for b in e['binds'] for l in blk.get(b, [])]
-        fp = [(p, _pnorm(p)) for p in paras(fl)]
-        fall = _pnorm('\n'.join(fl))
+        txt = '\n'.join(fl)
+        cands = [(p, _pnorm(_strip_label(p))) for p in paras(fl)]
+        cands += [(c, _pnorm(c)) for c in re.findall(r'<td[^>]*>(.*?)</td>', txt, re.S)]
+        cands = [(x, n) for x, n in cands if len(n) >= 4]
+        fall = _pnorm(txt)
         for p in paras(e['lines']):
-            n = _pnorm(p)
+            n = _pnorm(_strip_label(p))
             if len(n) < 12 or n in fall: continue
-            best = max(((SequenceMatcher(None, n, fn).ratio(), fp_) for fp_, fn in fp), default=(0, ''))
+            cov = max((_cover(n, cn) for _, cn in cands), default=0)
+            if cov >= 0.9 or _cover(n, fall) >= 0.9: continue   # 速查精简，或把几个格子的内容合成一条
+            if '%s｜%s' % (e['t'], re.sub(r'\s', '', _strip_label(p))[:20]) in OK: continue
+            best = max(((SequenceMatcher(None, n, cn).ratio(), x) for x, cn in cands), default=(0, ''))
             if best[0] >= 0.6:
-                tips.append(('P6', e['t'], '速查「%s」／完整版「%s」' % (re.sub(r'<[^>]+>', '', p).replace('&lt;', '<').replace('&gt;', '>')[:40], re.sub(r'<[^>]+>', '', best[1]).replace('&lt;', '<').replace('&gt;', '>')[:40]), best[0]))
-            else:
-                tips.append(('P7', e['t'], '速查「%s」在绑定块（%s）里找不到对应文字' % (re.sub(r'<[^>]+>', '', p).replace('&lt;', '<').replace('&gt;', '>')[:40], '、'.join(e['binds'])), best[0]))
+                tips.append(('P6', e['t'], '速查「%s」／完整版「%s」' % (show(p), show(best[1])), best[0]))
+            elif cov < 0.6:
+                tips.append(('P7', e['t'], '速查「%s」在绑定块（%s）里找不到对应文字' % (show(p), '、'.join(e['binds'])), cov))
     return tips
 
 
