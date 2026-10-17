@@ -179,6 +179,15 @@ def main():
         for seg in re.findall(r'<td\b[^>]*>.*?</td>', qt, re.S) + [l for l in re.sub(r'<table\b.*?</table>', '', qt, flags=re.S).split('\n') if not l.startswith(('<!--', '#'))]:
             if '【737-NG' in seg and '【737-8' in seg:
                 MIX.append('速查/速查源.md:%d「%s」' % (qt[:qt.find(seg)].count('\n') + 1, re.sub(r'<[^>]+>|\s+', '', seg)[:24]))
+    # SD-196：速查主题 JSON 的 order / see / exclude / short 引用必须能前缀匹配到某条速查标题（失效引用曾掩盖条目被删）
+    _qj = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '速查', '速查按主题查.json')
+    if os.path.exists(qsrc) and os.path.exists(_qj):
+        _T = [l[4:].strip() for l in qt.split('\n') if l.startswith('### ')]
+        _q = json.load(io.open(_qj, encoding='utf-8'))
+        _refs = [('short', k) for k in _q.get('short', {})] + [('%s.%s' % (th.get('theme'), k), x) for d in _q.get('dims', []) for th in d.get('themes', []) for k in ('order', 'see', 'exclude') for x in th.get(k, [])]
+        for _w, _x in _refs:
+            if not any(y.startswith(_x) for y in _T):
+                errors.append('速查主题 JSON 失效引用（%s）「%s」：没有以此开头的速查条目（SD-196）' % (_w, _x))
     # 约定保留（私有库根目录《两型混写保留.json》，2026-10-09）：按「文件 + 去标签前 24 字」匹配，只计数不列为待处理
     keepf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '两型混写保留.json')
     keep = set()
