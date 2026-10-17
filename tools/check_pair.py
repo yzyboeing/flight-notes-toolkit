@@ -9,6 +9,7 @@
   P3 两本同一行文字不同（速查精简过的除外：速查格的字全在完整版格里）—— 提示
   P4 两本各有对方没有的行                                  —— 提示（速查可少收行；完整版少了速查的行要查）
   P5 手工 <br> 两段合起来按当前格宽一行排得下（有意版式除外）  —— 提示（第 7 条）
+  P6 / P7 表格外的段落与注：两本文字相近但不同 / 绑定块里找不到 —— 提示（SD-200）
 报告：build/两本同表对照报告.md。用法：python3 check_pair.py [--repo 路径]
 """
 import sys, os, re, json
@@ -37,6 +38,70 @@ def look(c):
     return '/'.join(out)
 def bigr(t):
     t = re.sub(r'[^一-鿿A-Za-z0-9]', '', t); return {t[i:i + 2] for i in range(len(t) - 1)}
+
+
+# P6 / P7（SD-200，2026-10-16 用户：「规则中是有速查笔记和总笔记相同内容做统一的这个规则吧？为什么风切变这个没有做统一？」）：
+# 表格外的段落与「注」也比对——速查每条的段落 / 注，与其绑定块（<!-- 详见 … -->）的段落比：
+#   P6 文字相近但不同（相似度 ≥ 0.6）—— 提示；P7 绑定块正文里找不到对应文字 —— 提示（可能在别的块、表格里或改写过，逐条看）
+from difflib import SequenceMatcher
+import glob, io
+def _pnorm(t):
+    t = re.sub(r'<[^>]+>', '', t).replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+    return re.sub(r'[\s（）()，,；;。：:、/·–\-•「」—]', '', t)
+
+def paras(lines):
+    out, intab = [], False
+    for l in lines:
+        if '<table' in l: intab = True
+        if intab:
+            if '</table>' in l: intab = False
+            continue
+        s = l.strip()
+        if not s or s.startswith(('#', '<!--', '%%')): continue
+        out.append(s)
+    return out
+
+def full_blocks():
+    blk = {}
+    for f in glob.glob(os.path.join(REPO, 'notes_src', '[1-5]*', '[0-9]*.md')):
+        sec = os.path.basename(f).split(' ')[0]
+        cur = None
+        for l in io.open(f, encoding='utf-8').read().split('\n'):
+            m = re.match(r'### ([A-Z]-\d+)', l) or re.match(r'### (\d+)\.', l)
+            if m:
+                k = m.group(1); cur = '%s %s' % (sec, k if '-' in k else '第 %s 条' % k); blk[cur] = []; continue
+            if cur: blk[cur].append(l)
+    return blk
+
+def qr_entries():
+    ents, cur = [], None
+    for l in io.open(os.path.join(REPO, '速查', '速查源.md'), encoding='utf-8').read().split('\n'):
+        if l.startswith('### '):
+            cur = {'t': l[4:], 'binds': [], 'lines': []}; ents.append(cur); continue
+        if l.startswith('## '): cur = None; continue
+        if cur is None: continue
+        if '详见' in l and l.startswith('<!--'):
+            cur['binds'] += re.findall(r'\|([^\]]+)\]\]', l); continue
+        cur['lines'].append(l)
+    return ents
+
+def compare():
+    blk = full_blocks(); tips = []
+    for e in qr_entries():
+        if not e['binds']: continue
+        fl = [l for b in e['binds'] for l in blk.get(b, [])]
+        fp = [(p, _pnorm(p)) for p in paras(fl)]
+        fall = _pnorm('\n'.join(fl))
+        for p in paras(e['lines']):
+            n = _pnorm(p)
+            if len(n) < 12 or n in fall: continue
+            best = max(((SequenceMatcher(None, n, fn).ratio(), fp_) for fp_, fn in fp), default=(0, ''))
+            if best[0] >= 0.6:
+                tips.append(('P6', e['t'], '速查「%s」／完整版「%s」' % (re.sub(r'<[^>]+>', '', p).replace('&lt;', '<').replace('&gt;', '>')[:40], re.sub(r'<[^>]+>', '', best[1]).replace('&lt;', '<').replace('&gt;', '>')[:40]), best[0]))
+            else:
+                tips.append(('P7', e['t'], '速查「%s」在绑定块（%s）里找不到对应文字' % (re.sub(r'<[^>]+>', '', p).replace('&lt;', '<').replace('&gt;', '>')[:40], '、'.join(e['binds'])), best[0]))
+    return tips
+
 
 def main():
     if not (os.path.exists(FULL) and os.path.exists(QR)):
@@ -108,10 +173,14 @@ def main():
                 if vw > 26: continue                                                # 只查短标签（约 13 个汉字以内）
                 brs.append((nm, tb['t'], x + '⏎' + y))
     tips += [('P5', '%s 表 %d' % (nm, t), '「%s」两段合起来一行排得下，手工换行可能多余' % txt) for nm, t, txt in brs]
+    try:
+        tips += [(k, '速查「%s」' % ti, msg) for k, ti, msg, _ in compare()]
+    except Exception as ex:
+        print('  注 / 段落比对跳过：%s' % ex)
     with open(OUT, 'w', encoding='utf-8') as f:
         f.write('# 两本同表对照报告\n\n配对 %d 张；错误 %d 条、提示 %d 条。\n\n## 错误（P1 列数 / 表头，P2 同格排法）\n' % (npair, len(errs), len(tips)))
         for e in errs: f.write('- [%s] %s：%s\n' % e)
-        f.write('\n## 提示（P3 同行文字不同，P4 行不对应，P5 多余手工换行候选）\n')
+        f.write('\n## 提示（P3 同行文字不同，P4 行不对应，P5 多余手工换行候选，P6 注 / 段落文字不同，P7 注 / 段落在绑定块里找不到）\n')
         for e in tips: f.write('- [%s] %s：%s\n' % e)
     print('两本同表对比：配对 %d 张，错误 %d 条、提示 %d 条 → %s' % (npair, len(errs), len(tips), OUT))
     return 1 if errs else 0
