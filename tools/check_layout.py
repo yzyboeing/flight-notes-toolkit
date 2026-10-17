@@ -520,8 +520,11 @@ def scan(pdf, name, header):
                     def _centered(x):
                         c, ls = x; ls = [l for l in ls if l[2].strip()]
                         return bool(ls) and all(l[0] - c[0] > _pad + 2.5 and abs((l[0] - c[0]) - (c[2] - l[1])) < 3 for l in ls)
-                    _hd = [_ct(x) for x in info[0]] if info else []
-                    _body = [r for r in info[1:] if r and not (_ct(r[0]).startswith('注') and all(x is None for x in r[1:]))]
+                    # 2026-10-16：表首的通栏行（前提 / 警告条，只有首格、其余为合并格）不当表头
+                    _inf = info
+                    while len(_inf) > 2 and _inf[0] and len(_inf[0]) > 1 and _inf[0][0] and all(x is None for x in _inf[0][1:]): _inf = _inf[1:]
+                    _hd = [_ct(x) for x in _inf[0]] if _inf else []
+                    _body = [r for r in _inf[1:] if r and not (_ct(r[0]).startswith('注') and all(x is None for x in r[1:]))]
                     # T15：只有两列的表（非序号表），第二列每格靠左、首行带「•」
                     # SD-198（2026-10-16 用户）：首列表头标 no-cmp 的同类并列两列表（如 1.13 A-1 系统 A ｜ 系统 B）第二列居中不加点，T15 跳过
                     if len(_hd) == 2 and not serial and re.sub(r'\s', '', ''.join(_hd)) not in NOCMP_HDRS:
