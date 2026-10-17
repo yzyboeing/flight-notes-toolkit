@@ -23,7 +23,7 @@ def fixed_tables(srcs):
             out.append({'f': f, 'pos': m.start() + h.start(), 'h': N(h.group(1)), 'r': N(r1.group(1) if r1 else '')[:8], 'hdr': h.group(0),
                         'fixed': bool(re.search(r'\bw-\d+', h.group(1))),
                         # SD-195：旁边有图的表（%%FIGSIDE%%）可用宽度被图占去，「右侧空位」是图的位置，不算（F20）
-                        'figside': t[:m.start()].rstrip().rsplit('\n', 1)[-1].startswith('%%FIGSIDE%%')})
+                        'figside': t[:m.start()].rstrip().rsplit('\n', 1)[-1].startswith(('%%FIGSIDE%%', '%%FIGRIGHT%%'))})
     return out
 
 def scan(repo, books=None):

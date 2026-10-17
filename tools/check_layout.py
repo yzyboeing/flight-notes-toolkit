@@ -551,7 +551,10 @@ def scan(pdf, name, header):
                         if not x: continue
                         txt = ''.join(l[2] for l in x[1]).strip()
                         if re.search(r'[•–▪①-⑳]', txt) or re.match(r'(注|解释|出处|公司差异)[：:]', txt): continue
-                        parts = [s for s in re.split(r'；', txt) if s.strip()]
+                        # SD-203 起多项格项间统一「；」：行末的「；」是分行项之间的分号，不算一行里的并列分句
+                        txt_nl = '\n'.join(l[2] for l in x[1]).strip()
+                        parts = [s for s in re.split(r'；(?!\s*\n)', txt_nl) if s.strip()]
+                        parts = [s.replace('\n', '') for s in parts]
                         if len(parts) >= 3 and all(vis(s) >= 20 for s in parts[:-1]):
                             sug('T4', '%s 第 %d 页：「%s…」含 %d 个并列长分句，考虑按语义分条加「•」' % (name, i + 1, txt[:20], len(parts)))
     _par(lambda rng, first: _tpass(d if first else pymupdf.open(pdf), rng), len(d))

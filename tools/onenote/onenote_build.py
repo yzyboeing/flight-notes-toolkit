@@ -63,7 +63,7 @@ def figs_for(title):
     Ls = open(f[0], encoding='utf-8').read().split('\n'); out = []
     for i, l in enumerate(Ls):
         if not l.startswith('%%FIG'): continue
-        fn, cap, wmm = [x.strip() for x in re.sub(r'^%%FIG(SIDE)?%%\s*', '', l).split('|')]
+        fn, cap, wmm = [x.strip() for x in re.sub(r'^%%FIG(SIDE|RIGHT)?%%\s*', '', l).split('|')]
         # OneNote 版删了「详见」行，不能当锚点（1.14-2）
         prev = [x for x in Ls[:i] if x.strip() and not re.match(r'\s*详见', x)][-1].strip(); nxt = [x for x in Ls[i + 1:] if x.strip()][0].strip()
         anchor = (re.sub(r'^#+\s*', '', nxt), 'before') if prev.startswith('<') else (re.sub(r'^#+\s*', '', prev), 'after')
@@ -71,7 +71,7 @@ def figs_for(title):
             k = max(j for j in range(i) if Ls[j].lstrip().startswith('<table'))
             hdr = next((x for x in Ls[k:i] if '<th' in x or '<td' in x), '')
             anchor = (plain(re.sub(r'<[^>]+>', ' ', hdr))[:12], 'after-table')
-        if prev.startswith('%%FIG'): anchor = ([x.strip() for x in re.sub(r'^%%FIG(SIDE)?%%\s*', '', prev).split('|')][1], 'after')   # 连排几张图：接在上一张图注后（2026-10-11 重要天气预告图三张）
+        if prev.startswith('%%FIG'): anchor = ([x.strip() for x in re.sub(r'^%%FIG(SIDE|RIGHT)?%%\s*', '', prev).split('|')][1], 'after')   # 连排几张图：接在上一张图注后（2026-10-11 重要天气预告图三张）
         out.append(dict(file=NS + fn, cap=cap, wmm=float(wmm or 120), anchor=anchor))
     return out
 def find_anchor(h, text):

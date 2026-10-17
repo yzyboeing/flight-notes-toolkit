@@ -273,6 +273,11 @@ PYEOF
       fi
     fi
     # SD-114 联动检查：改动有没有按逻辑同步到全笔记（引用完整性是错误；旧写法残留 / 同值异色 / 联动面是提醒）
+    if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/check_struct.py" ]; then   # SD-203：源文件级结构检查（定宽空白、首列换行、表里混行、表内注行、句末标点 A）
+      echo; info "[4d] 结构检查（check_struct.py）"
+      CS="$(python3 "$TOOLKIT/check_struct.py" --repo "$ROOT" 2>&1)"; printf '# 结构检查报告\n\n%s\n' "$CS" > build/结构检查报告.md
+      if printf '%s' "$CS" | grep -q 'T24'; then warn "$(printf '%s' "$CS" | head -1)（有句末标点错误，跑 punct_rule.py --apply）"; else ok "$(printf '%s' "$CS" | head -1) → build/结构检查报告.md"; fi
+    fi
     if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/check_linkage.py" ]; then
       echo; info "[4c] 联动检查（check_linkage.py，对比上一个 baseline/* 标签）"
       if LK="$(python3 "$TOOLKIT/check_linkage.py" --repo "$ROOT" --out build/联动检查报告.md 2>&1)"; then

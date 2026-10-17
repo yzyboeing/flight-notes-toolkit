@@ -419,7 +419,21 @@ def unwrap_figside(h):
         s = h.find('<table border="1"', i)
         if s < 0: out.append(h[i:]); break
         m = re.match(r'<table border="1"[^>]*><tr><td[^>]*>((?:(?!<td|<table).)*?)</td><td[^>]*>(<table border="1")', h[s:], re.S)
-        if not m: out.append(h[i:s + 1]); i = s + 1; continue
+        if not m:
+            # 2026-10-17 %%FIGRIGHT%%（左表右图）：外框第一格是正文表、第二格只有图注 → 只留正文表
+            m2 = re.match(r'<table border="1"[^>]*><tr><td[^>]*>(<table border="1")', h[s:], re.S)
+            if m2:
+                inner_s = s + m2.start(1); depth, k = 0, inner_s
+                while True:
+                    a, b = h.find('<table', k), h.find('</table>', k)
+                    if a != -1 and a < b: depth += 1; k = a + 6
+                    else:
+                        depth -= 1; k = b + 8
+                        if depth == 0: break
+                rest = re.match(r'(?:\s|<p\b[^>]*>(?:(?!</p>).)*</p>)*</td><td[^>]*>((?:(?!<td|<table).)*?)</td></tr></table>', h[k:], re.S)
+                if rest:
+                    out.append(h[i:s]); out.append(h[inner_s:k]); i = k + rest.end(); continue
+            out.append(h[i:s + 1]); i = s + 1; continue
         inner_s = s + m.start(2); depth, k = 0, inner_s
         while True:
             a, b = h.find('<table', k), h.find('</table>', k)

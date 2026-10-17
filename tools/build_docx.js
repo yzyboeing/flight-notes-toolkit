@@ -434,6 +434,7 @@ const TBL_TARGET = [];
 /* SD-136 插图（2026-10-04 用户「笔记中加系统图」）：
    %%FIG%% 文件 | 图注 | 宽度mm          → 整幅图居中，下接图注
    %%FIGSIDE%% 文件 | 图注 | 宽度mm      → 紧接的下一张 HTML 表与图并排：左图右表
+   %%FIGRIGHT%% 文件 | 图注 | 宽度mm     → 紧接的下一张 HTML 表与图并排：左表右图（2026-10-17 用户：速查窄表右侧空位「配图」）
    文件路径相对 notes_src/（或 DOC_FIG_DIR），PNG / JPG；图注小号灰字、居中 */
 function figParts(spec) {
   const [file, cap, wmm] = spec.split('|').map(x => (x || '').trim());
@@ -2193,7 +2194,7 @@ function bodyTopicPage() {
       const k = t.match(/^([A-H]-\d+)[\s\u3000]/) ? t.match(/^([A-H]-\d+)/)[1] : t.match(/^(\d+)\./)[1];
       blocks[sec + ' ' + k] = { id, t: t.replace(/^([A-H]-\d+|\d+\.)[\s\u3000]+/, '') }; }
   }
-  const clean = (t) => String(t).replace(/（单位：[^）]*）/g, '').replace(/【[^】]*】/g, '').replace(/\s{2,}/g, ' ').trim();
+  const clean = (t) => String(t).replace(/（单位：[^）]*）/g, '').replace(/【[^】]*】/g, '').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&').replace(/\s{2,}/g, ' ').trim();   // 2026-10-17：目录里「（&gt; 4000fpm）」原样印出实体
   /* 2026-10-05 用户：「按主题查这些知识点怎么样排列……能不能做到更加整齐，一目了然」——
      每个维度一张网格表：一行 3 个主题，同一行的主题标题对齐；一个主题一格、整格不跨页（cantSplit）；
      条目「编号 + 标题 …… 页码」，编号栏等宽对齐，标题折行时悬挂在编号之后。书签里排在「目录」之后（outlineLevel 0）。 */
@@ -2287,7 +2288,7 @@ function qrTopicPage() {
     if (m) items.push({ n: m[1], t: unesc(m[2].trim()) });
   }
   /* SD-106：目录性质的页面不写单位；按主题查也不写机型标签（用户 2026-10-03） */
-  const clean = (t) => String(t).replace(/（单位：[^）]*）/g, '').replace(/【[^】]*】/g, '').replace(/\s{2,}/g, ' ').trim();
+  const clean = (t) => String(t).replace(/（单位：[^）]*）/g, '').replace(/【[^】]*】/g, '').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&').replace(/\s{2,}/g, ' ').trim();   // 2026-10-17：目录里「（&gt; 4000fpm）」原样印出实体
   const blocks = [];
   for (const tp of topics) {
     const got = [];
@@ -2427,14 +2428,15 @@ while (i < src.length) {
       .map(r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
     body.push(mdTable(rows)); { const g = tableGap(src, i); if (g) body.push(g); } continue;
   }
-  if (/^%%FIG(SIDE)?%%/.test(ln)) {   // SD-136 暂缓（用户 2026-10-04）：默认不排图，DOC_FIGS=1 全排；2026-10-09 用户「除了 171 条的图，去掉其余所有插图」→ DOC_FIGS=逗号分隔的文件名片段＝白名单；源文件插图行保留（OneNote 用）
+  if (/^%%FIG(SIDE|RIGHT)?%%/.test(ln)) {   // SD-136 暂缓（用户 2026-10-04）：默认不排图，DOC_FIGS=1 全排；2026-10-09 用户「除了 171 条的图，去掉其余所有插图」→ DOC_FIGS=逗号分隔的文件名片段＝白名单；源文件插图行保留（OneNote 用）
     const fl = process.env.DOC_FIGS || '';
     const okFig = fl === '1' || (fl && fl.split(',').some(k => k.trim() && ln.includes(k.trim())));
     if (!okFig) { i++; continue; }
   }
   if (/^%%FIG%%/.test(ln)) { const f0 = figParts(ln.replace(/^%%FIG%%\s*/, '')); body.push(f0.img); if (f0.capP) body.push(f0.capP); i++; continue; }
-  if (/^%%FIGSIDE%%/.test(ln)) {               // 左图右表
-    const f0 = figParts(ln.replace(/^%%FIGSIDE%%\s*/, '')); i++;
+  if (/^%%FIG(SIDE|RIGHT)%%/.test(ln)) {       // 左图右表；FIGRIGHT：左表右图
+    const RIGHT = /^%%FIGRIGHT%%/.test(ln);
+    const f0 = figParts(ln.replace(/^%%FIG(SIDE|RIGHT)%%\s*/, '')); i++;
     while (i < src.length && !src[i].trim()) i++;
     const buf = []; while (i < src.length && !/<\/table>/.test(src[i])) buf.push(src[i++]); buf.push(src[i++]);
     const lw0 = f0.wtw + 240, TOT0 = TOTAL; TOTAL = TOT0 - lw0 - 300;   // 右栏里的表按右栏宽度排
@@ -2442,11 +2444,12 @@ while (i < src.length) {
     const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
     const nb = { top: none, bottom: none, left: none, right: none };
     const lw = f0.wtw + 240, rw = TOTAL - lw;
-    body.push(new Table({ width: { size: TOTAL, type: WidthType.DXA }, columnWidths: [lw, rw], layout: TableLayoutType.FIXED,
+    body.push(new Table({ width: { size: TOTAL, type: WidthType.DXA }, columnWidths: RIGHT ? [rw, lw] : [lw, rw], layout: TableLayoutType.FIXED,
       borders: { top: none, bottom: none, left: none, right: none, insideHorizontal: none, insideVertical: none },
-      rows: [new TableRow({ cantSplit: true, children: [
-        new TableCell({ width: { size: lw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.CENTER, children: [f0.img, ...(f0.capP ? [f0.capP] : [])] }),
-        new TableCell({ width: { size: rw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.CENTER, margins: { left: 200 }, children: [...tbs, new Paragraph('')] })] })] }));
+      rows: [new TableRow({ cantSplit: true, children: (() => {
+        const figC = new TableCell({ width: { size: lw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.CENTER, children: [f0.img, ...(f0.capP ? [f0.capP] : [])] });
+        const tblC = new TableCell({ width: { size: rw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.CENTER, margins: RIGHT ? { right: 200 } : { left: 200 }, children: [...tbs, new Paragraph('')] });
+        return RIGHT ? [tblC, figC] : [figC, tblC]; })() })] }));
     continue;
   }
   if (/^%%PAGEBREAK%%\s*$/.test(ln)) { pendingBreak = true; i++; continue; }
@@ -2572,9 +2575,12 @@ while (i < src.length) {
     }));
     i++; continue;
   }
+  /* 2026-10-17 用户（看 1.10 第 11 条「CDS 故障信息【737-NG】：」）：「小标题加粗加黑或者用其他颜色评估一下」→ 表外独立成段、以「：」结尾的短引导语
+     （表前小标题，全书约 150 处）与 SD-180 引导语同样深蓝加粗；注 / 来源行不算。DOC_LEAD=old 时不变 */
+  const LONE_LEAD = s => { const pl = s.replace(/<[^>]+>/g, '').trim(); return !LEAD_OLD && !BW && pl.length <= 40 && /[：:]$/.test(pl) && !/^注[：:]/.test(pl); };
   if (COMPACT) {                                   // 速查区表外说明：与表格同字号，表前说明与表格同页
     let j = i + 1; while (j < src.length && !src[j].trim()) j++;
-    body.push(P(ln, { size: 18, before: 40, after: 80, keepNext: j < src.length && /^<table/.test(src[j].trim()) }));
+    body.push(P(ln, { size: 18, before: 40, after: 80, keepNext: j < src.length && /^<table/.test(src[j].trim()), ...(LONE_LEAD(ln) ? { bold: true, color: INK, keepNext: true } : {}) }));
     i++; continue;
   }
   {                                                // 表格前的短说明（≤ 两行）与表格同页，不单独留在上一页
@@ -2583,7 +2589,7 @@ while (i < src.length) {
     let k = i - 1; while (k >= 0 && !src[k].trim()) k--;
     const beforeHead = j < src.length && /^#{2,6}\s+/.test(src[j]) && k >= 0 && /^#{2,6}\s+/.test(src[k]);   // 夹在节标题与条目标题之间的节首短说明：与条目同页，不让节标题孤悬页底
     const len = ln.replace(/<[^>]+>/g, '').length;
-    body.push(P(ln, { keepNext: (beforeTable && len <= 120) || (beforeHead && len <= 200) }));
+    body.push(P(ln, { keepNext: (beforeTable && len <= 120) || (beforeHead && len <= 200), ...(LONE_LEAD(ln) ? { bold: true, color: INK, keepNext: true } : {}) }));
   }
   i++;
 }
