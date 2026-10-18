@@ -105,7 +105,7 @@ def qr_figs():
     for l in open(os.path.join(REPO, '速查', '速查源.md'), encoding='utf-8').read().split('\n'):
         if l.startswith('### '): cur = l[4:].strip()
         elif l.startswith('%%FIG') and cur:
-            fn, cap, wmm = [x.strip() for x in re.sub(r'^%%FIG(SIDE|RIGHT)?%%\s*', '', l).split('|')]
+            fn, cap, wmm = [x.strip() for x in re.sub(r'^%%FIG(SIDE|RIGHT)?%%\s*', '', l).split('|')][:3]   # SD-207：第 4 段「同页」只给成品排版用
             out.append((cur, os.path.join(REPO, 'notes_src', fn), cap, float(wmm or 80)))
     return out
 def add_qr_figs(pid):

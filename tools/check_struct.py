@@ -6,7 +6,7 @@
 以前漏掉的原因：check_layout 只量成品里「折行」，定宽表撑满页宽却没有折行、首列手动 <br>、表里混入别类行，都量不出来。
 本脚本直接读源文件（两本），估算列宽需求，按 layout-checklist 新增的 T18～T24 报：
   T18 定宽表空白：定宽（w-NN）表各列估算所需宽度远小于给定宽度（表收窄或改自动宽度）
-  T19 首列手动换行：首列格用 <br> 拆行，合起来不长、表有空位（合并成一行，括注接在后面）
+  T19 首列手动换行不省列宽（SD-207 改，错误）：术语格、括注另行除外；合成一行不超过本列其他格最宽一行的 → 合成一行\n  T29 首列括注另行（C29，错误）；T30 首列被单个长格撑宽（错误）
   T20 两型表少数行只有一型：大部分行两型都有，个别行另一型为「—」（移出作注，注前标【机型】）
       另：大部分行只有一型，个别行只有另一型（显示组件失效表「上 DU 失效」）
   T21 两型数值表里的跨列共有行：数值对照表中夹着两型共有的限制 / 说明行（移出作注）
@@ -61,15 +61,40 @@ for f in FILES:
         if re.search(r'\bw-\d+', hm.group(1)):
             pr = FF.propose(tb, prev)
             if pr: rep('T18', fn, title, '%s——python3 fixw_fit.py --apply' % pr['info'])
-        # T19 首列手动换行
-        for cells in body:
-            if not cells: continue
-            c0 = cells[0][1]
-            row_tall = any(re.search(r'<br\s*/?>', c) or tw(c) > 0.5 * TOTAL for cc in body for _, c in cc[1:])   # SD-204：表里别的列有多行 / 长句，首列分行让宽度给内容列，不报
-            if re.search(r'<br\s*/?>', c0) and not re.match(r'^\s*[①-⑳]', plain(c0)) and not row_tall:
-                one = tw(re.sub(r'<br\s*/?>', '', c0)) + PAD
-                if one <= 0.25 * TOTAL and ncol <= 3:
-                    rep('T19', fn, title, '首列「%s」手动换行，合成一行约 %.0f%% 宽' % (plain(re.sub(r'<br\s*/?>', '｜', c0))[:30], 100 * one / TOTAL))
+        # T19 首列手动换行（SD-207 改：按「这一断能不能让首列变窄」判断；2026-10-17 用户 344「为什么要另外放在第二行」）
+        #   术语格（SD-206）、括注另行（C29）不算；其余首列 <br>，合成一行后不超过本列其他格最宽一行的，断了也不省宽度 → 报
+        def _first_cells(rows_):   # 首列格（被上方 rowspan 盖住的行，第一个 <td> 不是首列）
+            out_, rem_ = [], 0
+            for a_, cells_ in rows_:
+                if rem_ > 0: rem_ -= 1; continue
+                if not cells_: continue
+                m_ = re.search(r'rowspan="(\d+)"', cells_[0][0]); rem_ = int(m_.group(1)) - 1 if m_ else 0
+                out_.append((a_, cells_))
+            return out_
+        FIRST = _first_cells(rows)
+        c0s = [cells[0][1] for a_, cells in FIRST if 'note' not in a_ and 'colspan' not in cells[0][0]]
+        def _lines_w(c): return max([tw(x) for x in items(c)] or [0])
+        for k0, c0 in enumerate(c0s):
+            if not re.search(r'<br\s*/?>', c0) or re.match(r'^\s*[①-⑳]', plain(c0)): continue
+            segs = items(c0)
+            if len(segs) == 2 and re.fullmatch(r'（[^（）]+）', plain(segs[1])): continue                       # C29 括注另行
+            if len(segs) == 2 and re.fullmatch(r'[A-Z][A-Za-z0-9/\-]{1,11}', plain(segs[0])): continue          # SD-206 术语格
+            if all(plain(s).endswith(('。', '；')) for s in segs): continue                                        # 首列本身是句子列表（4.3 上座前后流程）
+            joined = tw(re.sub(r'<br\s*/?>', '', c0))
+            others = [_lines_w(c) for j, c in enumerate(c0s) if j != k0]
+            if others and joined <= max(others):
+                rep('T19', fn, title, '首列「%s」手动换行不省列宽（本列另有更宽的格）——合成一行' % plain(re.sub(r'<br\s*/?>', '｜', c0))[:34])
+        # T29 首列括注另行（C29，SD-207 用户 2026-10-17）：首列「名称（括注）」一行写完，但同一行别的格已多行 → 括注放第二行
+        if 'parallel' not in tb[:tb.find('>')]:
+            for a0, cells in FIRST:
+                if 'note' in a0 or len(cells) < 2 or 'colspan' in cells[0][0]: continue
+                c0 = cells[0][1]; p0 = plain(c0)
+                if '<br' in c0: continue
+                m29 = re.search(r'（([^（）]*)）$', p0)
+                if not m29 or len(m29.group(1)) <= 3 or len(p0[:m29.start()].strip()) < 2: continue
+                if re.fullmatch(r'[约≈]?\s*[\d.,～~\-]+\s*[A-Za-z%℃℉°]+', m29.group(1).strip()): continue   # 单位换算（30m（100ft））不拆
+                if any('<br' in c for _, c in cells[1:]) or 'rowspan' in cells[0][0]:
+                    rep('T29', fn, title, '首列「%s」：本行已多行，括注应另起一行（C29）' % p0[:30])
         # T20 两型表少数行只有一型
         if ncol >= 3 and re.search(r'737-NG', hdr[1] if ncol > 1 else '') and re.search(r'737-8', hdr[2] if ncol > 2 else ''):
             only8 = [cells for cells in body if len(cells) >= 3 and plain(cells[1][1]) == '—' and plain(cells[2][1]) not in ('—', '')]
@@ -165,6 +190,39 @@ for f in FILES:
                     if k == 0 and not par and txt.strip().startswith(('●', '•')):
                         rep('T27', fn, title, '首列「%s」成品里带圆点（C25 首列不加点）' % txt[:12])
                     k += span
+# T30 首列被单个长格撑宽（SD-207，用户 2026-10-17 速查 405「第 1 列的空白空间为什么这么大？最新的规则为什么没有排查出来」）：
+#   读成品 docx 的实际列宽：首列宽 ≥ 版心 25%，只有一格撑满（最宽一段 ≥ 列宽 90%），其余格最宽也不到列宽 60% → 这一格折行 / 括注另行，首列收窄
+#   以前漏掉：T14 量的是「列宽比最长一行宽多少」，被一格撑满的列最长一行正好等于列宽，量出来空白为 0
+def _docx_grid(path):
+    import zipfile, html as _h
+    if not os.path.exists(path): return []
+    x = zipfile.ZipFile(path).read('word/document.xml').decode('utf-8'); out = []
+    for m in re.finditer(r'<w:tbl>(?:(?!<w:tbl>).)*?</w:tbl>', x, re.S):
+        tb = m.group(0); grid = [int(v) for v in re.findall(r'<w:gridCol w:w="(\d+)"', tb)]
+        hdr0 = ''; c0 = []
+        for ri, r in enumerate(re.findall(r'<w:tr[ >].*?</w:tr>', tb, re.S)):
+            tcs = re.findall(r'<w:tc>.*?</w:tc>', r, re.S)
+            if not tcs: continue
+            c = tcs[0]
+            if '<w:gridSpan' in c or ('vMerge' in c and 'restart' not in c): continue
+            ps = [_h.unescape(''.join(re.findall(r'<w:t[^>]*>([^<]*)</w:t>', p))) for p in re.findall(r'<w:p[ >].*?</w:p>', c, re.S)]
+            ps = [p.strip() for p in ps if p.strip()]
+            if ri == 0: hdr0 = ''.join(ps); continue
+            if ps:
+                rowp = [len([p for p in re.findall(r'<w:p[ >].*?</w:p>', cc, re.S) if re.findall(r'<w:t[^>]*>([^<]*)</w:t>', p)]) for cc in tcs]
+                c0.append((ps, max(rowp)))
+        out.append((grid, hdr0, c0))
+    return out
+for _bk, _p in (('速查', 'B737机型理论知识速查.docx'), ('全书', 'B737机型理论知识笔记.docx')):
+    for grid, h0, c0 in _docx_grid(os.path.join(REPO, 'build', _p)):
+        if len(grid) < 2 or len(c0) < 3: continue
+        W = grid[0]
+        if W < 0.25 * TOTAL: continue
+        ws = sorted(((min(W, max(tw(p) for p in ps) + PAD), ps, rp) for ps, rp in c0), key=lambda x: -x[0])
+        tall = ws[0][2] >= 2 or max(tw(p) for p in ws[0][1]) + PAD > 1.05 * W   # 撑宽那一格所在行已多行（或本格已折行）：分行不增行
+        if ''.join(ws[0][1]).count('、') >= 4: continue   # 首列这一格本身是「、」列举的内容（4.4「故障｜处置」），不是标签
+        if tall and ws[0][0] >= 0.9 * W and ws[1][0] <= 0.6 * W and re.search(r'[，、 （：]', ''.join(ws[0][1])):
+            rep('T30', _bk, h0, '首列（宽 %d%%）被「%s」一格撑宽，其余格最宽只占列宽 %d%%——这一格折行 / 括注另行，首列收窄' % (100 * W / TOTAL, ''.join(ws[0][1])[:24], 100 * ws[1][0] / W))
 # T28 术语格（SD-206）：缩写定义格在内容列有多行的表里须写「缩写<br>中文」；内容列都一行的表须写「缩写（中文）」
 try:
     _TERMS = set(json.load(open(os.path.join(REPO, '缩写术语表.json'), encoding='utf-8'))['缩写'])
@@ -203,4 +261,4 @@ from collections import Counter
 c = Counter(x[0] for x in OUT)
 print('check_struct：%s；句末标点存疑 %d 处（不算错误）' % ('、'.join('%s %d' % kv for kv in sorted(c.items())) or '无', N_DOUBT))
 for r, f, t, m in OUT: print('  [%s] %s「%s」：%s' % (r, f, t[:30], m))
-sys.exit(1 if (c.get('T24') or c.get('T27') or c.get('T28')) else 0)
+sys.exit(1 if any(c.get(k) for k in ('T19', 'T24', 'T27', 'T28', 'T29', 'T30')) else 0)

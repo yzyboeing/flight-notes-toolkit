@@ -120,7 +120,10 @@ function serialColOf(parsed, startCol) {
   const hr = parsed.findIndex(r => r.cls.includes('hdr'));
   const hText = (col) => { if (hr < 0) return ''; const k = startCol[hr].indexOf(col); return k < 0 ? '' : unesc(String(parsed[hr].cells[k].text).replace(/<[^>]+>/g, '')).trim(); };
   for (let col = 0; col < Math.min(nc, 3); col++)   // 非首列只认表头为「序号 / # / 编号 / 步骤 / 条款」的列（防数值列 1、2、3 误判）
-    if ((col === 0 || /^(序号|#|编号|步骤|条款)$/.test(hText(col))) && serialAt(parsed, startCol, col)) return col;
+    if ((col === 0 || /^(序号|#|编号|步骤|条款)$/.test(hText(col))) && serialAt(parsed, startCol, col))
+      /* SD-207 方案 A（2026-10-17 用户，速查 258 / 进近 RNP 来源 / 284）：序号表规则（其余列靠左、不加「•」）只用于「序号 + 一列内容」；
+         序号列右边有两列以上内容的表，序号列只是编号，其余列按普通列规则（短名称居中、说明句靠左加点、父子关系按父子规范）。DOC_SERIAL_OLD=1 退回 */
+      return (process.env.DOC_SERIAL_OLD || nc - col - 1 <= 1) ? col : -1;
   return -1;
 }
 function serialTable(parsed, startCol) { return serialColOf(parsed, startCol) >= 0; }
@@ -432,11 +435,11 @@ const TBL_DUMPS = [];
 const TBL_TARGET = [];
 
 /* SD-136 插图（2026-10-04 用户「笔记中加系统图」）：
-   %%FIG%% 文件 | 图注 | 宽度mm          → 整幅图居中，下接图注
+   %%FIG%% 文件 | 图注 | 宽度mm [| 同页] → 整幅图居中，下接图注；末尾「同页」：图注与紧接的表同页（上图下表，SD-207）
    %%FIGSIDE%% 文件 | 图注 | 宽度mm      → 紧接的下一张 HTML 表与图并排：左图右表
    %%FIGRIGHT%% 文件 | 图注 | 宽度mm     → 紧接的下一张 HTML 表与图并排：左表右图（2026-10-17 用户：速查窄表右侧空位「配图」）
    文件路径相对 notes_src/（或 DOC_FIG_DIR），PNG / JPG；图注小号灰字、居中 */
-function figParts(spec) {
+function figParts(spec, keepCap) {
   const [file, cap, wmm] = spec.split('|').map(x => (x || '').trim());
   const path = require('path');
   const base = process.env.DOC_FIG_DIR || path.join(process.cwd(), 'notes_src');
@@ -448,7 +451,7 @@ function figParts(spec) {
   const wpx = Math.round((+wmm || 120) / 25.4 * 96), hpx = Math.round(wpx * ph / pw);
   const img = new Paragraph({ alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 60, after: 40 },
     children: [new ImageRun({ type: isPng ? 'png' : 'jpg', data, transformation: { width: wpx, height: hpx } })] });
-  const capP = cap ? new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 },
+  const capP = cap ? new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 }, keepNext: !!keepCap,   // SD-207：图下紧跟表格（上图下表）时图注与表同页
     children: [new TextRun({ text: cap, font: FF, size: 16, color: GRAY })] }) : null;
   return { img, capP, wtw: Math.round((+wmm || 120) * 56.7) };
 }
@@ -1434,7 +1437,7 @@ function htmlTableCore(html) {
       hrB.cells.forEach((hc, hk) => { const c0 = startCol[hriB][hk]; if (c0 < nCols) bwHdr[c0] = unesc(String(hc.text).replace(/<[^>]+>/g, '')).trim();
         if (hc.colspan === 1 && /(^|\s)col-eq(\s|$)/.test(hc.cls || '')) bwEq.push(c0); }); }
     const sigB = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
-    for (const [k, j, dd] of (BWFIX.get(sigB) || [])) {
+    for (const [k, j, dd] of (fixedW === 'full' ? [] : (BWFIX.get(sigB) || []))) {   // SD-207：满宽锁宽（w-lock）表不再套用借宽记录（落地交接矩阵锁宽后被旧 BW 记录改回）
       if (k >= nCols || j >= nCols || k === j || bwEq.includes(k) || bwEq.includes(j)) continue;
       const d = Math.min(dd, Math.max(0, W[j] - FLOOR));
       if (d > 0) { W[k] += d; W[j] -= d; if (process.env.W_LOG) console.error('BORROW', j, '→', k, d); } } }
@@ -1807,13 +1810,15 @@ function htmlTableCore(html) {
       if (process.env.NUM_LOG && numList && !semMarked && !hierarchy) console.error('NUMLIST', TBL_IDX, ci + 1, contentParas.length, Math.max(...contentParas.map(vis)), contentParas[0].slice(0, 30));
       const plainCenter = !isHdr && !c.head && ci > 0 && !semMarked && !hierarchy && !forceLeft && !(numList && !process.env.DOC_NUM_CENTER) && !(c.colspan === 1 && serialLeft.has(ci)) && !process.env.DOC_F12_LEFT;
       if (process.env.TXT_LOG && plainCenter && !placeholder && !isNote && !isPre && !isWarn && ci === nCols - 1 && c.colspan === 1) console.error('TXTCOL\t' + TBL_IDX + '\t' + (hdrRow ? unesc(String((hdrRow.cells[hdrRow.cells.length - 1] || {}).text || '').replace(/<[^>]+>/g, '')) : '') + '\t' + (hdrRow ? unesc(hdrRow.cells.map(x => String(x.text).replace(/<[^>]+>/g, '')).join(' / ')) : '') + '\t' + unesc(String(c.text).replace(/<br\s*\/?>/g, ' ¦ ').replace(/<[^>]+>|[\uE001-\uE006]/g, '')));
-      const center = !(c.leftUniq && !isHdr && !c.head) && !(blkLeft.has(ci) && !isHdr && !c.head) && !(SERIAL_T && ci > 0 && !isHdr && !c.head && !placeholder && !isNote && !isPre && !isWarn && !(CENTER_HDR.has(ci) && forcedCenterCols.has(ci))) && !(numList && ci > 0 && !process.env.DOC_NUM_CENTER) && (plainCenter || !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
+      const center0 = !(c.leftUniq && !isHdr && !c.head) && !(blkLeft.has(ci) && !isHdr && !c.head) && !(SERIAL_T && ci > 0 && !isHdr && !c.head && !placeholder && !isNote && !isPre && !isWarn && !(CENTER_HDR.has(ci) && forcedCenterCols.has(ci))) && !(numList && ci > 0 && !process.env.DOC_NUM_CENTER) && (plainCenter || !longLeft && (isHdr || c.head || placeholder || (!hierarchy && forceCenter) || (!hierarchy && !semMarked && (() => { for (let j = ci; j < ci + c.colspan; j++) if (!sentCols.has(j) || serialLeft.has(j)) return false; return true; })())
         || (!forceLeft && !hierarchy && ((labelShort && (!longCols.has(ci) || firstAllLabel)) || (c.colspan === 1 && (semanticCenterCols.has(ci) || oneLineCols.has(ci)))
           || (labelCol && !longCols.has(ci)) || ((COMPACT || FIT_ALL)
           ? (!isNote && !isPre && !isWarn &&
                (c.colspan === 1 ? !longCols.has(ci) : shortCell(c.text)))
           : ((c.colspan === 1 && (centerCols.has(ci) || narrowSet.has(ci)))
              || (isFirstCol && c.colspan === 1)))))));   // SD-132：带序号的一律靠左（4.9 液压表「① … ② …」连写格曾经从别的分支被居中）
+      /* SD-207（2026-10-17 用户，速查 344「第一列统一居中」）：首列一律居中——取消 A2「首列是长句 / 完整条件句的左对齐」例外（与 C25「首列不靠左」冲突）；父子层级格、注 / 前提行除外 */
+      const center = center0 || (boldFirst && !hierarchy && !semMarked && !isNote && !isPre && !isWarn && !process.env.DOC_FIRST_LONG_LEFT);
       if (process.env.AUDIT_LOG && !isHdr && !c.head && !isNote && !isPre && !isWarn) { const t0 = String(c.text); console.error('AUD\t' + TBL_IDX + '\t' + ci + '\t' + c.colspan + '\t' + nCols + '\t' + (placeholder ? 'ph' : /\uE001/.test(t0) ? 'dot' : /\uE005|\uE002/.test(t0) ? 'sub' : center ? 'c' : 'l') + '\t' + (serialLeft.size ? "S" : "-") + '\t' + (hdrRow ? unesc(String(((hdrRow.cells.find((h, hk) => startCol[parsed.indexOf(hdrRow)][hk] === ci)) || {}).text || '').replace(/<[^>]+>/g, '')) : '') + '\t' + unesc(t0.replace(/<br\s*\/?>/g, ' ¦ ').replace(/<[^>]+>|[\uE001-\uE006]/g, '')).slice(0, 60)); }
       /* 首列序号格：原先因圈码字形回退到无粗体字体而改排阿拉伯数字；SD-76 全书统一 Songti SC 后圈码有粗体字形，
          2026-09-30 用户「统一序号」：表格与正文一律保留 ①②③（设 SERIAL_ARABIC=1 可恢复旧做法） */
@@ -2453,7 +2458,8 @@ while (i < src.length) {
     const okFig = fl === '1' || (fl && fl.split(',').some(k => k.trim() && ln.includes(k.trim())));
     if (!okFig) { i++; continue; }
   }
-  if (/^%%FIG%%/.test(ln)) { const f0 = figParts(ln.replace(/^%%FIG%%\s*/, '')); body.push(f0.img); if (f0.capP) body.push(f0.capP); i++; continue; }
+  if (/^%%FIG%%/.test(ln)) { const spec9 = ln.replace(/^%%FIG%%\s*/, ''), keep9 = /\|\s*同页\s*$/.test(spec9);   // SD-207：「%%FIG%% 文件 | 图注 | 宽度 | 同页」——上图下表，图注与下面的表同页（只限点名；大表跟图强绑会被拆页）
+    let j9 = i + 1; while (j9 < src.length && !src[j9].trim()) j9++; const f0 = figParts(spec9.replace(/\|\s*同页\s*$/, ''), keep9 && j9 < src.length && /^<table/.test(src[j9].trim())); body.push(f0.img); if (f0.capP) body.push(f0.capP); i++; continue; }
   if (/^%%FIG(SIDE|RIGHT)%%/.test(ln)) {       // 左图右表；FIGRIGHT：左表右图
     const RIGHT = /^%%FIGRIGHT%%/.test(ln);
     const f0 = figParts(ln.replace(/^%%FIG(SIDE|RIGHT)%%\s*/, '')); i++;

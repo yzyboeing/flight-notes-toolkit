@@ -479,6 +479,7 @@ def scan(pdf, name, header):
                                     serial = True; firsts = hd; break
                         else:
                             serial = serial and [_sv(f) for f in firsts] == list(range(1, len(firsts) + 1))   # 从 1 开始的连续编号才算（襟翼位置 10 / 15 / 25 不算）
+                        if serial and len([h for h in _hd0[_sc + 1:] if h.strip()]) >= 2 and not os.environ.get('DOC_SERIAL_OLD'): serial = False   # SD-207 方案 A：序号列右边两列以上内容的不按序号表（与生成器 serialColOf 同口径）
                         if serial: sc = _sc; break
                     hdrs = [ctext(x) for x in info[0]] if info else []
                     for k, h in enumerate(hdrs):
