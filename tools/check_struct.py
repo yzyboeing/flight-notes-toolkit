@@ -12,6 +12,7 @@
   T21 两型数值表里的跨列共有行：数值对照表中夹着两型共有的限制 / 说明行（移出作注）
   T22 数值表里的判据 / 说明行：「项目 ｜ 数值」类表中，个别行的数值格是一整句判据 / 程序（移出作注）
   T23 表内注行有多条：<tr class="note"> 里有 ≥ 2 条（CAUTION / 注 / 说明混放），拆成表下注并分清性质
+  T25 多列表取值列仍加点（SD-204）；T26 文字两型表只有一行差异（SD-204）
   T24 句末标点规则 A：punct_rule.py 高把握违例（错误）；存疑只计数
 用法：python3 check_struct.py [--repo 笔记库] [--only T18,T20]   只读。退出码：有 T24 错误为 1。"""
 import io, os, re, glob, sys, json
@@ -62,7 +63,8 @@ for f in FILES:
         for cells in body:
             if not cells: continue
             c0 = cells[0][1]
-            if re.search(r'<br\s*/?>', c0) and not re.match(r'^\s*[①-⑳]', plain(c0)):
+            row_tall = any(re.search(r'<br\s*/?>', c) or tw(c) > 0.5 * TOTAL for cc in body for _, c in cc[1:])   # SD-204：表里别的列有多行 / 长句，首列分行让宽度给内容列，不报
+            if re.search(r'<br\s*/?>', c0) and not re.match(r'^\s*[①-⑳]', plain(c0)) and not row_tall:
                 one = tw(re.sub(r'<br\s*/?>', '', c0)) + PAD
                 if one <= 0.25 * TOTAL and ncol <= 3:
                     rep('T19', fn, title, '首列「%s」手动换行，合成一行约 %.0f%% 宽' % (plain(re.sub(r'<br\s*/?>', '｜', c0))[:30], 100 * one / TOTAL))
@@ -97,6 +99,20 @@ for f in FILES:
             if 'note' in a and cells and len(items(cells[0][1])) >= 2:
                 kinds = sorted(set(re.findall(r'^(CAUTION|WARNING|注|说明)', plain(x)) and re.findall(r'^(CAUTION|WARNING|注|说明)', plain(x))[0] or '无标签' for x in items(cells[0][1])))
                 rep('T23', fn, title, '表内注行有 %d 条（%s）——拆成表下注，CAUTION / 限制 / 说明分清' % (len(items(cells[0][1])), '、'.join(kinds)))
+        # T25 多列表里的取值列仍加点（SD-204 C24）；T26 文字两型表只有一行差异（SD-204 C26）
+        if ncol >= 3:
+            for k in range(1, ncol):
+                a_, h_ = ths[k]; hp = plain(h_)
+                if 'col-bullet' not in a_ or re.search(r'(说明|内容|措施|处置|要点|逻辑|描述|现象|原因|作用|功能|备注|定义|含义|动作|程序|操作|职责|737)', hp): continue
+                cs = [c for cells in body if len(cells) == ncol for a2, c in [cells[k]] if 'colspan' not in a2]
+                its = [plain(x) for c in cs for x in re.split(r'<br\s*/?>', c) if plain(x)]
+                if len(cs) >= 2 and its and all(len(x) <= 14 and re.search(r'[\d≥≤<>±]|^(好|中|差|无|有|是|否|亮|灭)', x) for x in its):
+                    rep('T25', fn, title, '「%s」列是取值（%s…）却加点——整列居中不加点' % (hp, ' / '.join(its[:3])))
+        if ncol == 3 and re.search(r'737-NG', hdr[1]) and re.search(r'737-8', hdr[2]) and '差异' not in title:
+            diff = [c for c in body if len(c) == 3]; shared = [c for c in body if len(c) == 2 and 'colspan="2"' in c[1][0]]
+            numeric = all(re.fullmatch(r'[\d.,\s%~～±≥≤<>（）()A-Za-z/：:]*', plain(c)) for r_ in diff for a2, c in r_[1:])
+            if len(diff) <= 1 and len(shared) >= 2 and not numeric:
+                rep('T26', fn, title, '两型表只有 %d 行有差异、%d 行共有——改「项目 ｜ 说明」，差异写注' % (len(diff), len(shared)))
 # T24 句末标点
 sys.argv_bak = sys.argv
 try:

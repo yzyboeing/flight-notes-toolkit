@@ -676,6 +676,11 @@ function htmlTableCore(html) {
           && !/(^|\s)no-cmp(\s|$)/.test(hr2.cells[0].cls || '')) {   // SD-198：首列表头标 no-cmp 的同类并列两列表（如 1.13 A-1 系统 A ｜ 系统 B）不自动加点，按表头 col-center 整列居中
         const setB = (hc) => { hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(center|plain|left)(?=\s|$)/g, ' ') + ' col-bullet').trim(); };
         setB(hr2.cells[1]); if (parTbl) setB(hr2.cells[0]); } }
+    /* SD-204（2026-10-17 用户：「整个表格的第一列是不可能靠左前面加小圆点的，为什么这张图上的表格逻辑完全没有筛选出来？」）：
+       首列一律不加点、不靠左——源文件里首列的 col-bullet / cell-bullet 标注作废（并列对照表 parallel 两列都是内容，除外）。check_src 同时报错 */
+    if (!parTbl) { const hrF = parsed.find(r => r.cls.includes('hdr'));
+      if (hrF) hrF.cells[0].cls = String(hrF.cells[0].cls || '').replace(/(^|\s)col-(bullet|left)(?=\s|$)/g, ' ').trim();
+      parsed.forEach((r, ri) => r.cells.forEach((c, ck) => { if (startCol[ri][ck] === 0) c.cls = String(c.cls || '').replace(/(^|\s)cell-bullet(?=\s|$)/g, ' ').trim(); })); }
     /* SD-102 句子列自动加点、时机类列居中（2026-10-01 用户，速查第 5、6、7、53、65、74、83、85、93、99、108、124 条等：
        「说明 / 条件 / 限制 / 定义」这类列「统一靠左，前面加小圆点」；「时机 / 总则 / 类别」列「整体居中」）：
        表头没有显式 col-* 标注时，非首列表头属下列说明类、且六成以上的格是句子（≥ 约 6 字或带句读）→ 视作 col-bullet；
@@ -1223,6 +1228,17 @@ function htmlTableCore(html) {
      把剩余宽度回填给正在折行的列：表头折行的列优先，其次按「补到一行放下所需宽度」由小到大，
      只补到刚好一行放下为止（不把短表硬撑满宽，仍守「按内容定宽、不留空白」）。 */
   if (COMPACT || FIT_ALL) {
+    /* SD-204（2026-10-17 用户：「不是规则加了表格大小和宽度适应内容吗？为什么还会有表格大片空白的情况」）：定宽（w-NN）只作起始比例——
+       以前定宽块放在实测收窄 / 加宽 / 拉满之后、把它们全部覆盖，定宽表永远不按内容收；现在先按比例给起始宽度，
+       再走「不增行收窄」与 fit_fix 实测 W / NW / F / BW，表格按实际内容定宽。DOC_FIXW_LOCK=1 退回旧的锁死行为 */
+    let FIX_ORIGIN = false;   // SD-204：定宽起始的表只吃 fit_fix 实测收窄 / 拉满，不走估算收窄（估算偏小会把实际折行的列收窄，拉满又不肯还给 SHRUNK 列，卡住）
+    const W_LOCK = (parsed.find(r => r.cls.includes('hdr')) || { cells: [] }).cells.some(c => /(^|\s)w-lock(\s|$)/.test(c.cls || ''));   // SD-204：表头标 w-lock 的定宽表照旧锁死（实测会来回拉锯的少数表，按实测定好后锁住）
+    if (!process.env.DOC_FIXW_LOCK && !W_LOCK) { const hrW0 = parsed.find(r => r.cls.includes('hdr'));
+      if (hrW0) { const hri0 = parsed.indexOf(hrW0), pct0 = new Array(nCols).fill(0);
+        hrW0.cells.forEach((hc, hk) => { const m = String(hc.cls || '').match(/(?:^|\s)w-(\d+)(?:-(\d+))?(?=\s|$)/); if (!m) return;
+          const c0 = startCol[hri0][hk]; pct0[c0] = +m[1]; if (m[2] && hc.colspan >= 2) pct0[c0 + 1] = +m[2]; });
+        const tot0p = pct0.reduce((a2, b2) => a2 + b2, 0);
+        if (tot0p > 0 && pct0.every(v => v > 0)) { FIX_ORIGIN = true; for (let k = 0; k < nCols; k++) W[k] = Math.floor(TOTAL * pct0[k] / Math.max(tot0p, 100)); } } }
     const fineVis = (t) => { const s0 = unesc(String(t).replace(/<[^>]+>/g, '').replace(/〔待补来源〕/g, '')).replace(/\*\*/g, '').trim(); let n = 0;
       for (const ch of s0) n += /[⺀-鿿＀-￯\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1; return n; };
     const U = 96;   // 9pt 下每视觉单位约 96 DXA（与列宽模型同一套字宽）
@@ -1261,7 +1277,7 @@ function htmlTableCore(html) {
           if (segs.length) cellsByCol[k].push(segs); }); });
       const wide0 = parsed.filter(r => /note|premise|warn/.test(r.cls)).map(r => fineVis(String(r.cells.map(c => c.text).join('')).replace(/<br\s*\/?>/g, '')) * 90);
       const tot0 = W.reduce((a2, b2) => a2 + b2, 0), wl0 = wide0.map(L => LN(L, tot0));
-      for (let k = 0; k < nCols; k++) {
+      for (let k = 0; k < (FIX_ORIGIN ? 0 : nCols); k++) {
         if (spanned.has(k) || !cellsByCol[k].length) continue;
         const cur = cellsByCol[k].map(sg => sg.reduce((a2, L) => a2 + LN(L, W[k]), 0));
         const ORPH = 6 * 180;   // 末行至少留约 6 个字（SD-85；估算与实排有误差，留足余量）：只收窄到不会出现末行孤字的宽度
@@ -1394,7 +1410,7 @@ function htmlTableCore(html) {
   /* w-NN（2026-10-06 用户，1.4 D-2 三种复飞方式按截图版式）：表头标 w-NN 的表按指定百分比分列宽（总宽＝版心），跨列表头按 w-NN-MM 写两小列；不参与实测加宽 / 收窄 */
   let fixedW = '';   // 2026-10-12：定宽类型写进 TBL_DUMP（full＝满宽定宽，W / NW / F 实测调整都不生效；narrow＝窄定宽，只有 W 加宽生效），fit_fix 据此不再空转
   { const hrW = parsed.find(r => r.cls.includes('hdr'));
-    if (hrW) { const hriW = parsed.indexOf(hrW), pct = new Array(nCols).fill(0);
+    if (hrW && (process.env.DOC_FIXW_LOCK || hrW.cells.some(c => /(^|\s)w-lock(\s|$)/.test(c.cls || '')))) { const hriW = parsed.indexOf(hrW), pct = new Array(nCols).fill(0);   // SD-204：默认不再锁死（起始比例已在前面给过）
       hrW.cells.forEach((hc, hk) => { const m = String(hc.cls || '').match(/(?:^|\s)w-(\d+)(?:-(\d+))?(?=\s|$)/); if (!m) return;
         const c0 = startCol[hriW][hk]; pct[c0] = +m[1]; if (m[2] && hc.colspan >= 2) pct[c0 + 1] = +m[2]; });
       const tot = pct.reduce((a2, b2) => a2 + b2, 0);
@@ -1598,7 +1614,7 @@ function htmlTableCore(html) {
      绑定后放不下时排版软件会在末行前硬断、留下孤行（2026-09-30 Songti SC 实测：3.8 分类表估 9325 / 预算 9566，实际放不下） */
   /* SD-79 两遍排版：第一遍按估算（留 12% 余量）；成品 PDF 里「断开但两截加起来放得进一页」的表，由 fit_fix.py 记下签名，
      第二遍强制整表同页（KEEP_FORCE 文件，一行一个签名）。签名＝表内文字只留字母数字后的前 80 字。 */
-  if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, fixed: fixedW, hdr: bwHdr, eq: bwEq, onepage: /\bone-page\b/.test(String(html).slice(0, 80)), text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3), W: W.slice(),
+  if (!PROBE && process.env.TBL_DUMP) TBL_DUMPS.push({ sig: tblSig, fixed: fixedW || ((parsed.find(r => r.cls.includes('hdr')) || { cells: [] }).cells.some(c => /(^|\s)w-\d+/.test(c.cls || '')) ? 'origin' : ''),   /* SD-204：定宽起始表标 origin——fit_fix 照常收窄 / 拉满，但收窄只按「本格行数不增」 */ hdr: bwHdr, eq: bwEq, onepage: /\bone-page\b/.test(String(html).slice(0, 80)), text: tblText, ratio: +(estimate(FS) / BUDGET).toFixed(3), W: W.slice(),
     br: parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<br\s*\/?>/g, '\u0001').replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}\u0001]/gu, '').replace(/\u0001/g, '|')).join('')).join('') });
   const onePage = /^\s*<table[^>]*\bone-page\b/.test(String(html));
   const keepTogether = onePage ? true : splitRow ? estimate(FS) <= BUDGET * 0.95 : ((estimate(FS) <= BUDGET * 0.88 || KEEP_FORCE.has(tblSig)) && !SPLITOK.has(tblSig));   // split-ok：正常字号放得下一页就整表同页，放不下才行间分页   // SD-78 实测：Songti SC 下个别表实际比估算高约 12%（4.20 A/P 可用性表 估 8575 / 实 ≈ 9640），留 15% 余量

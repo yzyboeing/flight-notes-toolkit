@@ -227,7 +227,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
         for sg in match(x['table'], tbls):           # 速查区与正文同文的表一并加宽
             tb = next(t for t in tbls if t['sig'] == sg)
             fx = tb.get('fixed') or ''   # 2026-10-12：定宽表（w-NN）——满宽的生成器不吃任何实测调整，窄的只吃加宽（W:）；不再记账，免得每遍空转
-            if fx == 'full' or (fx and (x.get('nw') or x.get('fill'))): continue
+            if fx == 'full' or (fx == 'narrow' and (x.get('nw') or x.get('fill'))): continue   # SD-204：origin（定宽起始）照常收窄 / 拉满
             # 列号按格子中心的横向位置换算回源表列（PDF 识别合并单元格时会多切列，列号不可靠）
             Wt = tb.get('W') or []
             if not Wt: continue
@@ -240,7 +240,8 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
                 if x['col'] < 0:
                     for q in range(len(Wt)): nwcand[(sg, q)] = 0
                 else:
-                    ex = x['extra_pt'] if key not in nwfix else x.get('extra_strict', x['extra_pt'])   # 借行高收窄只给一次：已有收窄记录的列只按「本格行数不增」继续收（防一遍遍往下收）
+                    ex = x['extra_pt'] if (key not in nwfix and fx != 'origin') else x.get('extra_strict', x['extra_pt'])   # SD-204：定宽起始表只按「本格行数不增」收窄，不借行高（实测会把实际折行的列收窄）   # 借行高收窄只给一次：已有收窄记录的列只按「本格行数不增」继续收（防一遍遍往下收）
+                    if fx == 'origin': ex = max(0, ex - 14)   # SD-204：定宽起始表收窄多留 14pt（粗体 / 句末标点实宽偏大，收到最长行 + 6pt 会让该行下一遍折行、再拉回，来回拉锯）
                     nwcand[key] = min(nwcand.get(key, 10 ** 9), int(ex * 20))
                     nlnow[key] = nlnow.get(key, 0) + x.get('nl', 0)   # 本遍这一列的总行数（跨页各段相加）
                 continue

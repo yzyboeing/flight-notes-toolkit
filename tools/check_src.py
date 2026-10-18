@@ -108,6 +108,21 @@ def main():
             c = len(re.findall(r'</%s>' % tag, body))
             if o != c:
                 errors.append('<%s> 开闭不配对 (%d 开 / %d 闭): %s' % (tag, o, c, rel(f)))
+        # SD-204（2026-10-17 用户）：首列一律不加点——首列表头 col-bullet、行首格 cell-bullet 报错（并列对照表 parallel 除外；生成器也会忽略）
+        for tm in re.finditer(r'<table([^>]*)>(.*?)</table>', body, re.S):
+            if 'parallel' in tm.group(1): continue
+            hm = re.search(r'<tr class="hdr"><th([^>]*)>', tm.group(2))
+            occ = set(); bad = bool(hm and re.search(r'\bcol-(bullet|left)\b', hm.group(1)))
+            for ri, rr in enumerate(re.findall(r'<tr(?![^>]*class="(?:hdr|premise|note)")[^>]*>(.*?)</tr>', tm.group(2), re.S)):
+                k = 0
+                for a2 in re.findall(r'<td([^>]*)>', rr):
+                    while (ri, k) in occ: k += 1
+                    cs = int((re.search(r'colspan="(\d+)"', a2) or [0, 1])[1]); rs = int((re.search(r'rowspan="(\d+)"', a2) or [0, 1])[1])
+                    if k == 0 and cs == 1 and 'cell-bullet' in a2: bad = True
+                    for dr in range(rs):
+                        for dc in range(cs): occ.add((ri + dr, k + dc))
+                    k += cs
+            if bad: errors.append('SD-204 首列加点标注 %s 「%s」' % (rel(f), re.sub(r'<[^>]+>', '', tm.group(2))[:24].strip()))
         # SD-138（2026-10-05 用户）：全书不写来源、出处行；图注不写「（来源：……）」
         for ln_no, line in enumerate(body.split('\n'), 1):
             if re.match(r'^[ \t]*(?:>[ \t]*)?(?:\*\*)?(来源|出处)[：:]', line) or '（来源：' in line:
