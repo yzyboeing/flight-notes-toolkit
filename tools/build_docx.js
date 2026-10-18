@@ -657,7 +657,11 @@ function htmlTableCore(html) {
           const isVal = (c) => { const t = plainOf(c.text).replace(/\s+/g, '').replace(/[（(][^）)]*[）)]/g, '');   // 括注（「在地面」「压力高度」）不算文字：「2.0%（在地面）；2.5%（在空中）」按数值
             return !t || /^[—－\-–\/／无]$/.test(t) || /^(是|否|有|无|适用|不适用)$/.test(t)
               || (/\d/.test(t) && /^[\d.,:：;；~～+\-−–≤≥<>%()（）\/°×±℃℉a-zA-Z·]*$/.test(t)); };
+          /* SD-204（2026-10-17 用户：刹车效应列「统一居中。这个为什么上一次提出以后也没有改？」）：源文件表头显式写了 col-center 的列，按标注整列居中，不被「独有格靠左」覆盖 */
+          const srcCtr = new Set(); { const hm0 = String(html).match(/<tr class="hdr">([\s\S]*?)<\/tr>/); let col0 = 0;
+            if (hm0) for (const m0 of hm0[1].matchAll(/<th([^>]*)>([\s\S]*?)<\/th>/g)) { const cs0 = +((m0[1].match(/colspan="(\d+)"/) || [0, 1])[1]); if (/(^|\s)col-center(\s|$)/.test((m0[1].match(/class="([^"]*)"/) || [0, ''])[1]) && !/737/.test(m0[2])) for (let q = 0; q < cs0; q++) srcCtr.add(col0 + q); col0 += cs0; } }
           body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] < 1 || c.colspan !== 1 || c.cmpShared) return;
+            if (srcCtr.has(startCol[parsed.indexOf(r)][k])) { if (plainOf(c.text).trim()) { c.cls = ((c.cls || '') + ' center nodot').trim(); c.cmpShared = true; } return; }
             if (isVal(c)) { if (plainOf(c.text).trim()) { c.cls = ((c.cls || '') + ' center nodot').trim(); c.cmpShared = true; } }
             else c.leftUniq = true; }));
         } } }

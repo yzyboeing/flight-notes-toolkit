@@ -12,6 +12,8 @@
   T21 两型数值表里的跨列共有行：数值对照表中夹着两型共有的限制 / 说明行（移出作注）
   T22 数值表里的判据 / 说明行：「项目 ｜ 数值」类表中，个别行的数值格是一整句判据 / 程序（移出作注）
   T23 表内注行有多条：<tr class="note"> 里有 ≥ 2 条（CAUTION / 注 / 说明混放），拆成表下注并分清性质
+  T28 术语格两行 / 一行（SD-206）
+  T27 标注与成品不符（SD-205，读成品 docx：显式居中列没居中、首列出现圆点）
   T25 多列表取值列仍加点（SD-204）；T26 文字两型表只有一行差异（SD-204）
   T24 句末标点规则 A：punct_rule.py 高把握违例（错误）；存疑只计数
 用法：python3 check_struct.py [--repo 笔记库] [--only T18,T20]   只读。退出码：有 T24 错误为 1。"""
@@ -113,6 +115,74 @@ for f in FILES:
             numeric = all(re.fullmatch(r'[\d.,\s%~～±≥≤<>（）()A-Za-z/：:]*', plain(c)) for r_ in diff for a2, c in r_[1:])
             if len(diff) <= 1 and len(shared) >= 2 and not numeric:
                 rep('T26', fn, title, '两型表只有 %d 行有差异、%d 行共有——改「项目 ｜ 说明」，差异写注' % (len(diff), len(shared)))
+# T27 标注与成品不符（SD-205）：读成品 docx——源文件表头显式 col-center（非 737 机型列）的列是否真居中；首列是否出现圆点（parallel 除外）
+def _docx_tables(path):
+    import zipfile
+    if not os.path.exists(path): return []
+    x = zipfile.ZipFile(path).read('word/document.xml').decode('utf-8'); out = []
+    for m in re.finditer(r'<w:tbl>(?:(?!<w:tbl>).)*?</w:tbl>', x, re.S):
+        rows = []
+        for r in re.findall(r'<w:tr[ >].*?</w:tr>', m.group(0), re.S):
+            cells = []
+            for c in re.findall(r'<w:tc>.*?</w:tc>', r, re.S):
+                span = int((re.search(r'<w:gridSpan w:val="(\d+)"', c) or [0, 1])[1])
+                paras = re.findall(r'<w:p[ >].*?</w:p>', c, re.S)
+                import html as _h; txt = _h.unescape(''.join(re.findall(r'<w:t[^>]*>([^<]*)</w:t>', c)))
+                jcs = [(re.search(r'<w:jc w:val="(\w+)"', p_) or [0, 'left'])[1] for p_ in paras if re.findall(r'<w:t[^>]*>([^<]*)</w:t>', p_)]
+                cells.append((span, txt, jcs, 'vMerge' in c and 'restart' not in c))
+            rows.append(cells)
+        out.append(rows)
+    return out
+_DOCX = {'速查': _docx_tables(os.path.join(REPO, 'build', 'B737机型理论知识速查.docx')), '全书': _docx_tables(os.path.join(REPO, 'build', 'B737机型理论知识笔记.docx'))}
+def _norm(s): return re.sub(r'[\s\u200b\u2060\u00ad●•–]', '', s)
+for f in FILES:
+    fn = '速查' if f.endswith('速查源.md') else os.path.basename(f).split(' ')[0]
+    D = _DOCX['速查' if fn == '速查' else '全书']
+    if not D: continue
+    for title, tb, prev in tables(f):
+        hm = re.search(r'<tr class="hdr">(.*?)</tr>', tb, re.S)
+        if not hm: continue
+        ths = re.findall(r'<th([^>]*)>(.*?)</th>', hm.group(1), re.S)
+        hdr = [_norm(plain(h)) for _, h in ths]
+        ctr = []; col = 0
+        for a_, h_ in ths:
+            cs = int((re.search(r'colspan="(\d+)"', a_) or [0, 1])[1])
+            if re.search(r'(^|\s)col-center(\s|$)', (re.search(r'class="([^"]*)"', a_) or [0, ''])[1]) and '737' not in plain(h_): ctr += list(range(col, col + cs))
+            col += cs
+        par = 'parallel' in tb[:80]
+        first_row = _norm(plain((re.findall(r'<tr(?![^>]*class="(?:hdr|premise|note)")[^>]*>(.*?)</tr>', tb[hm.end():], re.S) or [''])[0]))[:12]
+        for rows in D:
+            hrow = next((r for r in rows if [_norm(c[1]) for c in r] == hdr), None)
+            if not hrow: continue
+            hi = rows.index(hrow)
+            if first_row and first_row[:6] not in _norm(''.join(c[1] for r in rows[hi + 1:hi + 3] for c in r)): continue
+            for r in rows[hi + 1:]:
+                k = 0
+                for span, txt, jcs, cont in r:
+                    tt = _norm(txt)
+                    if k in ctr and span == 1 and tt and tt not in ('—', '-') and not cont and any(j != 'center' for j in jcs):
+                        rep('T27', fn, title, '表头标了 col-center 的「%s」列，成品里「%s」没居中——查规则优先级（layout-checklist 第零节 D）' % (plain(ths[min(k, len(ths) - 1)][1])[:12], txt[:12]))
+                    if k == 0 and not par and txt.strip().startswith(('●', '•')):
+                        rep('T27', fn, title, '首列「%s」成品里带圆点（C25 首列不加点）' % txt[:12])
+                    k += span
+# T28 术语格（SD-206）：缩写定义格在内容列有多行的表里须写「缩写<br>中文」；内容列都一行的表须写「缩写（中文）」
+try:
+    _TERMS = set(json.load(open(os.path.join(REPO, '缩写术语表.json'), encoding='utf-8'))['缩写'])
+except Exception:
+    _TERMS = set()
+if _TERMS:
+    for f in FILES:
+        fn = '速查' if f.endswith('速查源.md') else os.path.basename(f).split(' ')[0]
+        for title, tb, prev in tables(f):
+            rows = [re.findall(r'<td([^>]*)>(.*?)</td>', r, re.S) for r in re.findall(r'<tr(?![^>]*class="(?:hdr|premise|note)")[^>]*>(.*?)</tr>', tb, re.S)]
+            tall = any(re.search(r'<br\s*/?>', c) or tw(c) > 0.45 * TOTAL for cc in rows for _, c in cc[1:])
+            for cc in rows:
+                if not cc: continue
+                c0 = cc[0][1]; p0 = plain(c0)
+                m1 = re.fullmatch(r'([A-Z][A-Za-z0-9/\-]{1,11})（[^）]{2,16}）', p0)
+                m2 = re.match(r'^\s*(?:<[^>]+>)*([A-Z][A-Za-z0-9/\-]{1,11})(?:</[^>]+>)*<br\s*/?>', c0)
+                if tall and m1 and m1.group(1) in _TERMS: rep('T28', fn, title, '术语格「%s」应写成两行（上缩写、下中文）' % p0)
+                if not tall and m2 and m2.group(1) in _TERMS: rep('T28', fn, title, '内容列都一行，术语格「%s」应写成一行「缩写（中文）」' % p0)
 # T24 句末标点
 sys.argv_bak = sys.argv
 try:
@@ -133,4 +203,4 @@ from collections import Counter
 c = Counter(x[0] for x in OUT)
 print('check_struct：%s；句末标点存疑 %d 处（不算错误）' % ('、'.join('%s %d' % kv for kv in sorted(c.items())) or '无', N_DOUBT))
 for r, f, t, m in OUT: print('  [%s] %s「%s」：%s' % (r, f, t[:30], m))
-sys.exit(1 if c.get('T24') else 0)
+sys.exit(1 if (c.get('T24') or c.get('T27') or c.get('T28')) else 0)
