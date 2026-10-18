@@ -72,7 +72,8 @@ def figs_for(title):
             hdr = next((x for x in Ls[k:i] if '<th' in x or '<td' in x), '')
             anchor = (plain(re.sub(r'<[^>]+>', ' ', hdr))[:12], 'after-table')
         if prev.startswith('%%FIG'): anchor = ([x.strip() for x in re.sub(r'^%%FIG(SIDE|RIGHT)?%%\s*', '', prev).split('|')][1], 'after')   # 连排几张图：接在上一张图注后（2026-10-11 重要天气预告图三张）
-        out.append(dict(file=NS + fn, cap=cap, wmm=float(wmm or 120), anchor=anchor))
+        alt = (re.sub(r'^#+\s*', '', nxt), 'before') if not nxt.startswith(('<', '%%')) else None   # 2026-10-18：前一行（多为注）在 OneNote 里对不上时，用图后一行作后备锚点（1.15-1）
+        out.append(dict(file=NS + fn, cap=cap, wmm=float(wmm or 120), anchor=anchor, alt=alt))
     return out
 def find_anchor(h, text):
     text = re.sub(r'\[\[(\d+\.\d+)[^\]]*\]\]', r'\1', text); text = re.sub(r'(\d+\.\d+)(\s*·\s*\1)+', r'\1', text)
@@ -88,6 +89,7 @@ def add_figs(pid, title):
             pos = 'after'
         else:
             tid = find_anchor(h, fg['anchor'][0]); pos = fg['anchor'][1]
+        if not tid and fg.get('alt'): tid = find_anchor(h, fg['alt'][0]); pos = fg['alt'][1]
         if not tid: L('   !! 图找不到插入位置', fg['cap'][:16]); continue
         data = open(fg['file'], 'rb').read(); pw, ph = struct.unpack('>II', data[16:24])
         w = min(TABW, round(fg['wmm'] / 270 * TABW)); name = 'fig' + uuid.uuid4().hex[:8]
