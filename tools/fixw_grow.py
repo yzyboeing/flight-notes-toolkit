@@ -34,7 +34,7 @@ def scan(repo, books=None):
         pdf = os.path.join(repo, pdf)
         if not os.path.exists(pdf): continue
         ft = fixed_tables(srcs)
-        for x in measure(pdf):
+        for x in measure(pdf, srcmd=os.path.join(repo, 'build', 'book.md' if name == '全书' else 'qr_single.md')):   # SD-208：与 fit_fix 同口径传源文件
             if not x.get('grow') or x.get('fill'): continue
             tb = N(x.get('table', ''))
             c = [t for t in ft if tb.startswith(t['h']) and tb[len(t['h']):].startswith(t['r'])]

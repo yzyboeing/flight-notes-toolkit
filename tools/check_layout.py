@@ -208,7 +208,14 @@ try:
     if os.path.exists(_qm): _bm += '\n' + open(_qm, encoding='utf-8').read()
     for _m in re.finditer(r'<table class="[^"]*\bone-page\b[^"]*">(?:(?!</table>).)*?<tr class="hdr">(.*?)</tr>', _bm, re.S):
         ONEPAGE_SIGS.append(nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12])
-    FIXW_SIGS = [nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12] for _m in re.finditer(r'<tr class="hdr">((?:(?!</tr>).)*\bw-\d+(?:(?!</tr>).)*)</tr>', _bm, re.S)]
+    # SD-208（2026-10-18）：签名改为「表头 + 第一行」前 30 字（原只取表头 12 字，表头相同的自动宽度表——「类别｜条件」「项目｜说明」——被一并跳过，A/T 脱开条件表的大片空白因此漏报）；
+    #   区分锁宽（w-lock，空白 ≥ 30pt 才报）与起始比例（w-NN，fit_fix 多留 14pt，空白 ≥ 24pt 才报）
+    FIXW_SIGS = []
+    for _m in re.finditer(r'<table[^>]*>((?:(?!</table>).)*?)<tr class="hdr">((?:(?!</tr>).)*\bw-\d+(?:(?!</tr>).)*)</tr>((?:(?!</table>).)*?</tr>)', _bm, re.S):
+        _sig = nosp(re.sub(r'<[^>]+>', '', _m.group(2) + _m.group(3)))[:30]
+        FIXW_SIGS.append((_sig, 10 ** 6 if ('keep-wide' in _m.group(2) or 'col-eq' in _m.group(2)) else 30 if re.search(r'\bw-lock\b', _m.group(2)) else 24))   # keep-wide：用户点名要满宽的表（R3「紧急与遇险」），不报空白
+    for _m in re.finditer(r'<table[^>]*>((?:(?!</table>).)*?)<tr class="hdr">((?:(?!</tr>).)*\b(?:col-eq|keep-wide)\b(?:(?!</tr>).)*)</tr>((?:(?!</table>).)*?</tr>)', _bm, re.S):
+        FIXW_SIGS.append((nosp(re.sub(r'<[^>]+>', '', _m.group(2) + _m.group(3)))[:30], 10 ** 6))   # 等宽 / 点名满宽表不一定标 w-NN（速查两型表 col-eq）
 except Exception:
     FIXW_SIGS = []
 BWB = set()
@@ -585,7 +592,7 @@ elif QON: scan(QREF, '单册', 'B737机型理论知识速查')   # SD-146 册名
 try:
     from layout_measure import measure as _lm_measure
     for _nm, _pdf in (('全书', BOOK),) + ((('单册', QREF),) if QON else ()):
-        _res = _lm_measure(_pdf)
+        _res = _lm_measure(_pdf, srcmd=(MDP if _nm == '全书' else os.path.join(REPO, 'build', 'qr_single.md')))   # SD-208：与 fit_fix 同口径传源文件（知道原文 <br>），否则把 <br> 处换行当折行、报假 T14
         # T13 列宽多余（SD-151，错误级）：与 fit_fix 实测收窄同口径（严格余量：本格行数不增）；跨页的表按各段最小余量（页底段 + 下页页顶续段，列数、表宽相同算同一张）
         _segs = collections.OrderedDict()
         for _x in _res:
@@ -607,9 +614,9 @@ try:
                 _vals = [next((e for e in _segs[_k] if e['col'] == _c), None) for _k in _ks]
                 if any(v is None for v in _vals): continue
                 _sl = min(v.get('extra_strict', v['extra_pt']) for v in _vals)
-                if any(nosp(_vals[0].get('table', '')).startswith(re.sub(r'[^\w]', '', sg)[:10]) for sg in FIXW_SIGS): continue   # 表头标 w-NN 的固定列宽表不按自动列宽判
+                _thr = next((th for sg, th in FIXW_SIGS if sg and re.sub(r'[^\w]', '', nosp(_vals[0].get('table', ''))).startswith(re.sub(r'[^\w]', '', sg)[:24])), 10)   # 锁宽 30pt、起始比例 24pt、自动宽度 10pt
                 if any(nosp(_vals[0].get('table', '')).startswith(sg) and kk == _c for sg, kk in NWL): continue   # 已证明收到极限（再收就多行）
-                if _sl >= 10 and not any(v.get('wrapped') or v.get('anywrap') for v in _vals):   # 只查没折行的列（用户原话「空白太多」）
+                if _sl >= _thr and not any(v.get('wrapped') or v.get('anywrap') for v in _vals):   # 只查没折行的列（用户原话「空白太多」）
                     err('T13', '%s 第 %d 页：第 %d 列（「%s」）没有折行，右侧仍空约 %.0fpt——按最长一行收窄（以文字成行为标准）' % (_nm, _ks[0][0], _c + 1, _vals[0].get('head', ''), _sl))
         # T14 有空位却折行（2026-10-09 用户，速查第 135 页「发动机限制、喘振或失速」：「在右侧还有空白区域空间的情况下……这一列可以适当加宽以减小行数」）：
         # 同一张表里短格（≤ 20 字）被迫折成两行，而别的列还有「本格行数不增」的空位、合计够它排成一行——定宽表（w-NN）也查（T13 跳过定宽表，fit_fix 不改定宽表，所以要在这里拦）

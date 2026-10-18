@@ -435,11 +435,11 @@ const TBL_DUMPS = [];
 const TBL_TARGET = [];
 
 /* SD-136 插图（2026-10-04 用户「笔记中加系统图」）：
-   %%FIG%% 文件 | 图注 | 宽度mm [| 同页] → 整幅图居中，下接图注；末尾「同页」：图注与紧接的表同页（上图下表，SD-207）
+   %%FIG%% 文件 | 图注 | 宽度mm [| 同页] [| 左] → 整幅图居中，下接图注；「同页」：图注与紧接的表同页（上图下表，SD-207）；「左」：图靠左、图注在图下居中（SD-208）
    %%FIGSIDE%% 文件 | 图注 | 宽度mm      → 紧接的下一张 HTML 表与图并排：左图右表
    %%FIGRIGHT%% 文件 | 图注 | 宽度mm     → 紧接的下一张 HTML 表与图并排：左表右图（2026-10-17 用户：速查窄表右侧空位「配图」）
    文件路径相对 notes_src/（或 DOC_FIG_DIR），PNG / JPG；图注小号灰字、居中 */
-function figParts(spec, keepCap) {
+function figParts(spec, keepCap, alignLeft) {
   const [file, cap, wmm] = spec.split('|').map(x => (x || '').trim());
   const path = require('path');
   const base = process.env.DOC_FIG_DIR || path.join(process.cwd(), 'notes_src');
@@ -449,9 +449,10 @@ function figParts(spec, keepCap) {
   let pw = 1000, ph = 1000;
   if (isPng) { pw = data.readUInt32BE(16); ph = data.readUInt32BE(20); }
   const wpx = Math.round((+wmm || 120) / 25.4 * 96), hpx = Math.round(wpx * ph / pw);
-  const img = new Paragraph({ alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 60, after: 40 },
+  const indR = alignLeft ? Math.max(0, TOTAL - Math.round((+wmm || 120) * 56.7)) : 0;   // SD-208：「左」——图靠左（与表格左缘对齐），图注在图正下方居中
+  const img = new Paragraph({ alignment: alignLeft ? AlignmentType.LEFT : AlignmentType.CENTER, keepNext: true, spacing: { before: 60, after: 40 },
     children: [new ImageRun({ type: isPng ? 'png' : 'jpg', data, transformation: { width: wpx, height: hpx } })] });
-  const capP = cap ? new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 }, keepNext: !!keepCap,   // SD-207：图下紧跟表格（上图下表）时图注与表同页
+  const capP = cap ? new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 120 }, keepNext: !!keepCap, indent: indR ? { right: indR } : undefined,   // SD-207：图下紧跟表格（上图下表）时图注与表同页
     children: [new TextRun({ text: cap, font: FF, size: 16, color: GRAY })] }) : null;
   return { img, capP, wtw: Math.round((+wmm || 120) * 56.7) };
 }
@@ -2458,8 +2459,8 @@ while (i < src.length) {
     const okFig = fl === '1' || (fl && fl.split(',').some(k => k.trim() && ln.includes(k.trim())));
     if (!okFig) { i++; continue; }
   }
-  if (/^%%FIG%%/.test(ln)) { const spec9 = ln.replace(/^%%FIG%%\s*/, ''), keep9 = /\|\s*同页\s*$/.test(spec9);   // SD-207：「%%FIG%% 文件 | 图注 | 宽度 | 同页」——上图下表，图注与下面的表同页（只限点名；大表跟图强绑会被拆页）
-    let j9 = i + 1; while (j9 < src.length && !src[j9].trim()) j9++; const f0 = figParts(spec9.replace(/\|\s*同页\s*$/, ''), keep9 && j9 < src.length && /^<table/.test(src[j9].trim())); body.push(f0.img); if (f0.capP) body.push(f0.capP); i++; continue; }
+  if (/^%%FIG%%/.test(ln)) { const spec9 = ln.replace(/^%%FIG%%\s*/, ''), opt9 = spec9.split('|').slice(3).map(x => x.trim()), keep9 = opt9.includes('同页'), left9 = opt9.includes('左');   // SD-207：「%%FIG%% 文件 | 图注 | 宽度 | 同页」——上图下表，图注与下面的表同页（只限点名；大表跟图强绑会被拆页）
+    let j9 = i + 1; while (j9 < src.length && !src[j9].trim()) j9++; const f0 = figParts(spec9.split('|').slice(0, 3).join('|'), keep9 && j9 < src.length && /^<table/.test(src[j9].trim()), left9); body.push(f0.img); if (f0.capP) body.push(f0.capP); i++; continue; }
   if (/^%%FIG(SIDE|RIGHT)%%/.test(ln)) {       // 左图右表；FIGRIGHT：左表右图
     const RIGHT = /^%%FIGRIGHT%%/.test(ln);
     const f0 = figParts(ln.replace(/^%%FIG(SIDE|RIGHT)%%\s*/, '')); i++;

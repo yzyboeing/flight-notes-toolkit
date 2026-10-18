@@ -6,7 +6,7 @@
 以前漏掉的原因：check_layout 只量成品里「折行」，定宽表撑满页宽却没有折行、首列手动 <br>、表里混入别类行，都量不出来。
 本脚本直接读源文件（两本），估算列宽需求，按 layout-checklist 新增的 T18～T24 报：
   T18 定宽表空白：定宽（w-NN）表各列估算所需宽度远小于给定宽度（表收窄或改自动宽度）
-  T19 首列手动换行不省列宽（SD-207 改，错误）：术语格、括注另行除外；合成一行不超过本列其他格最宽一行的 → 合成一行\n  T29 首列括注另行（C29，错误）；T30 首列被单个长格撑宽（错误）
+  T19 首列手动换行不省列宽（SD-207 改，错误）：术语格、括注另行除外；合成一行不超过本列其他格最宽一行的 → 合成一行\n  T29 首列括注另行（C29，错误）；T30 首列被单个长格撑宽（错误）；T31 注内两组以上「A＝B」并列判读（错误，SD-208）
   T20 两型表少数行只有一型：大部分行两型都有，个别行另一型为「—」（移出作注，注前标【机型】）
       另：大部分行只有一型，个别行只有另一型（显示组件失效表「上 DU 失效」）
   T21 两型数值表里的跨列共有行：数值对照表中夹着两型共有的限制 / 说明行（移出作注）
@@ -223,6 +223,14 @@ for _bk, _p in (('速查', 'B737机型理论知识速查.docx'), ('全书', 'B73
         if ''.join(ws[0][1]).count('、') >= 4: continue   # 首列这一格本身是「、」列举的内容（4.4「故障｜处置」），不是标签
         if tall and ws[0][0] >= 0.9 * W and ws[1][0] <= 0.6 * W and re.search(r'[，、 （：]', ''.join(ws[0][1])):
             rep('T30', _bk, h0, '首列（宽 %d%%）被「%s」一格撑宽，其余格最宽只占列宽 %d%%——这一格折行 / 括注另行，首列收窄' % (100 * W / TOTAL, ''.join(ws[0][1])[:24], 100 * ws[1][0] / W))
+# T31 注内并列判读（SD-208，用户 2026-10-18 速查 21 AUTO FAIL：「注释太密集，可否换一种方式，比如做成表格前面加①②③?」）：
+#   一条「注：」里有两组以上「A＝B」（全角等号＝判读 / 含义；半角 = 是公式，不算）并用「；」分开 → 改成表格（SD-173 条款优先用表格）
+for f in FILES:
+    fn = '速查' if f.endswith('速查源.md') else os.path.basename(f).split(' ')[0]; cur = ''
+    for l in io.open(f, encoding='utf-8'):
+        if l.startswith('#'): cur = l.lstrip('# ').strip(); continue
+        if l.startswith('注：') and plain(l).count('＝') >= 2 and '；' in l:
+            rep('T31', fn, cur, '注「%s」里有 %d 组并列判读——改成表格（指示 ｜ 含义）' % (plain(l)[:24], plain(l).count('＝')))
 # T28 术语格（SD-206）：缩写定义格在内容列有多行的表里须写「缩写<br>中文」；内容列都一行的表须写「缩写（中文）」
 try:
     _TERMS = set(json.load(open(os.path.join(REPO, '缩写术语表.json'), encoding='utf-8'))['缩写'])
@@ -261,4 +269,4 @@ from collections import Counter
 c = Counter(x[0] for x in OUT)
 print('check_struct：%s；句末标点存疑 %d 处（不算错误）' % ('、'.join('%s %d' % kv for kv in sorted(c.items())) or '无', N_DOUBT))
 for r, f, t, m in OUT: print('  [%s] %s「%s」：%s' % (r, f, t[:30], m))
-sys.exit(1 if any(c.get(k) for k in ('T19', 'T24', 'T27', 'T28', 'T29', 'T30')) else 0)
+sys.exit(1 if any(c.get(k) for k in ('T19', 'T24', 'T27', 'T28', 'T29', 'T30', 'T31')) else 0)

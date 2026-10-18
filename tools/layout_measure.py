@@ -42,11 +42,21 @@ def lines_of(pg):
 # 也是被迫折行（排版器在「+」「（」等前面的断点换行，前一行右侧留一大截）。以前只认「排到右缘」，这种折行漏判、不会加宽。
 _TOK = re.compile(r'\s*([（(【「]?[A-Za-z0-9.,/\-:+%°×±≈≤≥~～·\'’]+[）)】」]?|[（(【「]?.[）)】」，。；、：]?)')
 def _wt(t): return sum(0.55 if ord(ch) < 0x2E80 and ch not in '±×≈≤≥→' else 1.0 for ch in t)
+# SD-208（2026-10-18）：生成器把「；」「。」后以延续词开头的句子单独起行（build_docx CONT），这是有意换行——即使上一行正好排满也不算折行。
+#   否则：fit_fix 收窄到「最长行刚好排满」→ 判成折行 → 拉满整块给这一列 → 下一遍又不折行、撤销……来回拉锯（A/T 脱开条件）
+_DLB = re.compile(r'\s*(但是|但|因此|所以|即(?!使)|其中|否则|此时|然后|随后|并且|而且|而|且|或|→)')
+def dlb(ltext, ntext):
+    e = (ltext or '').rstrip()[-1:]
+    if e == '；': return bool((ntext or '').strip())   # 生成器在「；」处分条（序号表不加点时看不出分条）：「；」后另起的一行按新的一条算（1.2 座舱压力控制系统 ③）
+    return e in '。;' and bool(_DLB.match(ntext or ''))
 def forced_wrap(cw, lw, ltext, ntext, pad):
     """cw 格宽；lw / ltext 本行宽度与文字；ntext 下一行文字。下一行第一个词接到本行后超出可排宽度 → 被迫折行"""
     m = _TOK.match(ntext or '')
     if not m or not ltext.strip(): return False
     u = lw / max(_wt(ltext.strip()), 0.5)                 # 本行每单位字宽（按中文 1、西文 0.55 折算）
+    # SD-208（2026-10-18 用户，速查 36「A/T 脱开条件」表格空白太多）：上一行以「；」「。」结尾、下一行第一个词本来放得下——这是生成器按句断开的有意换行
+    #   （「；」后的「或 / 但 / 否则……」延续句另起一行），不是排不下。以前按「两行合起来超宽」误判成折行，fit_fix 据此拉满整表、又永不撤销
+    if ltext.rstrip()[-1:] in '；。;' and lw + _wt(m.group(0).strip()) * u <= (cw - pad) - 1: return False
     # 两行合起来超出可排宽度 = 这一处换行是排不下造成的（排版器可能在更早的断点换行，只看下一行第一个词会漏判）
     return lw + _wt((ntext or '').strip()) * u > (cw - pad) - 1
 
@@ -146,7 +156,7 @@ def _measure_pages(pdf, srcmd, pages):
             def _measure_cell(c0):
                 ls0 = cell_lines(lines, c0); wr = False; mx0 = 0
                 for q0 in range(len(ls0) - 1):
-                    if ((c0[2] - c0[0]) - (ls0[q0][1] - ls0[q0][0]) < PAD + 14 or forced_wrap(c0[2] - c0[0], ls0[q0][1] - ls0[q0][0], ls0[q0][2], ls0[q0 + 1][2], PAD)) and not re.match(NEWIT, ls0[q0 + 1][2]) and not ebr(ls0[q0][2]): wr = True   # 按整行宽度判：居中列的短行左右各空一点，只看右侧会误判成排满（2026-10-06）   # 真折行：排到右缘、下一行不是新的一条
+                    if ((c0[2] - c0[0]) - (ls0[q0][1] - ls0[q0][0]) < PAD + 14 or forced_wrap(c0[2] - c0[0], ls0[q0][1] - ls0[q0][0], ls0[q0][2], ls0[q0 + 1][2], PAD)) and not re.match(NEWIT, ls0[q0 + 1][2]) and not ebr(ls0[q0][2]) and not dlb(ls0[q0][2], ls0[q0 + 1][2]): wr = True   # 按整行宽度判：居中列的短行左右各空一点，只看右侧会误判成排满（2026-10-06）   # 真折行：排到右缘、下一行不是新的一条
                 for l0 in ls0: mx0 = max(mx0, l0[1] - l0[0])
                 return ls0, wr, mx0
             xs = []
@@ -171,7 +181,7 @@ def _measure_pages(pdf, srcmd, pages):
                 def _minw(c0, ls0, rowmode=True):
                     paras, cur = [], []
                     for l0 in ls0:
-                        if cur and (re.match(NEWIT, l0[2]) or ebr(cur[-1][2]) or (((c0[2] - c0[0]) - (cur[-1][1] - cur[-1][0])) >= PAD + 14 and not forced_wrap(c0[2] - c0[0], cur[-1][1] - cur[-1][0], cur[-1][2], l0[2], PAD))): paras.append(cur); cur = []   # 源文件 <br> 处另起一段
+                        if cur and (re.match(NEWIT, l0[2]) or ebr(cur[-1][2]) or dlb(cur[-1][2], l0[2]) or (((c0[2] - c0[0]) - (cur[-1][1] - cur[-1][0])) >= PAD + 14 and not forced_wrap(c0[2] - c0[0], cur[-1][1] - cur[-1][0], cur[-1][2], l0[2], PAD))): paras.append(cur); cur = []   # 源文件 <br> 处另起一段
                         cur.append(l0)
                     if cur: paras.append(cur)
                     cap = min(max(len(ls0), int((c0[3] - c0[1] - 4) / pitch + 0.35)), len(ls0) + 1) if (rowcap_ok and rowmode) else len(ls0)   # 表不挤时仍按「本格行数不增」；借行高时每格最多多折一行（「适当收窄」，不把短格挤成一列碎字）
@@ -245,7 +255,7 @@ def _measure_pages(pdf, srcmd, pages):
                     full = lambda l: (l[1] - l[0]) >= cw - PAD - 20
                     # 2026-10-07 用户（速查第 81 页 RVSM「适用高度」：「12500m」后「（41100ft）」另起一行，右侧有空间却不加宽）：
                     # 上一行没排到右缘、但下一行首词接回去放不下，也是被迫折行，与 _measure_cell 同口径；止于原文 <br> 的仍算主动换行
-                    cont = lambda a, b: (full(a) or forced_wrap(cw, a[1] - a[0], a[2], b[2], PAD)) and not ebr(a[2])
+                    cont = lambda a, b: (full(a) or forced_wrap(cw, a[1] - a[0], a[2], b[2], PAD)) and not ebr(a[2]) and not dlb(a[2], b[2])
                     seg0 = 0
                     for q in range(1, len(ls)):
                         cur, prev = ls[q], ls[q - 1]
@@ -280,7 +290,7 @@ def _measure_pages(pdf, srcmd, pages):
                         segs = _segs(cont)
                         # 原口径（只认排到右缘的行）分出的短段也试：被迫折行把段并长后需要的加宽更多，不能因此漏掉原来能省行的项
                         best, bsg = None, None
-                        for sg in segs + _segs(lambda a, b: full(a)):
+                        for sg in segs + _segs(lambda a, b: full(a) and not ebr(a[2]) and not dlb(a[2], b[2])):   # SD-208：原口径分段也不跨原文 <br> / 有意换行（5.7 冰晶结冰报假 T14 262pt）
                             if len(sg) < 2: continue
                             need = sum(l[1] - l[0] for l in sg) * 1.03 / (len(sg) - 1) + PAD + 2 - cw
                             if 0 < need <= free - 2 and (best is None or need < best): best, bsg = need, sg
