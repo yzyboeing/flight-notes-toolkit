@@ -13,6 +13,7 @@ import io, os, re, glob, sys, math
 REPO = os.path.abspath(os.path.expanduser(sys.argv[sys.argv.index('--repo') + 1] if '--repo' in sys.argv else '~/flight-repos/gh-private'))
 APPLY = '--apply' in sys.argv
 MINSAVE = int(sys.argv[sys.argv.index('--min') + 1]) if '--min' in sys.argv else 2
+FIG_MINSAVE = 1   # P06（SD-209，2026-10-19 用户：「适当减小插图大小以适当的减少孤字问题和表格行数」）：图旁表省 1 行或消孤字就收图
 TOTAL = 16838 - 1440
 CJ, LA, UP, PAD, SUB = 190, 100, 135, 260, 330
 
@@ -88,23 +89,25 @@ def search(ths, rows, cur_pct, total_dxa, totals):
             if bestv is None or key < bestv[0]: bestv = (key, L, o, comb)
         if bestv: out.append((tot, bestv[1], bestv[2], bestv[3]))
     return out
-def propose(tb, before):
-    """返回 None 或 dict(kind, pct, fig, info)"""
+def propose(tb, before, pct0=None):
+    """返回 None 或 dict(kind, pct, fig, info)；pct0：没有 w-NN 的图旁表由调用方按成品实测列宽给出起始比例（P06）"""
     if '<tr class="hdr">' not in tb: return None
     ths, rows = parse(tb)
     pct = [int((re.search(r'\bw-(\d+)', a) or [0, 0])[1]) for a, _ in ths]
-    if not all(pct) or not rows or len(ths) > 5: return None
     fig = re.match(r'%%(FIGSIDE|FIGRIGHT)%%\s*([^|]+)\|([^|]*)\|\s*(\d+)', before)
+    if fig and not all(pct) and pct0 and len(pct0) == len(ths): pct = [max(1, int(round(x))) for x in pct0]
+    if not all(pct) or not rows or len(ths) > 5: return None
     if fig:
         fmm = int(fig.group(4)); cands = []
-        for f2 in [fmm] + list(range(fmm - 5, max(55, int(fmm * 0.8)) - 1, -5)):
+        fixed = '定' in before.split('|')[3:]   # P06：图行第 4 段写「定」= 图宽已人工看图定下，不再提议收图（只提列宽）
+        for f2 in ([fmm] if fixed or fmm <= 70 else [fmm] + list(range(fmm - 5, max(55, int(fmm * 0.8)) - 1, -5))):
             tdx = TOTAL - (f2 * 56.7 + 240) - 300
             for tot, L, o, comb in search(ths, rows, pct, tdx, [100]): cands.append((f2, L, o, comb))
         if not cands: return None
         tdx0 = TOTAL - (fmm * 56.7 + 240) - 300
         L0, o0 = layout(ths, rows, [p * tdx0 / 100 for p in pct])
         f2, L, o, comb = min(cands, key=lambda x: (x[1] + 0.6 * x[2], -x[0]))
-        if (L0 - L >= MINSAVE) or (o0 and o < o0 and L <= L0):
+        if (L0 - L >= FIG_MINSAVE) or (o0 and o < o0 and L <= L0):
             return dict(kind='图旁表', pct=list(comb), fig=(fmm, f2), info='图 %d→%dmm，列 %s → %s，估算 %d → %d 行，独字 %d → %d' % (fmm, f2, '/'.join(map(str, pct)), '/'.join(map(str, comb)), L0, L, o0, o))
         return None
     cur_sum = sum(pct)
@@ -128,6 +131,8 @@ def main():
         t = io.open(f, encoding='utf-8').read(); out = t; fn = '速查' if f.endswith('速查源.md') else os.path.basename(f).split(' ')[0]
         for m in re.finditer(r'<table[^>]*>.*?</table>', t, re.S):
             tb = m.group(0); before = t[:m.start()].rstrip().rsplit('\n', 1)[-1]
+            _hm = re.search(r'<tr class="hdr">(.*?)</tr>', tb, re.S)
+            if _hm and re.search(r'w-lock|keep-wide|col-eq', _hm.group(1)): continue   # SD-209：实测锁定 / 用户点名满宽 / 等宽的表不按估算改（与 check_struct T18 同口径）
             pr = propose(tb, before)
             if not pr: continue
             title = (re.findall(r'(?m)^#{3,4} ([^\n]*)$', t[:m.start()]) or ['?'])[-1]
