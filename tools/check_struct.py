@@ -86,10 +86,10 @@ for f in FILES:
         if re.search(r'\bw-\d+', hm.group(1)) and not re.search(r'w-lock|keep-wide|col-eq', hm.group(1)):   # SD-209：实测锁定 / 用户点名满宽 / 等宽的表不再按估算报
             pr = FF.propose(tb, prev)
             if pr: rep('T18', fn, title, '%s——python3 fixw_fit.py --apply' % pr['info'])
-        elif figside and not re.search(r'\bw-\d+', hm.group(1)):   # P06（SD-209）：没有定宽的图旁表按成品实测列宽作起始比例，省 1 行或消孤字就报（收图优先）
+        elif figside and not re.search(r'\bw-\d+', hm.group(1)) and '定' not in [x.strip() for x in prev.split('|')[3:]]:   # P06（SD-209）：没有定宽的图旁表按成品实测列宽作起始比例，只在能收图时报（标「定」的不报）
             g = _GRIDS.get(('速查' if '速查' in f else '全书', re.sub(r'\s', '', ''.join(hdr)), ncol))
             pr = FF.propose(tb, prev, pct0=[100.0 * x / sum(g) for x in g]) if g else None
-            if pr: rep('T18', fn, title, '图旁表 %s——按 P06 收图（源文件 %%%%FIGSIDE%%%% 宽度）' % pr['info'])
+            if pr and pr.get('fig') and pr['fig'][0] != pr['fig'][1]: rep('T18', fn, title, '图旁表 %s——按 P06 收图（源文件 %%%%FIGSIDE%%%% 宽度）' % pr['info'])
         # T19 首列手动换行（SD-207 改：按「这一断能不能让首列变窄」判断；2026-10-17 用户 344「为什么要另外放在第二行」）
         #   术语格（SD-206）、括注另行（C29）不算；其余首列 <br>，合成一行后不超过本列其他格最宽一行的，断了也不省宽度 → 报
         def _first_cells(rows_):   # 首列格（被上方 rowspan 盖住的行，第一个 <td> 不是首列）

@@ -99,7 +99,7 @@ def propose(tb, before, pct0=None):
     if not all(pct) or not rows or len(ths) > 5: return None
     if fig:
         fmm = int(fig.group(4)); cands = []
-        fixed = '定' in before.split('|')[3:]   # P06：图行第 4 段写「定」= 图宽已人工看图定下，不再提议收图（只提列宽）
+        fixed = '定' in [x.strip() for x in before.split('|')[3:]]   # P06：图行第 4 段写「定」= 图宽已人工看图定下，不再提议收图（只提列宽）
         for f2 in ([fmm] if fixed or fmm <= 70 else [fmm] + list(range(fmm - 5, max(55, int(fmm * 0.8)) - 1, -5))):
             tdx = TOTAL - (f2 * 56.7 + 240) - 300
             for tot, L, o, comb in search(ths, rows, pct, tdx, [100]): cands.append((f2, L, o, comb))
