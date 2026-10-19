@@ -41,7 +41,8 @@ def parse_src():
             cur_g = (m.group(1).strip(), []); groups.append(cur_g); cur_e = None; continue
         m = re.match(r'^### (.+)$', l)
         if m and cur_g is not None:
-            cur_e = {'t': m.group(1).strip(), 'body': [], 'binds': []}; cur_g[1].append(cur_e); continue
+            _t0 = m.group(1).strip(); _st = re.search(r'\s*\{(★+)\}\s*$', _t0)   # SD-209 N5：星级后缀单独存，标题文字不带花括号
+            cur_e = {'t': re.sub(r'\s*\{★+\}\s*$', '', _t0), 'star': _st.group(1) if _st else '', 'body': [], 'binds': []}; cur_g[1].append(cur_e); continue
         if cur_e is not None:
             if l.startswith('<!-- 详见'):
                 for a in re.findall(r'\[\[([^\]|]*)\|?([^\]]*)\]\]', l):
@@ -61,7 +62,7 @@ def main():
         out += ['### ' + g, '']
         for e in es:
             n += 1; e['n'] = n; e['g'] = g; ents.append(e)
-            out += ['#### %d. %s' % (n, e['t'])] + [x for x in e['body'] if not x.startswith('<!--')] + ['', '']
+            out += ['#### %d. %s%s' % (n, e['t'], ' {%s}' % e['star'] if e['star'] else '')] + [x for x in e['body'] if not x.startswith('<!--')] + ['', '']
     out += ['%%ENDCOMPACT%%', '']
     os.makedirs(BUILD, exist_ok=True)
     # 2) 五维目录：条目绑定的正文块落在哪个主题，就挂到哪个主题下（一条可挂多处）；正文分组主题本身也挂
@@ -119,7 +120,7 @@ def main():
                 items = ['%d|%s' % (hit[0]['n'], tp['theme'])]
             else:
                 # 2026-10-11 用户：「按主题查的燃油主题也要细化增加尽量能体现每个知识点，一点就可以看，其它主题也一样」——本主题条目附小项（表格首列标签）
-                items = ['%d|%s|%s|%s' % (e['n'], label(e['t']), '' if e['g'] == tp['theme'] else 'x', '' if e['g'] != tp['theme'] else '·'.join(subs_of(e))) for e in hit]
+                items = ['%d|%s|%s|%s' % (e['n'], label(e['t']) + (' ' + e['star'] if e.get('star') else ''), '' if e['g'] == tp['theme'] else 'x', '' if e['g'] != tp['theme'] else '·'.join(subs_of(e))) for e in hit]
             themes.append({'theme': tp['theme'], 'items': items})
         if len(themes) == 1: themes[0]['nohead'] = True
         if themes: dims.append({'dim': d['dim'], 'themes': themes})
