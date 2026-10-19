@@ -175,6 +175,9 @@ def main():
             if norm(qtxt) != norm(ftxt):
                 b = bigr(qtxt); cov = len(b & bigr(ftxt)) / len(b) if b else 1
                 if cov < 0.98: diffrow.append('%s（速查字面在完整版里 %d%%）' % (r[0]['t'][:12], cov * 100))
+        # SD-209 P8：核过不改的 P3 登记《两本同表已核.json》（键「速查表标题｜行标签」），只报新出现的
+        _okf = os.path.join(REPO, '两本同表已核.json'); _OK = json.load(open(_okf, encoding='utf-8')) if os.path.exists(_okf) else {}
+        diffrow = [d for d in diffrow if '%s｜%s' % (name, d.split('（')[0]) not in _OK]
         if diffrow: tips.append(('P3', tag, '；'.join(diffrow[:4])))
         onlyQ = [qk[k][0]['t'][:12] for k in qk if k not in fk]
         if onlyQ: tips.append(('P4', tag, '完整版没有速查的行：' + '、'.join(onlyQ[:6])))

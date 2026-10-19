@@ -58,7 +58,7 @@ for f in FILES:
         body = [c for a, c in rows if 'note' not in a]
         figside = prev.startswith(('%%FIGSIDE%%', '%%FIGRIGHT%%'))
         # T18 定宽 / 图旁表列宽可优化：就是 fixw_fit 会改的表（检查与修复同口径）
-        if re.search(r'\bw-\d+', hm.group(1)):
+        if re.search(r'\bw-\d+', hm.group(1)) and not re.search(r'w-lock|keep-wide|col-eq', hm.group(1)):   # SD-209：实测锁定 / 用户点名满宽 / 等宽的表不再按估算报
             pr = FF.propose(tb, prev)
             if pr: rep('T18', fn, title, '%s——python3 fixw_fit.py --apply' % pr['info'])
         # T19 首列手动换行（SD-207 改：按「这一断能不能让首列变窄」判断；2026-10-17 用户 344「为什么要另外放在第二行」）
@@ -231,6 +231,32 @@ for f in FILES:
         if l.startswith('#'): cur = l.lstrip('# ').strip(); continue
         if l.startswith('注：') and plain(l).count('＝') >= 2 and '；' in l:
             rep('T31', fn, cur, '注「%s」里有 %d 组并列判读——改成表格（指示 ｜ 含义）' % (plain(l)[:24], plain(l).count('＝')))
+# ---- SD-209（2026-10-19 整体优化方案批 1）新增：T32 注密集、T33 条款未成表、T34 颜色、T35 缩写注缺中文 ----
+def _entries(f):
+    t = io.open(f, encoding='utf-8').read()
+    return [(m.group(1).strip(), m.group(2)) for m in re.finditer(r'(?ms)^### (.+?)\n(.*?)(?=^### |^## |^%%PART%%|\Z)', t)]
+_SRCS = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-5]*', '*.md'))) + [os.path.join(REPO, '速查', '速查源.md')]
+for f in _SRCS:
+    fn = os.path.basename(f).replace('.md', '') if 'notes_src' in f else '速查'
+    for title, body in _entries(f):
+        notes = [l for l in body.split('\n') if l.startswith('注：')]
+        if (ONLY is None or 'T32' in ONLY) and len(notes) >= 4:
+            rep('T32', fn, title, '一条目 %d 条注（B37：≥ 4 条改「注表」或并回表格行）' % len(notes))
+        if ONLY is None or 'T33' in ONLY:
+            for l in re.sub(r'<table.*?</table>', '', body, flags=re.S).split('\n'):
+                if l.startswith(('<', '注：', '公司差异', '%%', '#')) or not l.strip(): continue
+                if plain(l).count('；') >= 3 and re.search(r'任一|同时满足|以下|包括|分为', plain(l)):
+                    rep('T33', fn, title, '段落「%s…」有 %d 个并列分句——条款改表格（B14）' % (plain(l)[:20], plain(l).count('；') + 1))
+        if ONLY is None or 'T34' in ONLY:
+            for c in re.findall(r'<td[^>]*>(.*?)</td>', body, re.S):
+                if len(re.findall(r'<em>', c)) >= 2:
+                    rep('T34', fn, title, '一格 %d 处红「%s…」（W02：一格通常不超过一处红）' % (len(re.findall(r'<em>', c)), plain(c)[:20]))
+        if ONLY is None or 'T35' in ONLY:
+            for l in notes:
+                for seg in re.split(r'[；。]', plain(l)):
+                    m = re.match(r'\s*(?:注：)?([A-Z][A-Za-z/\-]{1,12})：([A-Z][A-Za-z][A-Za-z /\-]*)(.*)$', seg)
+                    if m and not re.search(r'[\u4e00-\u9fff]', m.group(3)):   # 英文全称后面（逗号或括号里）没有任何中文
+                        rep('T35', fn, title, '缩写注「%s：%s」缺中文（W06：缩写：英文全称（中文））' % (m.group(1), m.group(2)[:30]))
 # T28 术语格（SD-206）：缩写定义格在内容列有多行的表里须写「缩写<br>中文」；内容列都一行的表须写「缩写（中文）」
 try:
     _TERMS = set(json.load(open(os.path.join(REPO, '缩写术语表.json'), encoding='utf-8'))['缩写'])
@@ -269,4 +295,5 @@ from collections import Counter
 c = Counter(x[0] for x in OUT)
 print('check_struct：%s；句末标点存疑 %d 处（不算错误）' % ('、'.join('%s %d' % kv for kv in sorted(c.items())) or '无', N_DOUBT))
 for r, f, t, m in OUT: print('  [%s] %s「%s」：%s' % (r, f, t[:30], m))
+# T32 / T35 为错误级（SD-209），但存量（70 / 34 处）要在批 2～3 清零后才加入退出码；sync 输出里照常计数
 sys.exit(1 if any(c.get(k) for k in ('T19', 'T24', 'T27', 'T28', 'T29', 'T30', 'T31')) else 0)

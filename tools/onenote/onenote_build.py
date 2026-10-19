@@ -139,6 +139,15 @@ def main():
             if q['title'] == p['title']: delete_page(q['id'])
         src, _ = strip_index(p['html'])
         pid = create_page(sid, p['title'], page(p['title'], convert(src), '%s ｜ %s' % (CHN[p['chap']], p['title'])))
+        # 2026-10-19（1018R2 写 4.6 返回成功但页面没留下）：每节写完立即读回核查，读不到就当场重写一次
+        if pid:
+            time.sleep(8)
+            if content(pid) is None:
+                L('   !! 写后读不到，重写', p['title'])
+                try: delete_page(pid)
+                except Exception: pass
+                time.sleep(6)
+                pid = create_page(sid, p['title'], page(p['title'], convert(src), '%s ｜ %s' % (CHN[p['chap']], p['title'])))
         L('写', p['title'], 'OK' if pid else '!! 失败')
         if pid: add_figs(pid, p['title'])
         time.sleep(6)                     # 2026-10-06：1.5 秒会触发 429 限流
