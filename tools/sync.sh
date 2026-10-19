@@ -161,6 +161,8 @@ if [ "$BUILD" = 1 ]; then
   DOC_QRTOPICS="${DOC_QRTOPICS:-$ROOT/速查主题索引.json}"; export DOC_QRTOPICS
   # SD-139 目录后「按主题查」索引（主题 → 正文块「节号 块号」）
   DOC_TOPICS="${DOC_TOPICS:-$ROOT/按主题查索引.json}"; export DOC_TOPICS
+  # SD-209 L3：附录「缩写与术语」数据（两本末尾），从两本「注：缩写：英文全称（中文）」收集
+  if [ -f "$TOOLKIT/abbr_index.py" ]; then python3 "$TOOLKIT/abbr_index.py" --repo "$ROOT" --out "$ROOT/build/缩写表.json" | sed 's/^/  /'; DOC_ABBR="$ROOT/build/缩写表.json"; export DOC_ABBR; fi
   # 2026-10-12 用户取消正文「相关」行（「太乱了」）：不再传 DOC_RELATED（相关节索引.json 停用备查）
   unset DOC_RELATED
   DOC_NOTICE="${DOC_NOTICE:-$(cfg notes.docNotice)}"; export DOC_NOTICE
