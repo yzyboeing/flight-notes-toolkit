@@ -548,7 +548,7 @@ def scan(pdf, name, header):
                                 x = r[k]
                                 if not x or (k + 1 < len(r) and r[k + 1] is None): continue
                                 t = _ct(x)
-                                tv = re.sub(r'[（(][^）)]*[）)]', '', t)   # 括注不算文字，与生成器同口径
+                                tv = re.sub(r'^\s*(约|至少|最多|不少于|不超过|不大于|不小于)\s*', '', re.sub(r'[（(][^）)]*[）)]', '', t))   # 括注不算文字；「约 1s」「至少 5s」这类带量词的数值与生成器同口径按数值格（2026-10-19）
                                 if _ph(t) or re.fullmatch(r'[•\s]*(是|否|有|无|适用|不适用)', t) or (re.search(r'\d', tv) and _VAL.fullmatch(tv)): continue
                                 if _centered(x): cnt += 1
                         if cnt: err('T16', '%s 第 %d 页：有共有格的表里 %d 个独有文字格居中——共有格居中、独有格靠左（SD-188 ①）' % (name, i + 1, cnt))
@@ -700,7 +700,7 @@ elif _tp[0] < _c5: err('P2', '「主题目录」在第 %d 页，应放在第五�
 
 # R5（SD-154，2026-10-06 用户）：同一条目下同表头的几张表、中间只隔着注——应合成一张（标 one-page）。
 # 例外：压到最小仍放不下一页、用户定为照常跨页的几处（范围 A）
-R5_EXEMPT = {('4.8', '2.'), ('4.14', '2.'), ('5.12', '3.'), ('2.7', 'A-5'), ('3.6', '块索引')}   # 2026-10-15 SD-187：液压相关由 4.9 改为 4.14；SD-189：GNSS 干扰由 5.6 改为 5.12
+R5_EXEMPT = {('4.8', '2.'), ('4.14', '2.'), ('1.11', '29.'), ('2.7', '5.')}   # 2026-10-19 SD-209 批 3：GNSS 干扰 5.12 第 3 条 → 1.11 第 29 条   # 2026-10-15 SD-187：液压相关由 4.9 改为 4.14；SD-189：GNSS 干扰由 5.6 改为 5.12
 import glob as _g
 for _f in sorted(_g.glob(os.path.join(REPO, 'notes_src/[1-5]*/*.md'))):
     _sec = os.path.basename(_f).split(' ')[0]; _s = open(_f, encoding='utf-8').read()

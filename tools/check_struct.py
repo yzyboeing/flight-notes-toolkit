@@ -248,7 +248,7 @@ _SRCS = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-5]*', '*.md'))) + [
 for f in _SRCS:
     fn = os.path.basename(f).replace('.md', '') if 'notes_src' in f else '速查'
     for title, body in _entries(f):
-        notes = [l for l in body.split('\n') if l.startswith('注：')]
+        notes = [l for l in body.split('\n') if l.startswith('注：') and not re.match(r'注：(?:缩写：)?[A-Z][A-Za-z/\-]{1,12}：[A-Z]', l)]   # 缩写注不计（批 3）
         if (ONLY is None or 'T32' in ONLY) and len(notes) >= 4:
             rep('T32', fn, title, '一条目 %d 条注（B37：≥ 4 条改「注表」或并回表格行）' % len(notes))
         if ONLY is None or 'T33' in ONLY:

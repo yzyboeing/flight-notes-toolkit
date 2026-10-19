@@ -210,6 +210,12 @@ def main():
         _ents = [(m.group(1).strip(), m.group(2), m.group(3)) for m in re.finditer(r'(?ms)^### (.+?)\n(<!-- 详见.*?-->\n)?(.*?)(?=^### |^## |^%%PART%%|\Z)', qt)]
         for _t, _n in _co.Counter(e[0] for e in _ents).items():
             if _n > 1: errors.append('S6 速查同名条目「%s」×%d' % (_t, _n))
+        # K-T39（SD-209 批 3 Q08）：速查每条第一行「%%KEY%% 要点」，宽度 ≤ 30 字（半角算半字）
+        for _t, _, _b in _ents:
+            _f = next((x for x in _b.split('\n') if x.strip()), '')
+            if not _f.startswith('%%KEY%%'): errors.append('T39 速查条目「%s」缺「要点」行（Q08）' % _t); continue
+            _k = _f[7:].strip().replace(' ', '')
+            if sum(0.5 if ord(c) < 128 else 1 for c in _k) > 30: errors.append('T39 速查条目「%s」要点超过 30 字（Q08）' % _t)
         # S7：相对上一个 baseline/* 标签，速查每条原有表行是否还在；同条目内块与块重复
         _P = lambda x: re.sub(r'[^\w]', '', re.sub(r'<[^>]+>', '', re.sub(r'<!--.*?-->', '', x, flags=re.S)))
         try:
@@ -230,7 +236,7 @@ def main():
                         if _lost <= 20: errors.append('S7 速查「%s」原有表行在新文件里找不到（相对 %s）：「%s」' % (m.group(1)[:20], _base, _P(r)[:30]))
             if _lost > 20: errors.append('S7 …共 %d 行' % _lost)
         for _t, _, _b in _ents:
-            _blocks = re.findall(r'<table.*?</table>', _b, re.S) + [l for l in re.sub(r'<table.*?</table>', '', _b, flags=re.S).split('\n') if len(_P(l)) >= 10]
+            _blocks = re.findall(r'<table.*?</table>', _b, re.S) + [l for l in re.sub(r'<table.*?</table>', '', _b, flags=re.S).split('\n') if len(_P(l)) >= 10 and not l.startswith('%%KEY%%')]   # 要点行是全条摘要，不算重复块
             _sh = [set(_P(x)[i:i + 4] for i in range(len(_P(x)) - 3)) for x in _blocks]
             for i in range(len(_blocks)):
                 for j in range(len(_blocks)):
@@ -240,11 +246,13 @@ def main():
         for _t, _, _ in _ents:
             if re.search(r'\svs\s|——|？|\?|[。；，]$', _t): errors.append('T36 速查标题「%s」含 vs / 破折号 / 问号 / 末尾标点（W05）' % _t)
         # T37 速查同一绑定节的条目按正文条目号排（提示）
+        # 2026-10-19 批 3：只比同一「## 主题」内、绑定同一节的条目；绑 ≥ 3 条的汇总条目（限制总表、差异汇编、要点）不比
         _seq = {}
-        for _t, _bind, _ in _ents:
-            m = re.match(r'<!-- 详见 \[\[(\d+\.\d+) [^|]*\|\1 第 (\d+) 条', _bind or '')
-            if not m: continue
-            _seq.setdefault(m.group(1), []).append((int(m.group(2)), _t))
+        for _m in re.finditer(r'(?ms)^## (.+?)\n(.*?)(?=^## |^%%PART%%|\Z)', qt):
+            for _t, _bind, _ in [(m.group(1).strip(), m.group(2), '') for m in re.finditer(r'(?ms)^### (.+?)\n(<!-- 详见.*?-->\n)?', _m.group(2))]:
+                _bs = re.findall(r'\|(\d+\.\d+) 第 (\d+) 条\]\]', _bind or '')
+                if not _bs or len(_bs) >= 3: continue
+                _seq.setdefault('%s·%s' % (_m.group(1).strip(), _bs[0][0]), []).append((int(_bs[0][1]), _t))
         _bad = [(k, v) for k, v in _seq.items() if len(v) >= 3 and any(v[i][0] > v[i + 1][0] for i in range(len(v) - 1))]
         if _bad: warns.append('T37 速查条目未按正文条目号排（N1）：%s' % '；'.join('%s（%s）' % (k, ' → '.join(str(x[0]) for x in v)) for k, v in _bad[:12]))
     # S8 节粒度（N2：5～25 条）；T36 完整版标题；L6 插图文件与图注
@@ -253,7 +261,7 @@ def main():
         if not re.match(r'[1-5]\.\d+ ', b): continue
         t = io.open(f, encoding='utf-8').read()
         n = len(re.findall(r'(?m)^### \d+\. ', t))
-        if n and (n < 5 or n > 25) and not b.startswith('4.'): warns.append('S8 %s 共 %d 条（N2：一节 5～25 条；第四章按 QRH 分节不计）' % (b[:-3], n))
+        if n and (n < 5 or (n > 25 and not b.startswith('1.'))) and not b.startswith('4.'): warns.append('S8 %s 共 %d 条（N2：一节 5～25 条；第四章按 QRH 分节不计）' % (b[:-3], n))
         for m in re.finditer(r'(?m)^### \d+\. (.+?)(?:\s*\{★+\})?$', t):
             if re.search(r'\svs\s|——|？|\?|[。；，]$', m.group(1)): errors.append('T36 %s 标题「%s」含 vs / 破折号 / 问号 / 末尾标点（W05）' % (b[:-3], m.group(1)))
         for m in re.finditer(r'(?m)^%%FIG(?:SIDE|RIGHT)?%% ([^|\n]+?)\s*\|\s*([^|\n]*?)\s*(?:\||$)', t):
