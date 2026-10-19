@@ -27,7 +27,8 @@ def nu(x):
 NUM = re.compile(r'\d+(?:[.,]\d+)?\s*(?:英尺|节|海里|分钟|秒钟|秒|摄氏度|华氏度|度|小时|psi|PSI|磅/平方英寸|%|伏|安培|米|千克|公斤|磅|ft|kt|nm|min|℃)')
 UPW = re.compile(r'\b[A-Z][A-Z0-9]{2,}(?:\s[A-Z][A-Z0-9]{2,}){0,3}\b')
 SKIPW = {'FCOM', 'QRH', 'FCTM', 'NNC', 'SOP', 'FMC', 'CDU', 'MCP', 'EFIS', 'PFD', 'TEXT', 'NOTE', 'ON', 'OFF', 'AUTO', 'NORMAL', 'TEST', 'PDF', 'OCR'}
-JUNK = re.compile(r'章节：|OCR|页面引用键|File Highlight|\?\?\?|目录|修订|有效页|版权所有|印刷页|深圳航空|Copyright|参见|见第|^\s*\d+\s*$')
+_JUNK_EXTRA = [l.strip() for l in io.open(os.path.expanduser('~/.config/flight-notes/coverage_junk.txt'), encoding='utf-8') if l.strip()] if os.path.exists(os.path.expanduser('~/.config/flight-notes/coverage_junk.txt')) else []   # 本机私有：公司名、文件编号前缀等不进公开库
+JUNK = re.compile('|'.join([r'章节：', 'OCR', r'页面引用键', r'File Highlight', r'\?\?\?', '目录', '修订', '有效页', '版权所有', '印刷页', 'Copyright', '参见', '见第', r'^\s*\d+\s*$'] + [re.escape(x) for x in _JUNK_EXTRA]))
 SIG = re.compile(r'\d|必须|不得|禁止|不能|只有|除非|不可|切勿|警告|注意|限制|最大|最小|不超过|超过|低于|高于|以上|以下|自动|失效|故障|不工作')
 
 # 两本笔记全文（含第四章；别处收了就不算漏）
@@ -85,7 +86,7 @@ for f in sorted([x for x in glob.glob(os.path.join(REPO, 'notes_src', '[1235]*',
                 for s in re.split(r'(?<=[。；])|\n', txt):
                     s = s.strip()
                     if not (10 <= len(s) <= 220) or JUNK.search(s) or len(re.findall(r'[\u4e00-\u9fff]', s)) < 6: continue   # 面板标签、图上英文不算
-                    nov = [x for x in novel_tokens(s) if not re.match(r'^(SZA|D\d|[A-Z]{1,2}\d)', x)]
+                    nov = [x for x in novel_tokens(s) if not re.match(r'^(D\d|[A-Z]{1,2}\d|[A-Z]{3}-\d)', x) and x not in _JUNK_EXTRA]
                     if not nov or N(s)[:30] in seen: continue
                     seen.add(N(s)[:30]); tot['fcom'] += 1
                     rep.append('- [FCOM %s %s · PDF %s · %s] 缺 %s：%s' % (tag, pp, pg, tit[:16], ' / '.join(nov[:3]), s[:140]))
