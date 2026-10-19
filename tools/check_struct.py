@@ -33,6 +33,31 @@ OUT = []
 import importlib.util as _iu
 _sp = _iu.spec_from_file_location('fixw_fit', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixw_fit.py')); FF = _iu.module_from_spec(_sp); _sp.loader.exec_module(FF)
 def rep(rule, f, title, msg): OUT.append((rule, f, title, msg))
+_GRIDS = {}   # (本, 表头首格文字, 列数) → 成品列宽（P06 用）
+def _docx_grid(path):
+    import zipfile, html as _h
+    if not os.path.exists(path): return []
+    x = zipfile.ZipFile(path).read('word/document.xml').decode('utf-8'); out = []
+    for m in re.finditer(r'<w:tbl>(?:(?!<w:tbl>).)*?</w:tbl>', x, re.S):
+        tb = m.group(0); grid = [int(v) for v in re.findall(r'<w:gridCol w:w="(\d+)"', tb)]
+        hdr0 = ''; c0 = []; hdrall = ''
+        for ri, r in enumerate(re.findall(r'<w:tr[ >].*?</w:tr>', tb, re.S)):
+            tcs = re.findall(r'<w:tc>.*?</w:tc>', r, re.S)
+            if not tcs: continue
+            c = tcs[0]
+            if '<w:gridSpan' in c or ('vMerge' in c and 'restart' not in c): continue
+            ps = [_h.unescape(''.join(re.findall(r'<w:t[^>]*>([^<]*)</w:t>', p))) for p in re.findall(r'<w:p[ >].*?</w:p>', c, re.S)]
+            ps = [p.strip() for p in ps if p.strip()]
+            if ri == 0:
+                hdr0 = ''.join(ps); hdrall = re.sub(r'\s', '', _h.unescape(''.join(re.findall(r'<w:t[^>]*>([^<]*)</w:t>', r)))); continue
+            if ps:
+                rowp = [len([p for p in re.findall(r'<w:p[ >].*?</w:p>', cc, re.S) if re.findall(r'<w:t[^>]*>([^<]*)</w:t>', p)]) for cc in tcs]
+                c0.append((ps, max(rowp)))
+        out.append((grid, hdr0, c0, hdrall))
+    return out
+for _bk0, _p0 in (('速查', 'B737机型理论知识速查.docx'), ('全书', 'B737机型理论知识笔记.docx')):
+    for _g, _h0, _c0, _ha in _docx_grid(os.path.join(REPO, 'build', _p0)):
+        _GRIDS.setdefault((_bk0, _ha, len(_g)), _g)
 
 def tables(f):
     t = io.open(f, encoding='utf-8').read(); cur = ''
@@ -61,6 +86,10 @@ for f in FILES:
         if re.search(r'\bw-\d+', hm.group(1)) and not re.search(r'w-lock|keep-wide|col-eq', hm.group(1)):   # SD-209：实测锁定 / 用户点名满宽 / 等宽的表不再按估算报
             pr = FF.propose(tb, prev)
             if pr: rep('T18', fn, title, '%s——python3 fixw_fit.py --apply' % pr['info'])
+        elif figside and not re.search(r'\bw-\d+', hm.group(1)):   # P06（SD-209）：没有定宽的图旁表按成品实测列宽作起始比例，省 1 行或消孤字就报（收图优先）
+            g = _GRIDS.get(('速查' if '速查' in f else '全书', re.sub(r'\s', '', ''.join(hdr)), ncol))
+            pr = FF.propose(tb, prev, pct0=[100.0 * x / sum(g) for x in g]) if g else None
+            if pr: rep('T18', fn, title, '图旁表 %s——按 P06 收图（源文件 %%%%FIGSIDE%%%% 宽度）' % pr['info'])
         # T19 首列手动换行（SD-207 改：按「这一断能不能让首列变窄」判断；2026-10-17 用户 344「为什么要另外放在第二行」）
         #   术语格（SD-206）、括注另行（C29）不算；其余首列 <br>，合成一行后不超过本列其他格最宽一行的，断了也不省宽度 → 报
         def _first_cells(rows_):   # 首列格（被上方 rowspan 盖住的行，第一个 <td> 不是首列）
@@ -193,28 +222,8 @@ for f in FILES:
 # T30 首列被单个长格撑宽（SD-207，用户 2026-10-17 速查 405「第 1 列的空白空间为什么这么大？最新的规则为什么没有排查出来」）：
 #   读成品 docx 的实际列宽：首列宽 ≥ 版心 25%，只有一格撑满（最宽一段 ≥ 列宽 90%），其余格最宽也不到列宽 60% → 这一格折行 / 括注另行，首列收窄
 #   以前漏掉：T14 量的是「列宽比最长一行宽多少」，被一格撑满的列最长一行正好等于列宽，量出来空白为 0
-def _docx_grid(path):
-    import zipfile, html as _h
-    if not os.path.exists(path): return []
-    x = zipfile.ZipFile(path).read('word/document.xml').decode('utf-8'); out = []
-    for m in re.finditer(r'<w:tbl>(?:(?!<w:tbl>).)*?</w:tbl>', x, re.S):
-        tb = m.group(0); grid = [int(v) for v in re.findall(r'<w:gridCol w:w="(\d+)"', tb)]
-        hdr0 = ''; c0 = []
-        for ri, r in enumerate(re.findall(r'<w:tr[ >].*?</w:tr>', tb, re.S)):
-            tcs = re.findall(r'<w:tc>.*?</w:tc>', r, re.S)
-            if not tcs: continue
-            c = tcs[0]
-            if '<w:gridSpan' in c or ('vMerge' in c and 'restart' not in c): continue
-            ps = [_h.unescape(''.join(re.findall(r'<w:t[^>]*>([^<]*)</w:t>', p))) for p in re.findall(r'<w:p[ >].*?</w:p>', c, re.S)]
-            ps = [p.strip() for p in ps if p.strip()]
-            if ri == 0: hdr0 = ''.join(ps); continue
-            if ps:
-                rowp = [len([p for p in re.findall(r'<w:p[ >].*?</w:p>', cc, re.S) if re.findall(r'<w:t[^>]*>([^<]*)</w:t>', p)]) for cc in tcs]
-                c0.append((ps, max(rowp)))
-        out.append((grid, hdr0, c0))
-    return out
 for _bk, _p in (('速查', 'B737机型理论知识速查.docx'), ('全书', 'B737机型理论知识笔记.docx')):
-    for grid, h0, c0 in _docx_grid(os.path.join(REPO, 'build', _p)):
+    for grid, h0, c0, _ha in _docx_grid(os.path.join(REPO, 'build', _p)):
         if len(grid) < 2 or len(c0) < 3: continue
         W = grid[0]
         if W < 0.25 * TOTAL: continue
