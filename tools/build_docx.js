@@ -2320,7 +2320,7 @@ function bodyTopicPage() {
   return out;
 }
 function qrTopicPage() {
-  if (SINGLE && process.env.DOC_QRDIMS) return bodyTopicPage();   // SD-146：速查版用五维网格
+  if (SINGLE && process.env.DOC_QRDIMS) return bodyTopicPage().concat(starListPage());   // SD-146：速查版用五维网格；SD-209 N5：其后接「必背清单（★★）」
   const fp = process.env.DOC_QRTOPICS;
   if (!fp || !fs.existsSync(fp)) return [];
   let topics;
@@ -2369,6 +2369,59 @@ function qrTopicPage() {
   while (cols.length < nc) cols.push([]);
   out.push(colsTable(cols.map(c => c.map((l, k) => tocLine(l, colW, { numW: 460, small: true, first: k === 0 }))), colW, GAP));
   return out;
+}
+/* SD-209 N5（2026-10-19）：速查「必背清单（★★）」——标 {★★} 的条目按 8 段列出，点击跳条目；分栏排法同主题目录 */
+function starListPage() {
+  const items = []; let comp = false, part = '';
+  for (const s of src) {
+    if (/^%%COMPACT%%\s*$/.test(s)) { comp = true; continue; }
+    if (/^%%ENDCOMPACT%%\s*$/.test(s)) { comp = false; continue; }
+    const pm = s.match(/^%%PART%%\s*(.+)$/); if (pm) { part = pm[1].trim(); continue; }
+    const m = comp && s.match(/^####\s+(\d+)\.\s+(.+)$/);
+    if (m) { const t = m[2].trim(); if ((STAR.get(t) || STAR.get(m[1] + '. ' + t)) === '★★') items.push({ n: m[1], t: unesc(t), part }); }
+  }
+  if (!items.length) return [];
+  const clean = (t) => String(t).replace(/（单位：[^）]*）/g, '').replace(/【[^】]*】/g, '').replace(/\s{2,}/g, ' ').trim();
+  const blocks = []; let cur = null;
+  for (const it of items) {
+    if (!cur || cur[0].ct !== it.part) { cur = [{ chap: true, id: 'QRI_' + it.n, cn: '', ct: it.part }]; blocks.push(cur); }
+    cur.push({ id: 'QRI_' + it.n, num: it.n, text: clean(it.t) });
+  }
+  const out = [new Paragraph({ pageBreakBefore: true, alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 120 },
+    children: [new Bookmark({ id: 'STARLIST', children: [new TextRun({ text: '必背清单（★★）', font: FF_HEAD, size: 32, bold: true, characterSpacing: 60, color: H1_C })] })] })];
+  out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: 20 }, children: [new TextRun({ text: '', size: 2 })],
+    border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
+  out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 60, after: 120 }, children: [new TextRun({ text: '★★ ＝ 必背（限制、门槛、记忆项目、两型差异、必背数值表）；★ ＝ 必会（原理与判断逻辑），见各条目标题；点击条目可跳转。', font: FF, size: 17, color: GRAY })] }));
+  const nc = PORTRAIT ? 2 : 4, GAP = 360;
+  const colW = Math.floor((TOTAL - GAP * (nc - 1)) / nc);
+  const hgt = (b) => b.reduce((a, l) => a + (l.chap ? 1.4 : (String(l.text).length > 24 ? 2 : 1)), 0);
+  const H = blocks.map(hgt), pre = [0]; H.forEach(h => pre.push(pre[pre.length - 1] + h));
+  const seg = (i, j) => pre[j] - pre[i];
+  let best = null;
+  const rec = (start, left, cuts) => {
+    if (left === 1) { const c = cuts.concat([blocks.length]); let st = 0, mx = 0; c.forEach(e => { mx = Math.max(mx, seg(st, e)); st = e; }); if (!best || mx < best.mx) best = { mx, c }; return; }
+    for (let e = start + 1; e <= blocks.length - left + 1; e++) rec(e, left - 1, cuts.concat([e]));
+  };
+  rec(0, Math.min(nc, blocks.length), []);
+  const cols = []; let st = 0;
+  best.c.forEach(e => { cols.push([].concat(...blocks.slice(st, e))); st = e; });
+  while (cols.length < nc) cols.push([]);
+  out.push(colsTable(cols.map(c => c.map((l, k) => tocLine(l, colW, { numW: 460, small: true, first: k === 0 }))), colW, GAP));
+  return out;
+}
+/* SD-209 L3：附录「缩写与术语」——abbr_index.py 从两本「注：缩写：英文全称（中文）」收集，DOC_ABBR 指向 build/缩写表.json；两本末尾各一份 */
+function abbrPage() {
+  const fp = process.env.DOC_ABBR; if (!fp || !fs.existsSync(fp)) return [];
+  let rows; try { rows = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (e) { console.error('缩写表读取失败：' + e.message); return []; }
+  if (!rows.length) return [];
+  const esc = (x) => String(x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html = '<table class="ftn split-ok"><tr class="hdr"><th class="w-12">缩写</th><th class="w-46">英文全称</th><th class="w-42">中文</th></tr>' +
+    rows.map(r => '<tr><td>' + esc(r.abbr) + '</td><td class="center">' + esc(r.en) + '</td><td class="center">' + esc(r.zh || '—') + '</td></tr>').join('') + '</table>';
+  const out = [new Paragraph({ pageBreakBefore: true, heading: HeadingLevel.HEADING_1, spacing: { before: 0, after: 160 },
+    children: [new Bookmark({ id: 'ABBR', children: [new TextRun({ text: '附录　缩写与术语', font: FF_HEAD, size: 36, bold: true, color: H1_C, style: 'HdrChap' })] }), SECMARK()],
+    border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 6 } } })];
+  out.push(new Paragraph({ spacing: { before: 60, after: 120 }, children: [new TextRun({ text: '按字母序；中文为 FCOM / FCTM 译名。', font: FF, size: 18, color: GRAY })] }));
+  return out.concat(htmlTable(html));
 }
 /* 章首页：大号章序号 → 章名（Heading 1，页眉 STYLEREF 取它）+ 粗线 → 本章简介 → 本章各节与页码 */
 function chapterOpener(ch, brk) {
@@ -2930,7 +2983,7 @@ if (!DUPLEX) {
     /* SD-97：顶端不放页眉；章名 / 节名与页码同在页脚一行（封面不显示） */
     headers: { first: emptyHF().header, default: emptyHF().header },
     footers: { first: emptyHF().footer, default: new Footer({ children: [footNav()] }) },
-    children: front.concat(body, TOPICS_AT_END ? bodyTopicPage() : [])   // SD-149：第五章之后的速查入口
+    children: front.concat(body, TOPICS_AT_END ? bodyTopicPage() : [], abbrPage())   // SD-149：第五章之后的速查入口；SD-209：附录缩写表
   }].flatMap(expandCols);
 } else {
   const HF = {
@@ -2961,7 +3014,9 @@ if (!DUPLEX) {
                children: body.slice(st, k + 1 < starts.length ? starts[k + 1] : body.length) }; }),
     /* SD-149（2026-10-06 用户）：第五章之后的速查入口「按主题查」（五种查法），从右页开始 */
     ...(() => { if (!TOPICS_AT_END) return []; const tp = bodyTopicPage(); return tp.length ? [{ properties: { page: PAGE, type: SectionType.ODD_PAGE },
-      headers: { default: emptyHF().header, even: emptyHF().header }, footers: HF.footers, children: tp }] : []; })()
+      headers: { default: emptyHF().header, even: emptyHF().header }, footers: HF.footers, children: tp }] : []; })(),
+    ...(() => { const ap = abbrPage(); return ap.length ? [{ properties: { page: PAGE, type: SectionType.ODD_PAGE },
+      headers: { default: emptyHF().header, even: emptyHF().header }, footers: HF.footers, children: ap }] : []; })()
   ].flatMap(expandCols);
 }
 

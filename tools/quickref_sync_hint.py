@@ -33,7 +33,7 @@ if not changed: sys.exit(0)
 
 q = open(QF, encoding='utf-8').read()
 hits = []
-for n, (t, b) in enumerate(re.findall(r'(?ms)^### ([^\n]*)\n(.*?)(?=^### |^## |\Z)', q), 1):
+for n, (t, b) in enumerate([(re.sub(r'\s*\{★+\}\s*$', '', t0), b0) for t0, b0 in re.findall(r'(?ms)^### ([^\n]*)\n(.*?)(?=^### |^## |\Z)', q)], 1):
     labs = {re.sub(r'第\s*(\d+)\s*条', r'\1', x).strip() for x in re.findall(r'\[\[[^\]|]*\|([^\]]*)\]\]', b)}
     got = sorted(labs & changed)
     if got: hits.append((n, t, got))

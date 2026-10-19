@@ -77,7 +77,7 @@ def qr_entries():
     ents, cur = [], None
     for l in io.open(os.path.join(REPO, '速查', '速查源.md'), encoding='utf-8').read().split('\n'):
         if l.startswith('### '):
-            cur = {'t': l[4:], 'binds': [], 'lines': []}; ents.append(cur); continue
+            cur = {'t': re.sub(r'\s*\{★+\}\s*$', '', l[4:]), 'binds': [], 'lines': []}; ents.append(cur); continue   # N5 星级后缀不进标题
         if l.startswith('## '): cur = None; continue
         if cur is None: continue
         if '详见' in l and l.startswith('<!--'):
