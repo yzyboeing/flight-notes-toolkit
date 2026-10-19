@@ -28,6 +28,7 @@ TODAY = datetime.date.today().isoformat()
 skey = lambda s: [int(v) for v in s.split('.')]
 
 # ---------- 1 读现有节 ----------
+SUBS = {}   # 节 → {在其后出现分组标记的条目号: 标记行}
 SEC = {}   # id → dict(path, dir, fm(str), fmd(dict-ish lines), title, pre, items[(n, title, star, body)])
 for f in glob.glob(os.path.join(SRC, '[1-5]*', '[0-9]*.md')):
     b = os.path.basename(f); m = re.match(r'(\d+\.\d+) ', b)
@@ -40,14 +41,22 @@ for f in glob.glob(os.path.join(SRC, '[1-5]*', '[0-9]*.md')):
     pre = rest[tm.end():first.start() if first else len(rest)].strip('\n') if tm else ''
     items = []
     for im in re.finditer(r'(?ms)^### (\d+)\. (.*?)(?:\s*\{(★+)\})?[ \t]*\n(.*?)(?=^### |\Z)', rest):
-        items.append((int(im.group(1)), im.group(2).strip(), im.group(3) or '', im.group(4).strip('\n')))
+        body = im.group(4)
+        if re.search(r'(?m)^%%SUB%%', body):   # 节内分组标记是结构，不是条目内容：记下位置、从正文去掉（2026-10-19 批 5 重复标记教训）
+            SUBS.setdefault(m.group(1), {})[int(im.group(1))] = re.search(r'(?m)^(%%SUB%%.*)$', body).group(1)
+            body = re.sub(r'(?m)^%%SUB%%.*\n?', '', body)
+        items.append((int(im.group(1)), im.group(2).strip(), im.group(3) or '', body.strip('\n')))
     SEC[m.group(1)] = dict(path=f, dir=os.path.basename(os.path.dirname(f)), fm=fm.group(1) if fm else '', title=tm.group(2).strip() if tm else b[:-3].split(' ', 1)[1], pre=pre, items=items)
 
 # ---------- 2 方案 → 映射 ----------
 plan_secs = list(PLAN.get('sections', []))
 for old, new in PLAN.get('rename', {}).items():
     s = SEC[old]
-    plan_secs.append({'id': new, 'dir': s['dir'], 'title': s['title'], 'fm': old, 'items': ['%s %d' % (old, it[0]) for it in s['items']]})
+    its = []
+    for it in s['items']:
+        its.append('%s %d' % (old, it[0]))
+        if it[0] in SUBS.get(old, {}): its.append(SUBS[old][it[0]])
+    plan_secs.append({'id': new, 'dir': s['dir'], 'title': s['title'], 'fm': old, 'items': its})
 IMAP, SMAP, NEWT = {}, collections.defaultdict(list), {}
 errs = []; used = set()
 for ps in plan_secs:

@@ -528,7 +528,7 @@ def scan(pdf, name, header):
                     _pad = (collections.Counter(round(l[0] - x[0][0]) for r in info[1:] for x in r if x for l in x[1] if l[2].strip()).most_common(1) or [(6, 0)])[0][0]
                     def _centered(x):
                         c, ls = x; ls = [l for l in ls if l[2].strip()]
-                        return bool(ls) and all(l[0] - c[0] > _pad + 2.5 and abs((l[0] - c[0]) - (c[2] - l[1])) < 3 for l in ls)
+                        return bool(ls) and all(l[0] - c[0] > _pad + 2.5 and abs((l[0] - c[0]) - (c[2] - l[1])) < 3 and (c[2] - c[0]) - (l[1] - l[0]) > 2 * _pad + 12 for l in ls)   # 2026-10-19 R4：文字几乎占满格宽（两侧空白合计不超过内边距 + 12pt）时靠左、居中看不出差别，不算居中（4.23「恢复后仍有一台发动机失效」误报）
                     # 2026-10-16：表首的通栏行（前提 / 警告条，只有首格、其余为合并格）不当表头
                     _inf = info
                     while len(_inf) > 2 and _inf[0] and len(_inf[0]) > 1 and _inf[0][0] and all(x is None for x in _inf[0][1:]): _inf = _inf[1:]
@@ -700,13 +700,13 @@ elif _tp[0] < _c5: err('P2', '「主题目录」在第 %d 页，应放在第五�
 
 # R5（SD-154，2026-10-06 用户）：同一条目下同表头的几张表、中间只隔着注——应合成一张（标 one-page）。
 # 例外：压到最小仍放不下一页、用户定为照常跨页的几处（范围 A）
-R5_EXEMPT = {('4.8', '2.'), ('4.14', '2.'), ('1.11', '29.'), ('2.7', '5.')}   # 2026-10-19 SD-209 批 3：GNSS 干扰 5.12 第 3 条 → 1.11 第 29 条   # 2026-10-15 SD-187：液压相关由 4.9 改为 4.14；SD-189：GNSS 干扰由 5.6 改为 5.12
+R5_EXEMPT = {('4.8', '2.'), ('4.14', '2.'), ('1.11', 'GPS 干扰对各系统的影响'), ('2.7', '起飞程序职责交接与推力管理矩阵')}   # 2026-10-19 批 5：改用标题片段，条目改号后不失效   # 2026-10-19 SD-209 批 3：GNSS 干扰 5.12 第 3 条 → 1.11 第 29 条   # 2026-10-15 SD-187：液压相关由 4.9 改为 4.14；SD-189：GNSS 干扰由 5.6 改为 5.12
 import glob as _g
 for _f in sorted(_g.glob(os.path.join(REPO, 'notes_src/[1-5]*/*.md'))):
     _sec = os.path.basename(_f).split(' ')[0]; _s = open(_f, encoding='utf-8').read()
     for _m in re.finditer(r'(?ms)^#{3,4} ([^\n]*)\n(.*?)(?=^#{2,4} |\Z)', _s):
         _id = _m.group(1).split('　')[0].split(' ')[0]
-        if (_sec, _id) in R5_EXEMPT: continue
+        if (_sec, _id) in R5_EXEMPT or any(_sec == _a and len(_b) > 3 and _b in _m.group(1) for _a, _b in R5_EXEMPT): continue
         _tb = list(re.finditer(r'(?s)<table[^>]*>.*?</table>', _m.group(2)))
         _hd = lambda t: re.sub(r'<[^>]+>|\s', '', (re.search(r'<tr class="hdr">(.*?)</tr>', t, re.S) or [0, ''])[1])
         for _a, _b in zip(_tb, _tb[1:]):
