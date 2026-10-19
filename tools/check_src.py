@@ -268,6 +268,16 @@ def main():
             fp = os.path.join(SRC, m.group(1).strip())
             if not os.path.exists(fp): errors.append('L6 %s 插图文件不存在：%s' % (b[:-3], m.group(1).strip()))
             if not m.group(2).strip(): errors.append('L6 %s 插图缺图注：%s' % (b[:-3], m.group(1).strip()))
+    # S9 主题挂靠（2026-10-19 1019R4：批 5 新增 8 条没挂进按主题查，完整版主题页漏列）：完整版每个块至少在 按主题查索引.json 的一个主题里
+    topf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '按主题查索引.json')
+    if os.path.exists(topf):
+        _top = {it.partition('|')[0] for d in json.load(io.open(topf, encoding='utf-8')) for th in d['themes'] for it in th['items']}
+        _miss = []
+        for f in files:
+            b = os.path.basename(f); _m = re.match(r'([1-5]\.\d+) ', b)
+            if not _m: continue
+            _miss += ['%s %s' % (_m.group(1), n) for n in re.findall(r'(?m)^### (\d+)\. ', io.open(f, encoding='utf-8').read()) if '%s %s' % (_m.group(1), n) not in _top]
+        if _miss: errors.append('S9 %d 个块没挂进 按主题查索引.json 的任何主题：%s' % (len(_miss), '、'.join(_miss[:20])))
     # 约定保留（私有库根目录《两型混写保留.json》，2026-10-09）：按「文件 + 去标签前 24 字」匹配，只计数不列为待处理
     keepf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '两型混写保留.json')
     keep = set()
