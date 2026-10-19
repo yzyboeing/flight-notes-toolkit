@@ -54,6 +54,9 @@ PALETTES.gray  = { key: '0B5CAD', keyBg: '', note: 'F2F2F2', noteBar: '7F7F7F', 
 PALETTES.beige = { key: '0B5CAD', keyBg: '', note: 'F7F1E6', noteBar: 'A2805A', warn: 'FDECEA', hdr: 'ECE2D0', alt: 'FCF9F3', hlb: 'ECE2D0', chap: 'E0D0B4', tail: '' };
 PALETTES.sage  = { key: '0B5CAD', keyBg: '', note: 'EDF5EE', noteBar: '5E8C61', warn: 'FDECEA', hdr: 'DCEADD', alt: 'F7FBF7', hlb: 'DCEADD', chap: 'C5DBC7', tail: '' };
 PALETTES.white = { key: '0B5CAD', keyBg: '', note: 'FFFFFF', noteBar: '7F7F7F', warn: 'FDECEA', hdr: 'FFFFFF', alt: 'FFFFFF', hlb: 'F2F2F2', chap: 'D0D0D0', tail: '' };
+/* SD-209（2026-10-19）：黑灰方案 mono 做了 6 页对比样例后用户决定「排版颜色还是用现行的」——默认仍为 blue；mono 保留作备选（DOC_PALETTE=mono：
+   底色全灰阶、引导语 / 表前小标题 / 表内父项黑色加粗（lead）、次级线条深灰（ink2），只留红蓝两种语义色）。 */
+PALETTES.mono  = { key: '0B5CAD', keyBg: '', note: 'F2F2F2', noteBar: '7F7F7F', warn: 'FDECEA', hdr: 'E6E6E6', alt: 'FAFAFA', hlb: 'E6E6E6', chap: 'D0D0D0', tail: '', lead: '000000', ink2: '404040' };
 const PAL = PALETTES[process.env.DOC_PALETTE || 'blue'] || PALETTES.blue;
 const GRAY = '595959', LINE = 'BFBFBF', ALT = PAL.alt || 'F7F7F7', CODE = 'F2F2F2';
 const RED = 'C00000';
@@ -66,7 +69,8 @@ const SUB_IND = (mk) => LEAD_OLD ? 0 : (mk.startsWith('\uE002') || mk === '\uE00
      琥珀 BF8F00  前提 / 适用条件（提醒「先看条件再看结论」）
    底色一律取同色相的最浅一档，打印不糊、iPad 上长时间看不刺眼。 */
 const INK   = '1F4E79',            // 标题与粗分隔线（深蓝）
-      INK2  = '2E74B5',            // 次级线条、注解竖条（中蓝）
+      INK2  = PAL.ink2 || '2E74B5',            // 次级线条、注解竖条（中蓝；mono 方案深灰）
+      LEAD_C = PAL.lead || INK,       // SD-180 引导语 / 父项 / 表前小标题的字色（mono 方案黑）
       HDR   = PAL.hdr || 'EBEBEB',            // 表头底（中性灰，结构不占色相）
       NOTE_BG = PAL.note || 'EAF1F8',          // 注 / 补充说明底
       PRIORITY_BG = 'FFF2CC',                  // 最高优先级整行 / 整项底色（浅黄）
@@ -242,6 +246,7 @@ const NO_SEC_BREAK = !!process.env.NO_SEC_BREAK;   // 速查区单独成册等�
 function H(text, level, brk, forceId) {
   const sizes = { 1: 30, 2: 24, 3: 21, 4: 20 };
   const id = forceId || (level <= 2 ? bmk(text) : null);
+  const star = STAR.get(String(text).trim()) || STAR.get(String(text).replace(/^\d+\.\s+/, '').trim());
   text = unesc(String(text));
   const isItem = /^(\d+\. |[A-Z]-\d+\u3000)/.test(text);
   const secBreak = level === 2 && /^\d+\.\d+[\s\u3000]/.test(text) && !AFTER_H1 && !NO_SEC_BREAK && !COMPACT;   // 速查组名带节号（SD-117）不另起一页
@@ -250,7 +255,7 @@ function H(text, level, brk, forceId) {
   const tr = new TextRun({ text, font: FF_HEAD, size: sizes[level], bold: true, color: HC, style: level === 1 ? 'HdrChap' : level === 2 ? 'HdrSec' : undefined });
   return new Paragraph({
     heading: level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : level === 3 ? HeadingLevel.HEADING_3 : HeadingLevel.HEADING_4,
-    children: (id ? [new Bookmark({ id, children: [tr] })] : [tr]).concat(level === 1 ? [SECMARK()] : []),
+    children: (id ? [new Bookmark({ id, children: [tr] })] : [tr]).concat(star ? [new TextRun({ text: '　' + star, font: FF_HEAD, size: sizes[level] - 2, color: '7F7F7F' })] : []).concat(level === 1 ? [SECMARK()] : []),
     spacing: { before: level === 1 ? 320 : 220, after: level === 1 ? 140 : 100 },
     /* 印刷版层级（2026-09-29）：章标题下粗黑线；节标题下细线；条目标题左侧竖条 */
     border: level === 1 ? { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 6 } }
@@ -532,7 +537,7 @@ function htmlTable(html) {
     return role; };
   const paras = (arr, kn) => arr.flatMap(r => { const segsR = balanceBr(rowText(r)).split(/<br\s*\/?>/).filter(x => x.trim()); const roleR = pcRoles(segsR);
     return segsR.map((sg, k, a) => new Paragraph({
-    children: runs(((roleR[k] === 'c' || DASH0.test(pcPlain(sg))) ? '– ' : '') + sg.trim().replace(/^[-–—]\s+/, ''), { size: 19, ...(roleR[k] === 'p' ? { bold: true, ...(!LEAD_OLD && !BW ? { color: INK } : {}) } : {}) }),   // SD-180：引导语深蓝；源文件「- 」分项去掉原连字符（2026-10-14 校对：曾印成「– -」）
+    children: runs(((roleR[k] === 'c' || DASH0.test(pcPlain(sg))) ? '– ' : '') + sg.trim().replace(/^[-–—]\s+/, ''), { size: 19, ...(roleR[k] === 'p' ? { bold: true, ...(!LEAD_OLD && !BW ? { color: LEAD_C } : {}) } : {}) }),   // SD-180：引导语深蓝；源文件「- 」分项去掉原连字符（2026-10-14 校对：曾印成「– -」）
     spacing: { before: k ? 20 : 100, after: k === a.length - 1 ? 100 : 20, line: 290 },
     /* 警示 / 前提 / 注 行移出表格后保留左侧竖条与淡底色 */
     indent: /warn|premise|note/.test(r.cls) ? ((roleR[k] === 'c' || DASH0.test(pcPlain(sg))) ? { left: 300, right: 80, hanging: 180 } : roleR[k] === 'n' ? { left: 300, right: 80 } : { left: 120, right: 80 }) : undefined,
@@ -754,7 +759,7 @@ function htmlTableCore(html) {
           const s1 = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
           const p1 = plainOf(c.text).replace(/\s+/g, '');
           if (!s1.length || /^[—－\-–\/／空×✕✓√?？…（）()]*$/.test(p1)) return;
-          if (s1.some(x => STRUCT.test(plainOf(x)) && !/^\s*[-–—]\s+/.test(plainOf(x)) && !/^注[：:]/.test(plainOf(x)))) {
+          if (!(/(^|\s)cell-bullet(\s|$)/.test(c.cls || '') && !s1.some(x => /^[①-⑳]/.test(plainOf(x)))) && s1.some(x => STRUCT.test(plainOf(x)) && !/^\s*[-–—]\s+/.test(plainOf(x)) && !/^注[：:]/.test(plainOf(x)))) {   // SD-209：显式 cell-bullet 的格，「第 N 步：」这类结构前缀不再免加点（速查 508「第 5 步」）；真正的 ①② 编号格仍整体不动
             /* SD-180 补（2026-10-14 校对，4.3「② 评估是否脱离跑道：」）：已有 ①② 编号的格整体不动，但源文件写的「- 」分项仍要转成「–」缩进，否则原样印出连字符 */
             if (s1.some(x => /^\s*[-–—]\s+/.test(plainOf(x)))) c.text = s1.map(x => /^\s*[-–—]\s+/.test(plainOf(x)) ? MK_C + x.replace(/^\s*[-–—]\s+/, '') : x).join('<br>');
             return; }
@@ -1372,6 +1377,16 @@ function htmlTableCore(html) {
         const nv = Math.max(lo, W[k] - dd);
         if (process.env.W_LOG && nv < W[k]) console.error('NARROW', k, W[k], '→', nv);
         W[k] = nv; } }
+    /* W12（SD-209，2026-10-19，货舱灭火「（DETECTOR FAULT）」被拆成 DETECTO / R）：任何列最终宽度不得小于本列最长英文 / 数字串的宽度——
+       实测记录（NW: / W:）、起始比例、借宽都可能把列压到比一个英文词还窄，LibreOffice 会在字母中间断行。差额从最宽的另一列匀出。 */
+    { const tokOf = (t) => (unesc(String(t).replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '')).match(/[A-Za-z0-9][A-Za-z0-9.\/\-:+%°]*/g) || []);
+      for (let k = 0; k < nCols; k++) {
+        const need = Math.max(0, ...parsed.flatMap((r, ri) => r.cells.filter((c, ck) => startCol[ri][ck] === k && c.colspan === 1).flatMap(c => tokOf(c.text).map(tk => fineVis(tk) * 90 * 1.1 + 340))));
+        if (need <= W[k]) continue;
+        let j = -1; for (let q = 0; q < nCols; q++) if (q !== k && (j < 0 || W[q] > W[j])) j = q;
+        const d = need - W[k]; if (j < 0 || W[j] - d < FLOOR) continue;
+        if (process.env.W_LOG) console.error('TOKMIN', k, W[k], '→', need);
+        W[k] = need; W[j] -= d; } }
     /* SD-148（2026-10-06 用户选方案 A）：有折行长句格的表拉满版心宽——剩余页宽全给折行的文字列（按最长一段从长到短），
        每列只补到「最长一段排成一行」为止；补完仍有剩余说明已无折行，表格保持按内容的宽度。全是短格的表不动（仍守 SD-144 收窄）。
        放在实测加宽 / 收窄之后，最后一步决定总宽。 */
@@ -1891,7 +1906,7 @@ function htmlTableCore(html) {
         if (dumpP) dumpP.push(((/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? 'C' : (hierarchy || semMarked) ? 'L' : (center ? 'C' : 'L')) + (prefix2 || '').trim());
         return new Paragraph({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
-          children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS, ...(leadSeg && !BW ? { color: INK } : {}) }),
+          children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS, ...(leadSeg && !BW ? { color: LEAD_C } : {}) }),
           spacing: shrinkLv >= 4 ? { before: 0, after: 0, line: LN } : { before: 20, after: 20, line: LN },   // 4 级（one-page 超大表）：格内段间距取 0（1.4 D-2 约 70 段，段间距合计约 140pt）
           indent: leadSeg ? ((leadDot && !isNumSeg) ? { left: 0, hanging: 120 } : { left: 0 }) : childInd ? childInd : numUnderLead ? { left: Math.round(CHW * 2.2), hanging: Math.round(CHW * 1.3) } : hierarchy ? { left: 0, hanging: 120 } : (mk === '\uE001' || mk.startsWith('\uE002')) ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : undefined,   // 用户 2026-10-04 样本：子项「–」与圆点对齐（都悬挂在左留白），子项文字与父项文字对齐；编号子项、单句同一起点（SD-180 起子项缩进一级，DOC_LEAD=old 时仍按此）   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
           keepNext: ((isHdr || isPre) && ri < parsed.length - 1) || (keepTogether && ri < parsed.length - 1) || (!keepTogether && ri < parsed.length - 1 && (ri < orphHead || ri >= parsed.length - orphTail)) || (tailNote && ri >= lastData && ri < parsed.length - 1) || (KEEP_LAST && ri === parsed.length - 1),
@@ -1958,6 +1973,10 @@ function mdTable(rows) {
 
 /* ---------- 解析 markdown ---------- */
 let rawSrc = fs.readFileSync(SRC, 'utf8');
+/* SD-209 N5（2026-10-19）：标题行末「{★}」「{★★}」= 条目分级（★★ 必背、★ 必会）；源文件里去掉，H() 在标题右侧印灰色星号 */
+const STAR = new Map();
+rawSrc = rawSrc.replace(/^(#{1,4}\s+.*?)\s*\{(★{1,2})\}\s*$/gm, (m, a, b) => { STAR.set(a.replace(/^#+\s+/, '').trim(), b); return a; });
+const QR_BOOK = process.env.DOC_BOOK === 'qr';   // SD-209 P05：插图按源文件标注「| 两本 / 完整版 / 速查」分工，quickref.py 置 DOC_BOOK=qr
 const SEC_TITLE = {};
 rawSrc.split('\n').forEach(l => { const m = l.match(/^#{1,4}\s+(\d+\.\d+)[\s\u3000]+(.*)$/); if (m) { KNOWN_BM.add('SEC_' + m[1].replace(/\./g, '_')); SEC_TITLE[m[1]] = m[2].trim(); }
   const q = l.match(/^####\s+(\d+)\.\s/); if (q) KNOWN_BM.add('QRI_' + q[1]); });
@@ -2454,9 +2473,14 @@ while (i < src.length) {
       .map(r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
     body.push(mdTable(rows)); { const g = tableGap(src, i); if (g) body.push(g); } continue;
   }
+  if (/^%%KEY%%/.test(ln)) {   // SD-209 Q08：速查条目首行「要点：一句话结论」——加粗标签、左侧深蓝竖条、与下文同页
+    body.push(new Paragraph({ children: runs('<strong>要点：</strong>' + ln.replace(/^%%KEY%%\s*/, ''), { size: 19 }), spacing: { before: 60, after: 120, line: 290 }, keepNext: true,
+      border: { left: { style: BorderStyle.SINGLE, size: 18, color: INK, space: 6 } } }));
+    i++; continue; }
   if (/^%%FIG(SIDE|RIGHT)?%%/.test(ln)) {   // SD-136 暂缓（用户 2026-10-04）：默认不排图，DOC_FIGS=1 全排；2026-10-09 用户「除了 171 条的图，去掉其余所有插图」→ DOC_FIGS=逗号分隔的文件名片段＝白名单；源文件插图行保留（OneNote 用）
     const fl = process.env.DOC_FIGS || '';
-    const okFig = fl === '1' || (fl && fl.split(',').some(k => k.trim() && ln.includes(k.trim())));
+    const bookTok = ln.split('|').slice(3).map(x => x.trim()).find(x => /^(两本|完整版|速查)$/.test(x));   // SD-209 P05：源文件标注分工，优先于 DOC_FIGS 白名单
+    const okFig = bookTok ? (bookTok === '两本' || (QR_BOOK ? bookTok === '速查' : bookTok === '完整版')) : (fl === '1' || (fl && fl.split(',').some(k => k.trim() && ln.includes(k.trim()))));
     if (!okFig) { i++; continue; }
   }
   if (/^%%FIG%%/.test(ln)) { const spec9 = ln.replace(/^%%FIG%%\s*/, ''), opt9 = spec9.split('|').slice(3).map(x => x.trim()), keep9 = opt9.includes('同页'), left9 = opt9.includes('左');   // SD-207：「%%FIG%% 文件 | 图注 | 宽度 | 同页」——上图下表，图注与下面的表同页（只限点名；大表跟图强绑会被拆页）
@@ -2564,7 +2588,7 @@ while (i < src.length) {
     /* SD-130（用户 2026-10-04 选 B）：表后「注：」不再塞进表格末行（窄表会把说明压成窄条），
        改为表格后面的整句段落：淡蓝底 + 左侧蓝色竖条，占满版心宽度；连续几条注连成一块。DOC_NOTES_INROW=1 恢复旧排法 */
     if (!process.env.DOC_NOTES_INROW && /^注：/.test(t)) {
-      const NFILL = process.env.DOC_NOTE_FILL || NOTE_BG, NBAR = process.env.DOC_NOTE_BAR || INK2;
+      const NFILL = process.env.DOC_NOTE_FILL || NOTE_BG, NBAR = process.env.DOC_NOTE_BAR || NOTE_BAR;
       body.push(new Paragraph({
         children: runs('<strong>注：</strong>' + t.slice(2), { size: 18, ...(() => { const nk = unesc(t.slice(2).replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}_]/gu, '').slice(0, 12); const lv = NCOND.get(nk); return lv ? { cs: lv >= 2 ? -10 : -6 } : {}; })() }),
         shading: { type: ShadingType.CLEAR, color: 'auto', fill: NFILL },
@@ -2607,7 +2631,7 @@ while (i < src.length) {
   const LONE_LEAD = s => { const pl = s.replace(/<[^>]+>/g, '').trim(); return !LEAD_OLD && !BW && pl.length <= 40 && /[：:]$/.test(pl) && !/^注[：:]/.test(pl); };
   if (COMPACT) {                                   // 速查区表外说明：与表格同字号，表前说明与表格同页
     let j = i + 1; while (j < src.length && !src[j].trim()) j++;
-    body.push(P(ln, { size: 18, before: 40, after: 80, keepNext: j < src.length && /^<table/.test(src[j].trim()), ...(LONE_LEAD(ln) ? { bold: true, color: INK, keepNext: true } : {}) }));
+    body.push(P(ln, { size: 18, before: 40, after: 80, keepNext: j < src.length && /^<table/.test(src[j].trim()), ...(LONE_LEAD(ln) ? { bold: true, color: LEAD_C, keepNext: true } : {}) }));
     i++; continue;
   }
   {                                                // 表格前的短说明（≤ 两行）与表格同页，不单独留在上一页
@@ -2616,7 +2640,7 @@ while (i < src.length) {
     let k = i - 1; while (k >= 0 && !src[k].trim()) k--;
     const beforeHead = j < src.length && /^#{2,6}\s+/.test(src[j]) && k >= 0 && /^#{2,6}\s+/.test(src[k]);   // 夹在节标题与条目标题之间的节首短说明：与条目同页，不让节标题孤悬页底
     const len = ln.replace(/<[^>]+>/g, '').length;
-    body.push(P(ln, { keepNext: (beforeTable && len <= 120) || (beforeHead && len <= 200), ...(LONE_LEAD(ln) ? { bold: true, color: INK, keepNext: true } : {}) }));
+    body.push(P(ln, { keepNext: (beforeTable && len <= 120) || (beforeHead && len <= 200), ...(LONE_LEAD(ln) ? { bold: true, color: LEAD_C, keepNext: true } : {}) }));
   }
   i++;
 }

@@ -203,6 +203,63 @@ def main():
         for _w, _x in _refs:
             if not any(y.startswith(_x) for y in _T):
                 errors.append('速查主题 JSON 失效引用（%s）「%s」：没有以此开头的速查条目（SD-196）' % (_w, _x))
+    # ---- SD-209（2026-10-19 整体优化方案批 1）：S6 速查同名、S7 相对上一基线的丢失 / 重复、S8 节粒度、T36 标题规范、T37 速查顺序、L6 插图 ----
+    ROOT = os.path.dirname(os.path.abspath(SRC.rstrip('/')))
+    if os.path.exists(qsrc):
+        import subprocess, collections as _co
+        _ents = [(m.group(1).strip(), m.group(2), m.group(3)) for m in re.finditer(r'(?ms)^### (.+?)\n(<!-- 详见.*?-->\n)?(.*?)(?=^### |^## |^%%PART%%|\Z)', qt)]
+        for _t, _n in _co.Counter(e[0] for e in _ents).items():
+            if _n > 1: errors.append('S6 速查同名条目「%s」×%d' % (_t, _n))
+        # S7：相对上一个 baseline/* 标签，速查每条原有表行是否还在；同条目内块与块重复
+        _P = lambda x: re.sub(r'[^\w]', '', re.sub(r'<[^>]+>', '', re.sub(r'<!--.*?-->', '', x, flags=re.S)))
+        try:
+            _tags = subprocess.run(['git', '-C', ROOT, 'tag', '-l', 'baseline/*'], capture_output=True, text=True).stdout.split()
+            _base = sorted(_tags)[-1] if _tags else ''
+            _old = subprocess.run(['git', '-C', ROOT, 'show', '%s:速查/速查源.md' % _base], capture_output=True, text=True).stdout if _base else ''
+        except Exception: _old = ''
+        if _old and not os.environ.get('SRC_NO_S7'):
+            _nn = _P(qt); _NS = set(_nn[i:i + 4] for i in range(len(_nn) - 3))
+            def _rc(x):
+                x = _P(x); sh = [x[i:i + 4] for i in range(len(x) - 3)]
+                return sum(1 for y in sh if y in _NS) / max(1, len(sh))
+            _lost = 0
+            for m in re.finditer(r'(?ms)^### (.+?)\n(.*?)(?=^### |^## |^%%PART%%|\Z)', _old):
+                for r in re.findall(r'<tr.*?</tr>', m.group(2), re.S):
+                    if len(_P(r)) >= 8 and _rc(r) < 0.6:
+                        _lost += 1
+                        if _lost <= 20: errors.append('S7 速查「%s」原有表行在新文件里找不到（相对 %s）：「%s」' % (m.group(1)[:20], _base, _P(r)[:30]))
+            if _lost > 20: errors.append('S7 …共 %d 行' % _lost)
+        for _t, _, _b in _ents:
+            _blocks = re.findall(r'<table.*?</table>', _b, re.S) + [l for l in re.sub(r'<table.*?</table>', '', _b, flags=re.S).split('\n') if len(_P(l)) >= 10]
+            _sh = [set(_P(x)[i:i + 4] for i in range(len(_P(x)) - 3)) for x in _blocks]
+            for i in range(len(_blocks)):
+                for j in range(len(_blocks)):
+                    if i != j and _sh[i] and len(_sh[i]) <= len(_sh[j]) and len(_sh[i] & _sh[j]) / len(_sh[i]) >= 0.8 and len(_P(_blocks[i])) >= 30:
+                        errors.append('S7 速查「%s」块内重复：「%s…」与「%s…」' % (_t[:20], _P(_blocks[i])[:16], _P(_blocks[j])[:16])); break
+        # T36 标题规范（W05 H6）：vs / 破折号 / 问号 / 末尾标点
+        for _t, _, _ in _ents:
+            if re.search(r'\svs\s|——|？|\?|[。；，]$', _t): errors.append('T36 速查标题「%s」含 vs / 破折号 / 问号 / 末尾标点（W05）' % _t)
+        # T37 速查同一绑定节的条目按正文条目号排（提示）
+        _seq = {}
+        for _t, _bind, _ in _ents:
+            m = re.match(r'<!-- 详见 \[\[(\d+\.\d+) [^|]*\|\1 第 (\d+) 条', _bind or '')
+            if not m: continue
+            _seq.setdefault(m.group(1), []).append((int(m.group(2)), _t))
+        _bad = [(k, v) for k, v in _seq.items() if len(v) >= 3 and any(v[i][0] > v[i + 1][0] for i in range(len(v) - 1))]
+        if _bad: warns.append('T37 速查条目未按正文条目号排（N1）：%s' % '；'.join('%s（%s）' % (k, ' → '.join(str(x[0]) for x in v)) for k, v in _bad[:12]))
+    # S8 节粒度（N2：5～25 条）；T36 完整版标题；L6 插图文件与图注
+    for f in files:
+        b = os.path.basename(f)
+        if not re.match(r'[1-5]\.\d+ ', b): continue
+        t = io.open(f, encoding='utf-8').read()
+        n = len(re.findall(r'(?m)^### \d+\. ', t))
+        if n and (n < 5 or n > 25) and not b.startswith('4.'): warns.append('S8 %s 共 %d 条（N2：一节 5～25 条；第四章按 QRH 分节不计）' % (b[:-3], n))
+        for m in re.finditer(r'(?m)^### \d+\. (.+?)(?:\s*\{★+\})?$', t):
+            if re.search(r'\svs\s|——|？|\?|[。；，]$', m.group(1)): errors.append('T36 %s 标题「%s」含 vs / 破折号 / 问号 / 末尾标点（W05）' % (b[:-3], m.group(1)))
+        for m in re.finditer(r'(?m)^%%FIG(?:SIDE|RIGHT)?%% ([^|\n]+?)\s*\|\s*([^|\n]*?)\s*(?:\||$)', t):
+            fp = os.path.join(SRC, m.group(1).strip())
+            if not os.path.exists(fp): errors.append('L6 %s 插图文件不存在：%s' % (b[:-3], m.group(1).strip()))
+            if not m.group(2).strip(): errors.append('L6 %s 插图缺图注：%s' % (b[:-3], m.group(1).strip()))
     # 约定保留（私有库根目录《两型混写保留.json》，2026-10-09）：按「文件 + 去标签前 24 字」匹配，只计数不列为待处理
     keepf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '两型混写保留.json')
     keep = set()
