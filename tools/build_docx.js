@@ -2526,6 +2526,10 @@ while (i < src.length) {
     body.push(new Paragraph({ children: runs('<strong>要点：</strong>' + ln.replace(/^%%KEY%%\s*/, ''), { size: 19 }), spacing: { before: 60, after: 120, line: 290 }, keepNext: true,
       border: { left: { style: BorderStyle.SINGLE, size: 18, color: INK, space: 6 } } }));
     i++; continue; }
+  if (/^%%SUB%%/.test(ln)) {   // SD-209 批 3 N1 / N3：节内分组小标题（如系统节末的「技术提示」）——不编号、不进目录，与下面的条目同页
+    body.push(new Paragraph({ children: [new TextRun({ text: ln.replace(/^%%SUB%%\s*/, ''), font: FF_HEAD, size: 22, bold: true, color: INK })], spacing: { before: 280, after: 100 }, keepNext: true,
+      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: INK, space: 3 } } }));
+    i++; continue; }
   if (/^%%FIG(SIDE|RIGHT)?%%/.test(ln)) {   // SD-136 暂缓（用户 2026-10-04）：默认不排图，DOC_FIGS=1 全排；2026-10-09 用户「除了 171 条的图，去掉其余所有插图」→ DOC_FIGS=逗号分隔的文件名片段＝白名单；源文件插图行保留（OneNote 用）
     const fl = process.env.DOC_FIGS || '';
     const bookTok = ln.split('|').slice(3).map(x => x.trim()).find(x => /^(两本|完整版|速查)$/.test(x));   // SD-209 P05：源文件标注分工，优先于 DOC_FIGS 白名单

@@ -70,6 +70,17 @@ print('\n'.join(l for l in r.stdout.splitlines() if l.startswith('fit_fix')))
 if r.returncode: sys.exit('排版失败：' + (r.stderr or r.stdout)[-800:])
 PDF = os.path.join(P, '预览.pdf')
 if not os.path.exists(PDF): sys.exit('没有生成 预览.pdf')
+# 2026-10-19：书签与 sync.sh 同样去掉「（单位：…）」与【737-x】（否则预览报 L3、全量不报）
+try:
+    import pymupdf
+except ImportError:
+    import fitz as pymupdf
+_d = pymupdf.open(PDF); _toc = _d.get_toc(simple=False); _ch = 0
+for _e in _toc:
+    _t = re.sub(r'\s*【737[^】]*】', '', re.sub(r'\s*（单位：(?:[^（）]|（[^（）]*）)*）', '', _e[1]))
+    if _t != _e[1]: _e[1] = _t; _ch += 1
+if _ch: _d.set_toc(_toc); _d.save(PDF + '.tmp', garbage=3, deflate=True); _d.close(); os.replace(PDF + '.tmp', PDF)
+else: _d.close()
 
 # 3. 检查（只查这几节）
 REP = os.path.join(P, '预览检查报告.md')
