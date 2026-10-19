@@ -580,7 +580,7 @@ if QON and hasattr(os, 'fork') and not os.environ.get('CHECK_SERIAL'):
         with os.fdopen(_w, 'wb') as _f: pickle.dump(_out, _f)
         os._exit(0)
     os.close(_w); _qfd = _r
-book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录|目录|按主题查|主题目录)')   # SD-96 页眉左侧为章名
+book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录|目录|按主题查|主题目录|附录)')   # SD-209 L05：附录缩写表   # SD-96 页眉左侧为章名
 if _qpid:
     with os.fdopen(_qfd, 'rb') as _f: _out = pickle.load(_f)
     os.waitpid(_qpid, 0)

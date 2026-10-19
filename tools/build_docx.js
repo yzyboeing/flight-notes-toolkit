@@ -2250,7 +2250,7 @@ function bodyTopicPage() {
     border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
   const NAV_AT = out.length, NAV = [];   // 2026-10-11 用户（方案 A）：段导航行（标题线下、图例上），循环后插回这里
   out.push(new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 40, after: 0 }, children: [   // 2026-10-07：交叉条目图例；2026-10-16：加点击提示（两本）
-    new TextRun({ text: '点击段名、主题或条目可跳转', font: FF, size: 16, color: '808080' }),
+    new TextRun({ text: qrMode ? '点击段名、主题或条目可跳转' : '学习路线：初学按章通读，复训用本页主题，考前用速查册「必背清单」「限制数据总表」；标题后 ★★ 必背、★ 必会　·　点击段名、主题或条目可跳转', font: FF, size: 16, color: '808080' }),   // SD-209 L06：学习路线放全书按主题查页（前言已满一页）
     ...(qrMode ? [new TextRun({ text: '　·　', font: FF, size: 16, color: 'A6A6A6' }), new TextRun({ text: '↗ 灰字', font: FF, size: 16, color: '808080' }), new TextRun({ text: '：其他主题的条目，在此也可查', font: FF, size: 16, color: '808080' })] : [])] }));
   let bad = 0, firstDim = true;
   const NC = PORTRAIT ? 2 : 3, GAP = 300, colW = Math.floor((TOTAL - GAP * (NC - 1)) / NC), NUMW = qrMode ? 540 : 820;
@@ -2380,6 +2380,7 @@ function starListPage() {
     const m = comp && s.match(/^####\s+(\d+)\.\s+(.+)$/);
     if (m) { const t = m[2].trim(); if ((STAR.get(t) || STAR.get(m[1] + '. ' + t)) === '★★') items.push({ n: m[1], t: unesc(t), part }); }
   }
+  if (process.env.STAR_LOG) console.error('STARLIST', items.length, STAR.size, [...STAR.keys()].slice(0, 3), src.filter(x => /^####\s+\d+\./.test(x)).slice(0, 2));
   if (!items.length) return [];
   const clean = (t) => String(t).replace(/（单位：[^）]*）/g, '').replace(/【[^】]*】/g, '').replace(/\s{2,}/g, ' ').trim();
   const blocks = []; let cur = null;
@@ -2392,21 +2393,16 @@ function starListPage() {
   out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: 20 }, children: [new TextRun({ text: '', size: 2 })],
     border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
   out.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 60, after: 120 }, children: [new TextRun({ text: '★★ ＝ 必背（限制、门槛、记忆项目、两型差异、必背数值表）；★ ＝ 必会（原理与判断逻辑），见各条目标题；点击条目可跳转。', font: FF, size: 17, color: GRAY })] }));
+  /* 每段一张小表（段内条目均分 4 栏）：整页一张大表时首页只剩标题、表被整体推到下一页（LibreOffice 对单行超高表的处理），分段表可逐页填满 */
   const nc = PORTRAIT ? 2 : 4, GAP = 360;
   const colW = Math.floor((TOTAL - GAP * (nc - 1)) / nc);
-  const hgt = (b) => b.reduce((a, l) => a + (l.chap ? 1.4 : (String(l.text).length > 24 ? 2 : 1)), 0);
-  const H = blocks.map(hgt), pre = [0]; H.forEach(h => pre.push(pre[pre.length - 1] + h));
-  const seg = (i, j) => pre[j] - pre[i];
-  let best = null;
-  const rec = (start, left, cuts) => {
-    if (left === 1) { const c = cuts.concat([blocks.length]); let st = 0, mx = 0; c.forEach(e => { mx = Math.max(mx, seg(st, e)); st = e; }); if (!best || mx < best.mx) best = { mx, c }; return; }
-    for (let e = start + 1; e <= blocks.length - left + 1; e++) rec(e, left - 1, cuts.concat([e]));
-  };
-  rec(0, Math.min(nc, blocks.length), []);
-  const cols = []; let st = 0;
-  best.c.forEach(e => { cols.push([].concat(...blocks.slice(st, e))); st = e; });
-  while (cols.length < nc) cols.push([]);
-  out.push(colsTable(cols.map(c => c.map((l, k) => tocLine(l, colW, { numW: 460, small: true, first: k === 0 }))), colW, GAP));
+  for (const b of blocks) {
+    const head = b[0], its = b.slice(1), per = Math.ceil(its.length / nc), cols = [];
+    for (let c = 0; c < nc; c++) cols.push(its.slice(c * per, (c + 1) * per));
+    out.push(new Paragraph({ keepNext: true, spacing: { before: 160, after: 40 }, children: [new InternalHyperlink({ anchor: head.id, children: [new TextRun({ text: head.ct, font: FF_HEAD, size: 21, bold: true, color: H1_C })] })],
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: H2_LINE, space: 2 } } }));
+    out.push(colsTable(cols.map(c => c.map((l, k) => tocLine(l, colW, { numW: 460, small: true, first: k === 0 }))), colW, GAP));
+  }
   return out;
 }
 /* SD-209 L3：附录「缩写与术语」——abbr_index.py 从两本「注：缩写：英文全称（中文）」收集，DOC_ABBR 指向 build/缩写表.json；两本末尾各一份 */
@@ -2415,7 +2411,7 @@ function abbrPage() {
   let rows; try { rows = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (e) { console.error('缩写表读取失败：' + e.message); return []; }
   if (!rows.length) return [];
   const esc = (x) => String(x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const html = '<table class="ftn split-ok"><tr class="hdr"><th class="w-12">缩写</th><th class="w-46">英文全称</th><th class="w-42">中文</th></tr>' +
+  const html = '<table class="ftn split-ok"><tr class="hdr"><th>缩写</th><th>英文全称</th><th>中文</th></tr>' +
     rows.map(r => '<tr><td>' + esc(r.abbr) + '</td><td class="center">' + esc(r.en) + '</td><td class="center">' + esc(r.zh || '—') + '</td></tr>').join('') + '</table>';
   const out = [new Paragraph({ pageBreakBefore: true, heading: HeadingLevel.HEADING_1, spacing: { before: 0, after: 160 },
     children: [new Bookmark({ id: 'ABBR', children: [new TextRun({ text: '附录　缩写与术语', font: FF_HEAD, size: 36, bold: true, color: H1_C, style: 'HdrChap' })] }), SECMARK()],
