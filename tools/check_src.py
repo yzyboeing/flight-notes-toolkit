@@ -127,6 +127,10 @@ def main():
         for ln_no, line in enumerate(body.split('\n'), 1):
             if re.match(r'^[ \t]*(?:>[ \t]*)?(?:\*\*)?(来源|出处)[：:]', line) or '（来源：' in line:
                 errors.append('SD-138 来源 / 出处 %s:%d' % (rel(f), ln_no))
+            # SD-212（2026-10-20 用户「图注里的手册出处都去掉，按『引用只写名字』的原则统一处理」）：图注不写手册出处与「依据……」
+            cm = re.match(r'%%FIG(?:SIDE|RIGHT)?%%[^|]*\|([^|]*)', line)
+            if cm and re.search(r'(?:FCOM|FCTM|AFM|QRH) [\d.]+|AC-\d+-\d+ 图|技术提示汇总|依据', cm.group(1)):
+                errors.append('SD-212 图注写了手册出处 %s:%d「%s」' % (rel(f), ln_no, cm.group(1).strip()[:40]))
         # SD-140（2026-10-05 用户）：全书不写「详见」——「本身目录和前面的序号都会改变」
         for ln_no, line in enumerate(body.split('\n'), 1):
             if '详见' in line and not line.lstrip().startswith('<!--'):
