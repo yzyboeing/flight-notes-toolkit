@@ -18,6 +18,7 @@ import struct, uuid
 SECTION = '基础知识速查区'
 REPO = os.path.expanduser('~/flight-repos/gh-private')
 WORK = os.path.expanduser('~/flight-repos/_work/onenote_qr')
+MAXB = int(os.environ.get('ONENOTE_MAXB', 1500000))   # 单页上限（字节）：2.4MB 返回 413，1018R1 前单页最大约 1.9MB 写入成功，留余量取 1.5MB
 Z = r'[\s​⁠­ 　]+'
 def L(*a): print(*a, flush=True)
 def plain(h): return re.sub(Z, '', html.unescape(re.sub(r'<[^>]+>', '', h)))
@@ -54,10 +55,22 @@ def split(docx):
     assert got == want, '速查 Word 的主题组与速查源对不上：%s' % [(a, b) for a, b in zip(got, want) if a != b][:3]
     pages, k = [], 0
     for part, gs in parts:
-        a = h2[k][0]; k += len(gs); b = h2[k][0] if k < len(h2) else end
+        a = h2[k][0]; k0 = k; k += len(gs); b = h2[k][0] if k < len(h2) else end
         body = re.sub(r'<p[^>]*>\s*(<br/>\s*)*</p>\s*$', '', s[a:b].rstrip())
         body = xref_plain(body)
-        pages.append({'title': title_of(part, gs), 'html': head + '<body>' + body + '</body></html>'})
+        pg = {'title': title_of(part, gs), 'html': head + '<body>' + body + '</body></html>'}
+        # 2026-10-19 1019R5：01 段 2.4MB 建页返回 413（请求过大）——转换后超过 MAXB 的段按主题组拆成几页，页名加「（一）（二）…」
+        n = -(-len(build(pg).encode()) // MAXB)
+        if n <= 1: pages.append(pg); continue
+        cuts = [h2[j][0] for j in range(k0, k)] + [b]; sizes = [cuts[j + 1] - cuts[j] for j in range(len(gs))]
+        tot, acc, grp, chunks = sum(sizes), 0, [], []
+        for j, sz in enumerate(sizes):
+            grp.append(j); acc += sz
+            if acc >= tot * (len(chunks) + 1) / n and len(chunks) < n - 1: chunks.append(grp); grp = []
+        if grp: chunks.append(grp)
+        for ci, cg in enumerate(chunks):
+            sub = xref_plain(re.sub(r'<p[^>]*>\s*(<br/>\s*)*</p>\s*$', '', s[cuts[cg[0]]:cuts[cg[-1] + 1]].rstrip()))
+            pages.append({'title': '%s（%s）' % (title_of(part, gs), '一二三四五六'[ci]), 'html': head + '<body>' + sub + '</body></html>'})
     return pages
 def build(p): return page(p['title'], convert(p['html']), '%s ｜ %s' % (SECTION, p['title']))
 # ---------- 读回核对（与 verify_pages.py 同口径）----------

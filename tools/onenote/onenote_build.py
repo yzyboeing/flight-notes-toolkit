@@ -63,13 +63,14 @@ def figs_for(title):
     Ls = open(f[0], encoding='utf-8').read().split('\n'); out = []
     for i, l in enumerate(Ls):
         if not l.startswith('%%FIG'): continue
+        if [x.strip() for x in l.split('|')][-1] == '速查': continue   # 2026-10-19：图行末分工标注（P03）「速查」只放速查，完整版 OneNote 不插
         fn, cap, wmm = [x.strip() for x in re.sub(r'^%%FIG(SIDE|RIGHT)?%%\s*', '', l).split('|')][:3]   # SD-207：第 4 段「同页」只给成品排版用
         # OneNote 版删了「详见」行，不能当锚点（1.14-2）
-        prev = [x for x in Ls[:i] if x.strip() and not re.match(r'\s*详见', x)][-1].strip(); nxt = [x for x in Ls[i + 1:] if x.strip()][0].strip()
+        prev = ([x for x in Ls[:i] if x.strip() and not re.match(r'\s*详见', x)] or [''])[-1].strip(); nxt = ([x for x in Ls[i + 1:] if x.strip()] or [''])[0].strip()   # 2026-10-19：图在文件末行（1.6）时没有下一行
         anchor = (re.sub(r'^#+\s*', '', nxt), 'before') if prev.startswith('<') else (re.sub(r'^#+\s*', '', prev), 'after')
         if prev.startswith('</table') and nxt.startswith('<'):   # 2026-10-16：图夹在两张表之间（1.13-1）——用上一张表的表头文字找到该表，插在表后
             k = max(j for j in range(i) if Ls[j].lstrip().startswith('<table'))
-            hdr = next((x for x in Ls[k:i] if '<th' in x or '<td' in x), '')
+            hdr = next((x for x in Ls[k:i] if ('<th' in x or '<td' in x) and 'premise' not in x), '')   # 2026-10-19：前提通栏行在 OneNote 里移到表外（unmerge），用真正的表头找表
             anchor = (plain(re.sub(r'<[^>]+>', ' ', hdr))[:12], 'after-table')
         if prev.startswith('%%FIG'): anchor = ([x.strip() for x in re.sub(r'^%%FIG(SIDE|RIGHT)?%%\s*', '', prev).split('|')][1], 'after')   # 连排几张图：接在上一张图注后（2026-10-11 重要天气预告图三张）
         alt = (re.sub(r'^#+\s*', '', nxt), 'before') if not nxt.startswith(('<', '%%')) else None   # 2026-10-18：前一行（多为注）在 OneNote 里对不上时，用图后一行作后备锚点（1.15-1）
@@ -77,8 +78,12 @@ def figs_for(title):
     return out
 def find_anchor(h, text):
     text = re.sub(r'\[\[(\d+\.\d+)[^\]]*\]\]', r'\1', text); text = re.sub(r'(\d+\.\d+)(\s*·\s*\1)+', r'\1', text)
+    text = re.sub(r'^%%SUB%%\s*', '', re.sub(r'\s*\{★+\}\s*$', '', text.strip()))   # 2026-10-19 R5：标题行末的分级标记 {★} / 节内小标题 %%SUB%% 是源码写法，页面上没有（R2 加星后第一次写 OneNote，图全部找不到锚点）
     want = plain(text)[:18]
     for m in re.finditer(r'<p\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</p>', h, re.S):
+        if want and want in plain(m.group(2)): return m.group(1)
+    # 2026-10-19 R5：表后的「注：」在 OneNote 里是淡蓝底单格表（注块），段落里找不到 → 找含这段文字的表，图插在整块前 / 后（锚点注总在块的边上：图把连续注隔开）
+    for m in re.finditer(r'<table\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</table>', h, re.S):
         if want and want in plain(m.group(2)): return m.group(1)
 def add_figs(pid, title):
     for fg in figs_for(title):
