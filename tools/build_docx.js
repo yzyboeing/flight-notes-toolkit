@@ -415,6 +415,7 @@ let PROBE = false, TBL_IDX = -1, KEEP_LAST = false;
 const NCOND = new Map();   // SD-130 表外注段落收紧字距（fit_fix 写入 N:）
 const FFIX = new Map();   // SD-148 实测拉满（fit_fix 写入 F:）
 const BWFIX = new Map();   // 2026-10-15 借宽（fit_fix 写入 BW:收列:借出列:DXA:签名）：孤字 / 省行列向本表可借出宽度最多的列借，表总宽不变，定宽表也生效
+const FIGW = new Map();   // 1020R1：图文件名 → 实测放大后的宽度 mm
 const KEEP_FORCE = new Set(), SHRINK = new Map(), WFIX = new Map(), NWFIX = new Map(), SPLITOK = new Set(), PBREAK = new Set(), CONDENSE = new Map();   // CONDENSE：签名 → [[首行前 10 字, 级]]（末行孤字收紧字距，fit_fix 写入 C:）
 if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
   for (const l0 of fs.readFileSync(process.env.KEEP_FORCE, 'utf8').split('\n')) {
@@ -423,6 +424,8 @@ if (process.env.KEEP_FORCE && fs.existsSync(process.env.KEEP_FORCE))
     if (w) { if (!WFIX.has(w[3])) WFIX.set(w[3], []); WFIX.get(w[3]).push([+w[1], +w[2]]); continue; }
     const nw = l.match(/^NW:(\d+):(\d+):(.+)$/);   // SD-144 实测收窄：NW:列号:收窄DXA:签名（layout_measure 保证不增行）
     if (nw) { if (!NWFIX.has(nw[3])) NWFIX.set(nw[3], []); NWFIX.get(nw[3]).push([+nw[1], +nw[2]]); continue; }
+    const fw = l.match(/^FW:([\d.]+):(.+)$/);   // 1020R1 图宽实测（fit_fix 写入 FW:宽度mm:图文件名）：独立插图按版面空白放大
+    if (fw) { FIGW.set(fw[2].trim(), +fw[1]); continue; }
     const bw = l.match(/^BW:(\d+):(\d+):(\d+):(.+)$/);
     if (bw) { if (!BWFIX.has(bw[4])) BWFIX.set(bw[4], []); BWFIX.get(bw[4]).push([+bw[1], +bw[2], +bw[3]]); continue; }
     if (/^BWB:/.test(l)) continue;
@@ -720,6 +723,22 @@ function htmlTableCore(html) {
       const hr0 = parsed.find(r => r.cls.includes('hdr'));
       const serial0 = serialTable(parsed, startCol);
       if (hr0 && !process.env.NO_AUTO_COLS) { const hri0 = parsed.indexOf(hr0);
+        /* 1020R1（用户 2026-10-20，速查「双向无线电失效」时间列、「安保检查」定义列：「去掉小圆点整列居中」；同 2026-09-30「定义……只需要把这个定义居中」）：
+           三列及以上的表（两型对比表 no-cmp 除外），非首列每格都只有一项（无 <br> 分行、无「- / • / ①」分项）→ 整列居中、不加点；
+           表头手工标注（col-bullet / col-left / col-plain / col-center）一律照标注。两列表仍按 SD-188 ②；有跨列共有格的表按 SD-188 ① */
+        const nC0 = hr0.cells.reduce((a0, c0) => a0 + (c0.colspan || 1), 0);
+        const hasShared0 = parsed.some(r => !/hdr|note|premise|warn/.test(r.cls) && r.cells.some((c, ck) => (c.colspan || 1) >= 2));
+        if (nC0 >= 3 && !hasShared0 && !/(^|\s)(no-cmp|no-share)(\s|$)/.test(hr0.cells[0].cls || '') && !serialTable(parsed, startCol)) {
+          hr0.cells.forEach((hc, hk) => { const col = startCol[hri0][hk];
+            if (hc.colspan !== 1 || col === 0 || /(^|\s)col-(center|bullet|plain|left)(\s|$)/.test(hc.cls || '')) return;   // 源文件手工标注优先（col-bullet 不改）
+            let n0 = 0, multi = false;
+            parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+              r.cells.forEach((c, k) => { if (startCol[ri][k] !== col || c.colspan !== 1) return;
+                const raw = String(c.text || ''); const t = plainOf(raw).replace(/\s+/g, '');
+                if (!t || /^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(t)) return;
+                n0++;
+                if (/<br\s*\/?>/i.test(raw) || /(^|\n)\s*(- |• |[①-⑳])/.test(raw.replace(/<[^>]+>/g, '')) || /<img\b/i.test(raw)) multi = true; }); });
+            if (n0 >= 1 && !multi) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-bullet(?=\s|$)/g, ' ') + ' col-center single-col').trim(); }); }
         hr0.cells.forEach((hc, hk) => { const col = startCol[hri0][hk];
           if (hc.colspan !== 1 || col === 0 || /(^|\s)col-(center|bullet|plain|left)(\s|$)/.test(hc.cls || '')) return;
           const hp = plainOf(hc.text).replace(/\s+/g, ' ');
@@ -2553,7 +2572,8 @@ while (i < src.length) {
     if (!okFig) { i++; continue; }
   }
   if (/^%%FIG%%/.test(ln)) { const spec9 = ln.replace(/^%%FIG%%\s*/, ''), opt9 = spec9.split('|').slice(3).map(x => x.trim()), keep9 = opt9.includes('同页'), left9 = opt9.includes('左');   // SD-207：「%%FIG%% 文件 | 图注 | 宽度 | 同页」——上图下表，图注与下面的表同页（只限点名；大表跟图强绑会被拆页）
-    let j9 = i + 1; while (j9 < src.length && !src[j9].trim()) j9++; const f0 = figParts(spec9.split('|').slice(0, 3).join('|'), keep9 && j9 < src.length && /^<table/.test(src[j9].trim()), left9); body.push(f0.img); if (f0.capP) body.push(f0.capP); i++; continue; }
+    let j9 = i + 1; while (j9 < src.length && !src[j9].trim()) j9++; const sp9 = spec9.split('|').slice(0, 3); { const fb = require('path').basename(String(sp9[0] || '').trim()); if (FIGW.has(fb) && !process.env.NO_FIGW) sp9[2] = ' ' + FIGW.get(fb); }
+    const f0 = figParts(sp9.join('|'), keep9 && j9 < src.length && /^<table/.test(src[j9].trim()), left9); body.push(f0.img); if (f0.capP) body.push(f0.capP); i++; continue; }
   if (/^%%FIG(SIDE|RIGHT)%%/.test(ln)) {       // 左图右表；FIGRIGHT：左表右图
     const RIGHT = /^%%FIGRIGHT%%/.test(ln);
     const f0 = figParts(ln.replace(/^%%FIG(SIDE|RIGHT)%%\s*/, '')); i++;
@@ -2564,12 +2584,14 @@ while (i < src.length) {
     const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
     const nb = { top: none, bottom: none, left: none, right: none };
     const lw = f0.wtw + 240, rw = TOTAL - lw;
+    if (body.length && body[body.length - 1] instanceof Table) body.push(new Paragraph({ spacing: { before: 0, after: 60 }, children: [] }));   // 1020R1（用户截图 8：图与表的位置乱七八糟）：紧接上一张表时先隔一段，否则 LibreOffice 把两张表并成一张、外层表沿用上一张的宽度，图被表压住
     body.push(new Table({ width: { size: TOTAL, type: WidthType.DXA }, columnWidths: RIGHT ? [rw, lw] : [lw, rw], layout: TableLayoutType.FIXED,
       borders: { top: none, bottom: none, left: none, right: none, insideHorizontal: none, insideVertical: none },
       rows: [new TableRow({ cantSplit: true, children: (() => {
         const figC = new TableCell({ width: { size: lw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.CENTER, children: [f0.img, ...(f0.capP ? [f0.capP] : [])] });
         const tblC = new TableCell({ width: { size: rw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.CENTER, margins: RIGHT ? { right: 200 } : { left: 200 }, children: [...tbs, new Paragraph('')] });
         return RIGHT ? [tblC, figC] : [figC, tblC]; })() })] }));
+    body.push(new Paragraph({ spacing: { before: 0, after: 60 }, children: [] }));   // 1020R1：并排表后紧跟下一张表时 LibreOffice 把两张并成一张，外层表按下一张表的列宽排窄、图被压住（1.14-1 刹车压力图）——后面也隔一段
     continue;
   }
   if (/^%%PAGEBREAK%%\s*$/.test(ln)) { pendingBreak = true; i++; continue; }

@@ -617,7 +617,7 @@ try:
                 if any(v is None for v in _vals): continue
                 _sl = min(v.get('extra_strict', v['extra_pt']) for v in _vals)
                 _thr = next((th for sg, th in FIXW_SIGS if sg and re.sub(r'[^\w]', '', nosp(_vals[0].get('table', ''))).startswith(re.sub(r'[^\w]', '', sg)[:24])), 10)   # 锁宽 30pt、起始比例 24pt、自动宽度 10pt
-                if any(nosp(_vals[0].get('table', '')).startswith(sg) and kk == _c for sg, kk in NWL): continue   # 已证明收到极限（再收就多行）
+                if _sl < 30 and any(nosp(_vals[0].get('table', '')).startswith(sg) and kk == _c for sg, kk in NWL): continue   # 已证明收到极限（再收就多行）；1020R1：余量 ≥ 30pt 的不认（收 24pt 不可能多行，旧记录误锁）
                 if _sl >= _thr and not any(v.get('wrapped') or v.get('anywrap') for v in _vals):   # 只查没折行的列（用户原话「空白太多」）
                     err('T13', '%s 第 %d 页：第 %d 列（「%s」）没有折行，右侧仍空约 %.0fpt——按最长一行收窄（以文字成行为标准）' % (_nm, _ks[0][0], _c + 1, _vals[0].get('head', ''), _sl))
         # T14 有空位却折行（2026-10-09 用户，速查第 135 页「发动机限制、喘振或失速」：「在右侧还有空白区域空间的情况下……这一列可以适当加宽以减小行数」）：
@@ -667,6 +667,12 @@ try:
                 _v['book'], _v['page'], os.path.basename(_f), '、'.join('第 %d 列可加宽约 %.0fpt' % (c + 1, e) for c, e in _v['cols'].items())))
     except Exception as _e:
         sug('T14', '定宽表加宽检查未能运行：%s' % _e)
+    try:   # 1020R1（用户 2026-10-20 第 290 页、第 10 张截图）：自动宽度的表右侧有空位、某列却折行——fit_fix 应已加宽，报错误
+        for (_f, _p), _v in _fg_scan(REPO, auto=True).items():
+            err('T14', '%s 第 %d 页：表格右侧有空位，%s——加宽以减少行数（fit_fix 未加宽：查 keep_force 的 WB / NWL 记录或表头 w- 标注）' % (
+                _v['book'], _v['page'], '、'.join('第 %d 列可加宽约 %.0fpt' % (c + 1, e) for c, e in _v['cols'].items())))
+    except Exception as _e:
+        sug('T14', '自动宽度表加宽检查未能运行：%s' % _e)
 except Exception as _e:
     sug('T8', '末行孤字实测未能完成：%s' % _e)
 
@@ -681,6 +687,30 @@ for nm, pdf in (('全书', BOOK),) + ((('单册', QREF),) if QON else ()):
             if sum(r.height for x in dd[i].get_images(full=True) for r in dd[i].get_image_rects(x[0])) > 0.35 * Hh: continue
         if 0 < len(ln) <= 2:
             err('B4', '%s 第 %d 页只有 %d 行（「%s」）——调整上一页间距或内容，避免孤页' % (nm, i + 1, len(ln), ln[0][4].strip()[:20]))
+
+# P08 / P09 插图版面（1020R1，用户 2026-10-20：「图片的下面和左右空间都很大，为什么把图片放这么小」「尽量利用空白区域」）：
+#   并排的图与表之间空 > 40pt → 错误（图应加大到填满，或表加宽）；独立小图（< 版心 35%）下方到页脚空 > 25% 版心高 → 建议（fit_fix 应已放大）
+for nm, pdf in (('全书', BOOK),) + ((('单册', QREF),) if QON else ()):
+    dd = pymupdf.open(pdf)
+    for i, pg in enumerate(dd):
+        ims = [b for b in pg.get_text('dict')['blocks'] if b['type'] == 1 and (b['bbox'][2] - b['bbox'][0]) > 40]
+        if not ims: continue
+        W, H = pg.rect.width, pg.rect.height
+        bl = [b for b in pg.get_text('blocks') if b[1] > 40 and b[3] < H - 45]
+        bottom = max([b[3] for b in bl] + [im['bbox'][3] for im in ims])
+        cap = next((b[4].replace('\n', '')[:20] for b in bl if re.match(r'\s*图 \d', b[4])), '')
+        tabs = pg.find_tables().tables
+        for im in ims:
+            x0, y0, x1, y1 = im['bbox']
+            side = [tb for tb in tabs if tb.bbox[1] < y1 and tb.bbox[3] > y0 and (tb.bbox[0] > x1 - 5 or tb.bbox[2] < x0 + 5)]
+            if side:   # 空位量到并排一侧最远的文字（表或表上的引导段）；图已与表同高（≥ 85%）时不报——图再大就超出表高
+                ty0, ty1 = min(tb.bbox[1] for tb in side), max(tb.bbox[3] for tb in side)
+                right = min(tb.bbox[0] for tb in side) > x1
+                txt = [b for b in bl if b[3] > y0 - 60 and b[1] < y1 and ((b[0] > x1 - 5) if right else (b[2] < x0 + 5)) and not re.match(r'\s*图 \d', b[4])]
+                gap = (min([b[0] for b in txt] + [min(tb.bbox[0] for tb in side)]) - x1) if right else (x0 - max([b[2] for b in txt] + [max(tb.bbox[2] for tb in side)]))
+                if gap > 40 and (y1 - y0) < 0.85 * (ty1 - ty0): err('P09', '%s 第 %d 页：并排的图（%s）与表之间空约 %.0fpt——加大图宽（源文件 FIGSIDE / FIGRIGHT 的 mm）填满空位' % (nm, i + 1, cap, gap))
+            elif (x1 - x0) < 0.35 * (W - 72) and (H - 50 - bottom) > 0.25 * (H - 90):
+                sug('P08', '%s 第 %d 页：插图（%s）只占版心 %.0f%% 宽，下方到页脚还空约 %.0fpt——加大图宽' % (nm, i + 1, cap, 100 * (x1 - x0) / (W - 72), H - 50 - bottom))
 
 # P 前言（SD-73 / SD-74）与总目录（单节预览不查）
 pre = 0 if SECTION else next((i for i in range(1, 5) if nosp(book[i].get_text()).find('前言') >= 0), None)

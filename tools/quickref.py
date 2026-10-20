@@ -58,7 +58,7 @@ def main():
     out = ['# 机型理论知识速查', '', '## 第零章　速查', '', '%%COMPACT%%', '']   # 单册模式只认「第X章」触发目录页；章名本身不印（页脚用册名 DOC_HEADER）
     n = 0; ents = []
     for g, es in groups:
-        if g == '%%PART%%': out += ['%%PART%% ' + es, '']; continue
+        if g == '%%PART%%': out += ['%%PART%% ' + es, '', '%%PAGEBREAK%%', '']; continue   # 1020R1（用户：「机型差异开始另起一页，所有的新章节内容开始就新起一页」）：每段从新页开始
         out += ['### ' + g, '']
         for e in es:
             n += 1; e['n'] = n; e['g'] = g; ents.append(e)
@@ -134,9 +134,8 @@ def main():
     def git_cfg(k):   # 2026-10-14：先读库内 成品设置.gitconfig，没有的键再读本机 git config（同 sync.sh 的 cfg）
         r = subprocess.run(['git', '-C', REPO, 'config', '-f', os.path.join(REPO, '成品设置.gitconfig'), '--get', k], capture_output=True, text=True)
         return r.stdout.strip() if r.returncode == 0 else subprocess.run(['git', '-C', REPO, 'config', '--get', k], capture_output=True, text=True).stdout.strip()
-    # 1019R6（记录第 49 条）：速查有自己的前言与使用说明（速查/前言.md、速查/使用说明.md），署名与版本号后缀同完整版
-    for k, f in (('DOC_PREFACE', '前言.md'), ('DOC_USAGE', '使用说明.md')):
-        env[k] = os.path.join(REPO, '速查', f)
+    # 1020R1（用户 2026-10-20：「速查手册删除前言和使用说明」）：速查不出前言、使用说明页
+    env['DOC_USAGE'] = '/nonexistent'
     for k, g in (('DOC_EDITION', 'notes.docEdition'), ('DOC_NOTICE', 'notes.docNotice'), ('DOC_PREFACE_SIGNATURE', 'notes.docPrefaceSignature'), ('DOC_EDITION_SUFFIX', 'notes.docEditionSuffix')):   # 封面版本号、特别提示与全书同（sync 已导出；单独跑时从 git config 取）
         if not env.get(k): env[k] = git_cfg(g)
     env.update({'DOC_SINGLE': '1', 'DOC_QRDIMS': DIMS_JSON, 'DOC_SINGLE_TOC_TITLE': '目录', 'DOC_SUBTITLE': '数据 · 限制 · 概念', 'DOC_HEADER': 'B737机型理论知识速查',
