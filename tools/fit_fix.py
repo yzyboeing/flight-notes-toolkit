@@ -48,6 +48,7 @@ def to_pdf():
 
 # 状态：lv[sig] = 0（强制整表）/ 1～3（压缩级）；block＝放弃
 lv, block, wfix, wblock, splitok, pbreak, nwfix = {}, set(), {}, set(), set(), set(), {}
+figw = {}   # 1020R1 图宽实测：图文件名 → 宽度 mm（FW:）
 bw, bwblock, bwtried = {}, set(), {}   # 2026-10-15 借宽：bw[(签名, 收列, 借出列)] = DXA；bwblock＝借过 3 次仍不行的 (签名, 收列)
 ffix = {}   # SD-148 实测拉满：F:列号:加宽DXA:签名（生成器落实，目标列做过不增行收窄时转给同表最挤的列）
 nlbase = {}   # (表, 列) → 收窄前的总行数
@@ -64,21 +65,23 @@ for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
     elif l.startswith('P:'):
         pbreak.add(l[2:])
     elif l.startswith('WB:'):
-        _, k, sg = l.split(':', 2); wblock.add((sg, int(k)))
+        pass   # 1020R1（用户 2026-10-20 第 290 页「右侧有很大空间，为什么不增加表格宽度以减少行数」）：WB（加宽放弃）不再跨运行保留——旧记录让 56 张窄表永远不加宽；本次运行内仍防拉锯
     elif l.startswith('NW:'):
         _, k, dd, sg = l.split(':', 3); nwfix[(sg, int(k))] = int(dd)
     elif l.startswith('NWL:'):
-        _, k, sg = l.split(':', 2); nwlock.add((sg, int(k)))   # 已证明收到极限的列（再收就多行），跨运行保留
+        pass   # 1020R1（用户 2026-10-20 第 9 张截图「这一列空白区域过大」）：NWL 不再跨运行保留——旧记录在内容 / 分页变了以后照样锁住收窄、并让 T13 不报；每次全量重新实测
     elif l.startswith('BW:'):
         _, k, j, dd, sg = l.split(':', 4); bw[(sg, int(k), int(j))] = int(dd)
     elif l.startswith('BWB:'):
-        _, k, sg = l.split(':', 2); bwblock.add((sg, int(k)))
+        pass   # 1020R1：BWB（借宽放弃）同样只在本次运行内有效
     elif l.startswith('F:'):
         _, k, dd, sg = l.split(':', 3); ffix[(sg, int(k))] = int(dd)
     elif l.startswith('C:'):
         _, cl, rest = l.split(':', 2); sg, fk = rest.rsplit('|', 1); condense[(sg, fk)] = int(cl)
     elif l.startswith('N:'):
         _, cl, fk = l.split(':', 2); ncond[fk] = int(cl)
+    elif l.startswith('FW:'):
+        _, mm, fn = l.split(':', 2); figw[fn] = float(mm)
     elif l.startswith('!'): block.add(l[1:])
     elif l.startswith('~'): lv[l[3:]] = int(l[1])
     else: lv[l] = 0
@@ -97,6 +100,7 @@ def save():
         for h in sorted(pbreak): f.write('P:' + h + '\n')
         for (sg, fk), cl in sorted(condense.items()): f.write('C:%d:%s|%s\n' % (cl, sg, fk))
         for fk, cl in sorted(ncond.items()): f.write('N:%d:%s\n' % (cl, fk))
+        for fn, mm in sorted(figw.items()): f.write('FW:%.1f:%s\n' % (mm, fn))
 
 bg = lambda x: {x[k:k + 2] for k in range(len(x) - 1)}
 def match(text, tbls):
@@ -259,8 +263,8 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
                 now.add(key); continue   # 2026-10-03：与 check_layout T8 同口径——只有倒数第二行止于原文 <br> 才算主动换行（原来看第一行，带 <br> 的格一律跳过）
             now.add(key)
             new = wfix.get(key, 0) + int(x['extra_pt'] * 20) + 20
-            cap = int(x['extra_pt'] * 20) + 400 if x.get('grow') else 1500   # SD-144 加宽项只用右侧空余（实测已保证放得下），不受 75pt 上限
-            if new > cap or tried.get(key, 0) >= 3: wblock.add(key); wfix.pop(key, None); wgive += 1; continue   # 加宽 3 次或超过 75pt 仍不行：放弃
+            cap = wfix.get(key, 0) + int(x['extra_pt'] * 20) + 400 if x.get('grow') else 1500   # SD-144 加宽项只用右侧空余（实测已保证放得下），不受 75pt 上限；1020R1：上限按「已加宽 + 本遍需求」算（原来只按本遍需求，第二遍必然超限放弃）
+            if new > cap or tried.get(key, 0) >= (6 if x.get('grow') else 3): wblock.add(key); wfix.pop(key, None); wgive += 1; continue   # 加宽 3 次（省行加宽 6 次）或超过上限仍不行：放弃
             wfix[key] = new; tried[key] = tried.get(key, 0) + 1; wadd += 1
             if x.get('grow'): grown_sg.add(sg)   # 本表这遍已实测加宽，拉满留到下一遍
     # 过时记录按本遍实测撤销（2026-10-06，第 12 页 C-4：早期记下的「加宽」「收窄」互相卡住，宽度分错了列）：
@@ -284,6 +288,60 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     for key, dd in nwcand.items():   # 实测收窄入账：加宽过的列不收；每遍按当前成品的实测空白累加，收到位后空白 < 10pt 自然停
         if key in wfix or key in ffix or key in nwlock or dd < 200: continue   # 不到 10pt 的空白不折腾（2026-10-06 用户：表宽以文字成行为标准，原 18pt）
         if nwfix.get(key, 0) < 30000: nwfix[key] = min(nwfix.get(key, 0) + dd, 30000); wadd += 1   # 2026-10-06：上限由 6000 放开（初始分宽过大的列收不到位，第 12、60 页）
+    # 1020R1 图宽实测（用户 2026-10-20：「图片的下面和左右空间都很大，为什么把图片放这么小」「尽量利用空白区域」）：
+    #   独立插图（%%FIG%%）下方到页脚还有空白（图后可有注 / 段落） → 按空白放大（留 18pt 余量），上限：版心宽、原图 150dpi
+    import fitz as _fz
+    fadd = 0
+    try:
+        _figsrc = {}; _figbase = {}
+        for _l in open(MD, encoding='utf-8'):
+            _m = re.match(r'%%FIG%%\s*([^|]+)\|\s*(图\s*[\d.]+-\d+)[^|]*\|\s*([\d.]+)', _l)
+            if _m: _figsrc[re.sub(r'\s', '', _m.group(2))] = os.path.basename(_m.group(1).strip()); _figbase[os.path.basename(_m.group(1).strip())] = float(_m.group(3))
+        _figdir = os.environ.get('DOC_FIG_DIR') or os.path.join(os.getcwd(), 'notes_src')
+        _prev = None   # 上一页：(页脚上缘, 正文最低处)
+        for _pg in _fz.open(pdf):
+            _H = _pg.rect.height; _Wd = _pg.rect.width
+            _lines = []
+            for _b in _pg.get_text('dict')['blocks']:
+                for _ln in _b.get('lines', []):
+                    _t = ''.join(_sp['text'] for _sp in _ln['spans']).strip()
+                    if _t: _lines.append((_ln['bbox'], _t))
+            _foot = min([_bb[1] for _bb, _t in _lines if re.search(r'第\s*\d+\s*页', _t) and _bb[1] > _H * 0.85] or [_H - 40])
+            _imgs = [_fz.Rect(_im['bbox']) for _im in _pg.get_image_info() if _fz.Rect(_im['bbox']).width >= 120]
+            _bot = max([_bb[3] for _bb, _t in _lines if _bb[3] < _foot - 2] + [r.y1 for r in _imgs] + [0])
+            for _ib in _imgs:
+                _cap = [(_bb, _t) for _bb, _t in _lines if _t.startswith('图') and 0 <= _bb[1] - _ib.y1 <= 30 and _bb[0] < (_ib.x0 + _ib.x1) / 2 < _bb[2] + 200]
+                if not _cap: continue
+                _cb, _ct = _cap[0]
+                _mm0 = re.match(r'(图\s*[\d.]+-\d+)', _ct)
+                _fn = _figsrc.get(re.sub(r'\s', '', _mm0.group(1))) if _mm0 else None
+                if not _fn: continue
+                if any(_bb[3] > _ib.y0 and _bb[1] < _ib.y1 and (_bb[2] < _ib.x0 - 4 or _bb[0] > _ib.x1 + 4) for _bb, _t in _lines): continue   # 图旁有文字（并排）
+                _cur = _ib.width / 72 * 25.4
+                # ① 被挤到本页顶上、上一页底部空着：缩到上一页能放下（不小于原来的 60%）
+                if _prev and not any(_bb[3] <= _ib.y0 + 1 for _bb, _t in _lines) and _ib.y0 < 90:
+                    _pfree = _prev[0] - 12 - _prev[1] - (_cb[3] - _ib.y1) - 30
+                    _base = _figbase.get(_fn, _cur)
+                    if _pfree >= 0.8 * _ib.height and figw.get(_fn, _base) >= _base - 0.5:   # 1020R1：只缩一次、不小于源文件宽度的 80%（用户：图不要太小）
+                        _mm = round(max(_base * 0.8, _cur * min(1.0, _pfree / _ib.height) * 0.97), 1)
+                        if _cur - _mm >= 3: figw[_fn] = _mm; fadd += 1; continue
+                # ② 下方到页脚还空：按空白放大。1020R1：图下只有注 / 段落、整页最低处离页脚还空时也放大（图后的注随图下移，正好填满）；一页多张图只放大最下面那张
+                if _ib.y1 < max(r.y1 for r in _imgs) - 1: continue
+                _below = [_bb[3] for _bb, _t in _lines if _bb[1] > _cb[3] + 2 and _bb[3] < _foot - 2]
+                _free = _foot - 12 - (max(_below) + 6 if _below else _cb[3]) - 18
+                if _free < 28: continue
+                _nh = _ib.height + _free; _nw = _ib.width * _nh / _ib.height
+                try:
+                    _raw = open(os.path.join(_figdir, 'figures', _fn), 'rb').read(32); _pxw = int.from_bytes(_raw[16:20], 'big')
+                except Exception: _pxw = 0
+                _nw = min(_nw, _Wd - 72, (_pxw / 150 * 72) if _pxw else _Wd - 72)
+                _mm = round(_nw / 72 * 25.4, 1)
+                if _mm - _cur >= 5 and _mm > figw.get(_fn, 0) + 1:
+                    figw[_fn] = _mm; fadd += 1
+            _prev = (_foot, _bot)
+    except Exception as _e:
+        print('fit_fix：图宽实测跳过（%s）' % _e)
+    if fadd: print('fit_fix 第 %d 遍：插图按版面空白放大 %d 张' % (n, fadd))
     # SD-130 表外「注：」段落末行只剩一两个字：这一段收紧字距，最多两级
     import fitz
     nseen = set()
@@ -357,7 +415,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     if cadd: print('fit_fix 第 %d 遍：末行孤字收紧字距 %d 格' % (n, cadd))
     if nbw: print('fit_fix 第 %d 遍：借宽 %d 处（孤字 / 省行列向本表可借出宽度最多的列借）' % (n, nbw))
     print('fit_fix 第 %d 遍用时 %ds' % (n, time.time() - t0))
-    if not (add or up or gave or changed or wadd or wgive or ladd or cadd or nbw): break
+    if not (add or up or gave or changed or wadd or wgive or ladd or cadd or nbw or fadd): break
     hist.append((res['pages'], len(res['splits']), wadd + wgive, add or up or gave or changed or ladd or cadd or nbw))   # 2026-10-16：借宽的一遍不算「状态重复」
     _sd = os.path.join(os.path.dirname(dump), 'p%d' % n); os.makedirs(_sd, exist_ok=True)   # 每遍留一份 docx / PDF，循环时挑好的那遍
     snap[n] = (wadd + wgive + cadd, shutil.copy2(OUT, os.path.join(_sd, 'o.docx')), shutil.copy2(last_pdf, os.path.join(_sd, 'o.pdf')))

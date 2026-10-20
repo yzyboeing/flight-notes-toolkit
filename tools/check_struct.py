@@ -274,6 +274,22 @@ for f in _SRCS:
                         if _hit: continue
                     if m and not re.search(r'[\u4e00-\u9fff]', m.group(3)) and not re.search(re.escape(m.group(1)) + r'\s*[（(][^）)]*[\u4e00-\u9fff]|[\u4e00-\u9fff][）)]?\s*[（(]\s*' + re.escape(m.group(1)) + r'\s*[）)]', _pb):   # 英文全称后面没有中文；W06（1019R6）：条目里已有「缩写（中文）/ 中文（缩写）」的只写英文全称
                         rep('T35', fn, title, '缩写注「%s：%s」缺中文（W06：缩写：英文全称（中文））' % (m.group(1), m.group(2)[:30]))
+# T40 序号表编号（1020R1，用户 2026-10-20：「③和⑩是哪里来的」）：首列 ①②… 的表必须从 ① 起连续；图表并排（图中标号对照）的表除外
+_C = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'
+for f in _SRCS:
+    fn = os.path.basename(f).replace('.md', '') if 'notes_src' in f else '速查'
+    t = io.open(f, encoding='utf-8').read()
+    for m in re.finditer(r'<table[^>]*>(.*?)</table>', t, re.S):
+        pre = t[:m.start()].rstrip().rsplit('\n', 1)[-1]
+        if pre.startswith(('%%FIGSIDE%%', '%%FIGRIGHT%%')): continue
+        body = m.group(1)
+        if 'rowspan' in body: continue
+        firsts = re.findall(r'<tr(?![^>]*class="(?:hdr|premise|note|warn)")[^>]*>\s*<td[^>]*>\s*(?:<strong>)?([①-⑳])', body)
+        if len(firsts) < 2: continue
+        idx = [_C.index(x) for x in firsts]
+        if idx[0] != 0 or any(b != a + 1 for a, b in zip(idx, idx[1:])):
+            ttl = re.findall(r'(?m)^### (.+)$', t[:m.start()])
+            if ONLY is None or 'T40' in ONLY: rep('T40', fn, (ttl[-1] if ttl else '')[:30], '序号表编号 %s 不从 ① 起连续——按本表重新编号，或改用「项目」列' % ''.join(firsts))
 # T28 术语格（SD-206）：缩写定义格在内容列有多行的表里须写「缩写<br>中文」；内容列都一行的表须写「缩写（中文）」
 try:
     _TERMS = set(json.load(open(os.path.join(REPO, '缩写术语表.json'), encoding='utf-8'))['缩写'])

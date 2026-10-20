@@ -26,7 +26,7 @@ def fixed_tables(srcs):
                         'figside': t[:m.start()].rstrip().rsplit('\n', 1)[-1].startswith(('%%FIGSIDE%%', '%%FIGRIGHT%%'))})
     return out
 
-def scan(repo, books=None):
+def scan(repo, books=None, auto=False):   # 1020R1：auto=True 只查自动宽度表（用户 2026-10-20：「右侧有很大的空间，为什么不增加表格宽度以减少行数」）
     hits = {}
     books = books or (('全书', 'build/B737机型理论知识笔记.pdf', sorted(glob.glob(os.path.join(repo, 'notes_src/[1-5]*/*.md')))),
                       ('单册', 'build/B737机型理论知识速查.pdf', [os.path.join(repo, '速查/速查源.md')]))
@@ -36,9 +36,10 @@ def scan(repo, books=None):
         ft = fixed_tables(srcs)
         for x in measure(pdf, srcmd=os.path.join(repo, 'build', 'book.md' if name == '全书' else 'qr_single.md')):   # SD-208：与 fit_fix 同口径传源文件
             if not x.get('grow') or x.get('fill'): continue
+            if auto and re.search(r'(且|或|并|，|；|：|,|;|:)$', (x.get('prev') or '')): continue   # 1020R1：「，且 / 或」后主动换行（SD-208 分句）不算可省的行
             tb = N(x.get('table', ''))
             c = [t for t in ft if tb.startswith(t['h']) and tb[len(t['h']):].startswith(t['r'])]
-            if len(c) != 1 or not c[0]['fixed'] or c[0]['figside']: continue   # 对不上、不唯一、或对上的是自动宽度表：不报不改
+            if len(c) != 1 or (c[0]['fixed'] == auto) or c[0]['figside']: continue   # 对不上、不唯一、图表并排；定宽 / 自动宽度按 auto 分开查
             k = (c[0]['f'], c[0]['pos'])
             v = hits.setdefault(k, {'book': name, 'page': x['page'], 'hdr': c[0]['hdr'], 'cols': {}})
             v['cols'][x['col']] = max(v['cols'].get(x['col'], 0), x['extra_pt'])
