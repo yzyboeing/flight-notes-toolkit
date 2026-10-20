@@ -134,7 +134,10 @@ def main():
     def git_cfg(k):   # 2026-10-14：先读库内 成品设置.gitconfig，没有的键再读本机 git config（同 sync.sh 的 cfg）
         r = subprocess.run(['git', '-C', REPO, 'config', '-f', os.path.join(REPO, '成品设置.gitconfig'), '--get', k], capture_output=True, text=True)
         return r.stdout.strip() if r.returncode == 0 else subprocess.run(['git', '-C', REPO, 'config', '--get', k], capture_output=True, text=True).stdout.strip()
-    for k, g in (('DOC_EDITION', 'notes.docEdition'), ('DOC_NOTICE', 'notes.docNotice')):   # 封面版本号、特别提示与全书同（sync 已导出；单独跑时从 git config 取）
+    # 1019R6（记录第 49 条）：速查有自己的前言与使用说明（速查/前言.md、速查/使用说明.md），署名与版本号后缀同完整版
+    for k, f in (('DOC_PREFACE', '前言.md'), ('DOC_USAGE', '使用说明.md')):
+        env[k] = os.path.join(REPO, '速查', f)
+    for k, g in (('DOC_EDITION', 'notes.docEdition'), ('DOC_NOTICE', 'notes.docNotice'), ('DOC_PREFACE_SIGNATURE', 'notes.docPrefaceSignature'), ('DOC_EDITION_SUFFIX', 'notes.docEditionSuffix')):   # 封面版本号、特别提示与全书同（sync 已导出；单独跑时从 git config 取）
         if not env.get(k): env[k] = git_cfg(g)
     env.update({'DOC_SINGLE': '1', 'DOC_QRDIMS': DIMS_JSON, 'DOC_SINGLE_TOC_TITLE': '目录', 'DOC_SUBTITLE': '数据 · 限制 · 概念', 'DOC_HEADER': 'B737机型理论知识速查',
                 'DOC_BOOK': 'qr', 'DOC_FIGS': env.get('DOC_QR_FIGS') or ''})   # 2026-10-18 用户：超压场景图（SD-208）  # 2026-10-17 用户：液压表、增压监控表右侧配图   # SD-185：速查版不随完整版放系统原理图   # 2026-10-09 用户：两版都只留目视参考图（SD-136 补充）

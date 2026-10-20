@@ -64,7 +64,7 @@ DOCX = os.path.join(P, '预览.docx'); KF = os.path.join(P, 'keep_force_预览.t
 if os.path.exists(BOOKKF): shutil.copy2(BOOKKF, KF)
 env = dict(os.environ, DOC_FIGS=os.environ.get('DOC_FIGS', ''), NODE_PATH=os.path.join(ROOT, 'node_modules'), FITFIX_MAXPASS='4',
            DOC_EDITION=git('config', '--get', 'notes.docEdition') or 'preview', DOC_HEADER='B737-NG / B737-8 机型理论知识笔记',
-           DOC_AUTHOR=cfg('notes.docAuthor'), DOC_TOPICS='', DOC_PREFACE='/nonexistent')
+           DOC_AUTHOR=cfg('notes.docAuthor'), DOC_TOPICS='', DOC_PREFACE='/nonexistent', DOC_USAGE='/nonexistent')
 r = subprocess.run([sys.executable, os.path.join(T, 'fit_fix.py'), MD, DOCX], env=env, cwd=ROOT, capture_output=True, text=True)
 print('\n'.join(l for l in r.stdout.splitlines() if l.startswith('fit_fix')))
 if r.returncode: sys.exit('排版失败：' + (r.stderr or r.stdout)[-800:])

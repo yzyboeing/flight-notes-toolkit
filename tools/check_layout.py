@@ -28,6 +28,8 @@ def _nocmp_hdrs():   # SD-188：源文件首格标 no-cmp 的表（跨列格不�
             ths = re.findall(r'<th([^>]*)>(.*?)</th>', m.group(1), re.S)
             if ths and ('no-cmp' in ths[0][0] or 'no-share' in ths[0][0]):   # no-cmp：两型列按表头标注（可居中，SD-165 / 用户点名）；no-share：跨列格不是共有内容——T16 都跳过（共有格居中由生成器保证，SD-192 修订）
                 out.add(''.join(re.sub(r'<[^>]+>|\s', '', x[1]) for x in ths))
+            elif len(ths) == 2 and re.search(r'(^|\s)col-center(\s|$)', re.sub(r'.*class="([^"]*)".*', r'\1', ths[1][0]) if 'class=' in ths[1][0] else ''):   # 1019R6（记录第 47 条）：两列表取值 / 等级列标 col-center——居中不加点，T15 跳过
+                out.add(''.join(re.sub(r'<[^>]+>|\s', '', x[1]) for x in ths))
     return out
 NOCMP_HDRS = _nocmp_hdrs()
 T = os.path.dirname(os.path.abspath(__file__))
@@ -580,7 +582,7 @@ if QON and hasattr(os, 'fork') and not os.environ.get('CHECK_SERIAL'):
         with os.fdopen(_w, 'wb') as _f: pickle.dump(_out, _f)
         os._exit(0)
     os.close(_w); _qfd = _r
-book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|总目录|目录|按主题查|主题目录|附录)')   # SD-209 L05：附录缩写表   # SD-96 页眉左侧为章名
+book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|使用说明|总目录|目录|按主题查|主题目录|附录)')   # 1019R6 使用说明页   # SD-209 L05：附录缩写表   # SD-96 页眉左侧为章名
 if _qpid:
     with os.fdopen(_qfd, 'rb') as _f: _out = pickle.load(_f)
     os.waitpid(_qpid, 0)
@@ -693,10 +695,10 @@ if '运行规范' in re.sub(r'运行规范\s*C\d+', '', toc): err('P2', '总目�
 if '主题目录' not in toc: err('P2', '目录里缺「主题目录（速查入口）」（SD-139 / SD-149；2026-10-11 由「按主题查」改名）')
 # SD-149（2026-10-06 用户）：五种查法放在第五章之后——第五章最后一页之后才出现「按主题查」页
 _tp = [i for i in range(6, len(book)) if nosp(book[i].get_text()).startswith('主题目录') or '主题目录按系统' in nosp(book[i].get_text())[:40]]
-_c5 = max((i for i in range(len(book)) if '第五章' in book[i].get_text()[:60]), default=-1)
+_c5 = max((i for i in range(len(book)) if re.search(r'第[一二三四五六]章', book[i].get_text()[:60])), default=-1)   # 1019R6：第五章并入前四章后取最后一章
 if SECTION: pass
 elif not _tp: err('P2', '找不到「主题目录」页（SD-149）')
-elif _tp[0] < _c5: err('P2', '「主题目录」在第 %d 页，应放在第五章之后（SD-149）' % (_tp[0] + 1))
+elif _tp[0] < _c5: err('P2', '「主题目录」在第 %d 页，应放在最后一章之后（SD-149）' % (_tp[0] + 1))
 
 # R5（SD-154，2026-10-06 用户）：同一条目下同表头的几张表、中间只隔着注——应合成一张（标 one-page）。
 # 例外：压到最小仍放不下一页、用户定为照常跨页的几处（范围 A）

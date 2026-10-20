@@ -4,7 +4,7 @@ from html.parser import HTMLParser
 import os as _os
 # 2026-10-09 用户：「主要排版规则不变的情况下可以适当加宽页面以让表格内容不那么拥挤」——正文框 700 → 860、最宽表格 670 → 830（表 ≈ 正文框 − 30，文字与表格右缘大致对齐）；ONENOTE_PAGEW 可调
 PAGEW=int(_os.environ.get('ONENOTE_PAGEW', '860')); TABW=PAGEW-30
-FONT="Songti SC"; SRCW=1020; DOT_PT=6.5; DOT_COLOR="#7f7f7f"
+FONT="FangSong"; SRCW=1020; DOT_PT=6.5; DOT_COLOR="#7f7f7f"
 # 2026-10-09 用户：圆点改用 OneNote 自带列表「Small Solid Square」（接口写 list-style-type:square，读回与用户手设的一致）；
 # 短线：接口不支持 OneNote 的「–」列表符号（自定义符号被丢弃，none 会跳出列表），ONENOTE_CHILD 选子项写法——
 #   dash（默认）：保留文字「– 」，作为父项列表项下的缩进段（读回留在 <ul> 内）；circle：OneNote 二级空心圆列表
@@ -167,7 +167,7 @@ def load_specs():
     return fixed, eq
 FIXED, EQ = load_specs()
 
-CJK_W, ASC_W, PAD = 13.5, 7.0, 18      # 9pt 宋体-简在 OneNote 中的近似字宽（px）与格子左右内边距
+CJK_W, ASC_W, PAD = 13.5, 7.4, 18      # 9pt 仿宋在 OneNote 中的近似字宽（px）与格子左右内边距（1019R6：仿宋汉字宽同宋体，英文数字为等宽半角，比宋体宽约 6%）
 SHORT_MAX, LONG_MIN = 240, 140
 ORPHAN = 4 * CJK_W                     # 尾行不超过 4 个汉字宽视为短字，要消除         # SD-35③：短列一行排下；长句列不少于约 10 个汉字
 def _seg_w(t):

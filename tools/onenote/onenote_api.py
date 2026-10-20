@@ -69,3 +69,12 @@ def patch_with_image(pid, commands, img_name, img_bytes, mime='image/png'):
     body = (('--%s\r\nContent-Disposition: form-data; name="Commands"\r\nContent-Type: application/json\r\n\r\n%s\r\n' % (b, json.dumps(commands))).encode()
             + ('--%s\r\nContent-Disposition: form-data; name="%s"\r\nContent-Type: %s\r\n\r\n' % (b, img_name, mime)).encode() + img_bytes + ('\r\n--%s--\r\n' % b).encode())
     return _open('PATCH', G + '/pages/%s/content' % pid, body, 'multipart/form-data; boundary=' + b, timeout=300)[0]
+
+def patch_with_images(pid, commands, imgs, mime='image/png'):
+    """1019R6：一次 PATCH 带多张图（imgs = [(name, bytes)]），用于表格单元格内小图（ND 符号表）"""
+    b = '----b' + uuid.uuid4().hex
+    body = ('--%s\r\nContent-Disposition: form-data; name="Commands"\r\nContent-Type: application/json\r\n\r\n%s\r\n' % (b, json.dumps(commands))).encode()
+    for name, data in imgs:
+        body += ('--%s\r\nContent-Disposition: form-data; name="%s"\r\nContent-Type: %s\r\n\r\n' % (b, name, mime)).encode() + data + b'\r\n'
+    body += ('--%s--\r\n' % b).encode()
+    return _open('PATCH', G + '/pages/%s/content' % pid, body, 'multipart/form-data; boundary=' + b, timeout=300)[0]

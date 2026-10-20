@@ -9,7 +9,7 @@
       → 建分区组和分区 → 逐页建页并读回确认 → 按 notes_src 的 %%FIG%% 补插图 → 只读核查。"""
 import argparse, glob, html, json, os, re, struct, subprocess, sys, time, uuid
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from onenote_api import req, content, list_pages, create_page, patch_with_image, delete_page
+from onenote_api import req, content, list_pages, create_page, patch_with_image, patch_with_images, delete_page
 from onenote_conv import convert, page, strip_index, FONT, TABW
 NS = os.path.expanduser('~/flight-repos/gh-private/notes_src/')
 WORK = os.path.expanduser('~/flight-repos/_work/onenote')
@@ -105,6 +105,39 @@ def add_figs(pid, title):
         except RuntimeError as e:
             L('   !! 补图出错（可能已插入，重跑会自动跳过）', fg['cap'][:16], str(e)[:40]); time.sleep(20)
         time.sleep(2)
+def add_cell_imgs(pid, title, src=None):
+    """1019R6（记录第 16 条 ND 符号表）：源文件表格格内 <img src="figures/…" w="mm">——成品里是格内小图；
+    OneNote 转换时图丢失、格子留空。按表头文字找到该表，逐行在第一格的空段落前插入对应小图（一次 PATCH 带全部图）。"""
+    quiet = src is not None   # 速查：整本源文件对每页都试一遍，本页没有该表不报
+    if src is None:
+        f = glob.glob(NS + '*/' + title + '.md')
+        if not f: return
+        src = open(f[0], encoding='utf-8').read()
+    for tm in re.finditer(r'(?s)<table[^>]*>(.*?)</table>', src):
+        rows = re.findall(r'(?s)<tr(?![^>]*class="(?:hdr|premise|note)")[^>]*>(.*?)</tr>', tm.group(1))
+        imgs = [re.search(r'<img\s+src="([^"]+)"(?:\s+w="([\d.]+)")?', r) for r in rows]
+        if not any(imgs): continue
+        hdr = plain(re.sub(r'<[^>]+>', ' ', re.search(r'(?s)<tr class="hdr">(.*?)</tr>', tm.group(1)).group(1)))[:12]
+        h = content(pid, ids=True) or ''
+        tb = next((m for m in re.finditer(r'<table\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</table>', h, re.S) if hdr and hdr in plain(m.group(2))), None)
+        if not tb:
+            if quiet is False: L('   !! 格内图找不到表', title, hdr)
+            continue
+        if '<img' in tb.group(2): L('   格内图已有', hdr); continue
+        trs = re.findall(r'(?s)<tr\b[^>]*>(.*?)</tr>', tb.group(2))[1:]   # 去表头
+        cmds, files = [], []
+        for tr, im in zip(trs, imgs):
+            if not im: continue
+            pm = re.search(r'<td\b[^>]*>\s*<p\b[^>]*\bid="([^"]+)"', tr)
+            if not pm: continue
+            data = open(NS + im.group(1), 'rb').read(); pw, ph = struct.unpack('>II', data[16:24])
+            w = round(float(im.group(2) or 15) / 270 * TABW); name = 'cimg' + uuid.uuid4().hex[:8]
+            cmds.append({'target': pm.group(1), 'action': 'insert', 'position': 'before', 'content': '<img src="name:%s" width="%d" height="%d"/>' % (name, w, round(w * ph / pw))})
+            files.append((name, data))
+        if cmds:
+            try: patch_with_images(pid, cmds, files); L('   格内图', hdr, len(cmds))
+            except RuntimeError as e: L('   !! 格内图出错', hdr, str(e)[:60])
+            time.sleep(3)
 # ---------- 3. 主流程 ----------
 def main():
     ap = argparse.ArgumentParser()
@@ -138,7 +171,7 @@ def main():
             if a.figs_only and p['title'] in existing: add_figs(existing[p['title']], p['title'])
             continue
         if a.figs_only:
-            if p['title'] in existing: add_figs(existing[p['title']], p['title'])
+            if p['title'] in existing: add_figs(existing[p['title']], p['title']); add_cell_imgs(existing[p['title']], p['title'])
             continue
         for q in list_pages(sid):
             if q['title'] == p['title']: delete_page(q['id'])
@@ -154,7 +187,7 @@ def main():
                 time.sleep(6)
                 pid = create_page(sid, p['title'], page(p['title'], convert(src), '%s ｜ %s' % (CHN[p['chap']], p['title'])))
         L('写', p['title'], 'OK' if pid else '!! 失败')
-        if pid: add_figs(pid, p['title'])
+        if pid: add_figs(pid, p['title']); add_cell_imgs(pid, p['title'])
         time.sleep(6)                     # 2026-10-06：1.5 秒会触发 429 限流
     # 2026-10-09：新页有时标题为空（1009R4 写全书 27 页）——按页眉「章名 ｜ 节名」补标题；同名重复只留最新一页
     for name, sid in secs.items():

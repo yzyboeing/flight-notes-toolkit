@@ -128,6 +128,7 @@ def _measure_pages(pdf, srcmd, pages):
         except Exception: continue
         lines = lines_of(p)
         for t in tabs:
+            if any(u is not t and u.bbox[0] >= t.bbox[0] - 1 and u.bbox[2] <= t.bbox[2] + 1 and u.bbox[1] >= t.bbox[1] - 1 and u.bbox[3] <= t.bbox[3] + 1 and u.bbox[2] - u.bbox[0] < t.bbox[2] - t.bbox[0] - 20 for u in tabs): continue   # 1019R6：图表并排的外层排版表（内含真表）不量——表后注框会让 PyMuPDF 把外层框认成单列表
             if t.bbox[3] - t.bbox[1] < 8: continue   # 2026-10-05：不再跳过页顶的表——SD-97 后顶端没有页眉，页顶的表都是跨页续段，跳过它们曾让续段测不到、否决票发不出（C-3 教训）
             # 表后紧贴的「注：/公司差异/警告」会被识别成表格末几行：取表文字时去掉，否则与源表签名对不上，fit_fix 的加宽 / 收窄 / 去孤字都落不了账（2026-10-06）
             try:
