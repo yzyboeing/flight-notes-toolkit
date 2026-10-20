@@ -461,6 +461,21 @@ function figParts(spec, keepCap, alignLeft) {
     children: [new TextRun({ text: cap, font: FF, size: 16, color: GRAY })] }) : null;
   return { img, capP, wtw: Math.round((+wmm || 120) * 56.7) };
 }
+/* 1019R6（记录第 16 条 ND 符号表）：单元格内放小图——格内只写 <img src="figures/…png" w="宽度mm">，按 PNG 原比例缩放、格内居中 */
+function cellImgParas(text) {
+  const m = /^\s*<img\s+src="([^"]+)"(?:\s+w="([\d.]+)")?\s*\/?>\s*$/.exec(String(text || ''));
+  if (!m) return null;
+  const path = require('path');
+  const base = process.env.DOC_FIG_DIR || path.join(process.cwd(), 'notes_src');
+  const full = path.isAbsolute(m[1]) ? m[1] : path.join(base, m[1]);
+  const data = fs.readFileSync(full);
+  const isPng = data.slice(1, 4).toString() === 'PNG';
+  let pw = 1000, ph = 1000;
+  if (isPng) { pw = data.readUInt32BE(16); ph = data.readUInt32BE(20); }
+  const wpx = Math.round((+m[2] || 15) / 25.4 * 96), hpx = Math.round(wpx * ph / pw);
+  return [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 40, after: 40 },
+    children: [new ImageRun({ type: isPng ? 'png' : 'jpg', data, transformation: { width: wpx, height: hpx } })] })];
+}
 function htmlTable(html) {
   if (!PROBE) TBL_IDX++;
   const parsed = parseHtmlTable(html);
@@ -686,7 +701,8 @@ function htmlTableCore(html) {
        并列对照表（parallel，如 PF | PM）两列都加点。DOC_SD188_OFF=1 关闭 */
     { const hr2 = parsed.find(r => r.cls.includes('hdr'));
       if (hr2 && !process.env.DOC_SD188_OFF && hr2.cells.length === 2 && hr2.cells.every(c => (c.colspan || 1) === 1) && !serialTable(parsed, startCol)
-          && !/(^|\s)no-cmp(\s|$)/.test(hr2.cells[0].cls || '')) {   // SD-198：首列表头标 no-cmp 的同类并列两列表（如 1.13 A-1 系统 A ｜ 系统 B）不自动加点，按表头 col-center 整列居中
+          && !/(^|\s)no-cmp(\s|$)/.test(hr2.cells[0].cls || '')
+          && !/(^|\s)col-center(\s|$)/.test(hr2.cells[1].cls || '')) {   // 1019R6（记录第 47 条，B10 ② 例外）：第二列表头显式标 col-center 的取值 / 等级标签列整列居中、不加点   // SD-198：首列表头标 no-cmp 的同类并列两列表（如 1.13 A-1 系统 A ｜ 系统 B）不自动加点，按表头 col-center 整列居中
         const setB = (hc) => { hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(center|plain|left)(?=\s|$)/g, ' ') + ' col-bullet').trim(); };
         setB(hr2.cells[1]); if (parTbl) setB(hr2.cells[0]); } }
     /* SD-204（2026-10-17 用户：「整个表格的第一列是不可能靠左前面加小圆点的，为什么这张图上的表格逻辑完全没有筛选出来？」）：
@@ -1937,7 +1953,7 @@ function htmlTableCore(html) {
         borders,
         margins: { top: CM, bottom: CM, left: 170, right: 90 },   // 用户 2026-10-03 悬挂圆点：左留白 150，圆点挂在留白里，全表文字起始位置一致
         verticalAlign: VerticalAlign.CENTER,   // 用户 2026-09-29：内容尽量靠表格中心（纵向居中），排版更舒服
-        children: paras.length ? paras : [new Paragraph('')]
+        children: cellImgParas(c.text) || (paras.length ? paras : [new Paragraph('')])
       });
     });
     return new TableRow({ tableHeader: false, cantSplit: true, children: cells });   // 不重复表头（用户要求，2026-09-28）
@@ -2250,7 +2266,7 @@ function bodyTopicPage() {
     border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: H1_LINE, space: 2 } } }));
   const NAV_AT = out.length, NAV = [];   // 2026-10-11 用户（方案 A）：段导航行（标题线下、图例上），循环后插回这里
   out.push(new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 40, after: 0 }, children: [   // 2026-10-07：交叉条目图例；2026-10-16：加点击提示（两本）
-    new TextRun({ text: qrMode ? '点击段名、主题或条目可跳转' : '学习路线：初学按章通读，复训用本页主题，考前用速查册「必背清单」「限制数据总表」；标题后 ★★ 必背、★ 必会　·　点击段名、主题或条目可跳转', font: FF, size: 16, color: '808080' }),   // SD-209 L06：学习路线放全书按主题查页（前言已满一页）
+    new TextRun({ text: '点击段名、主题或条目可跳转', font: FF, size: 16, color: '808080' }),   // SD-209 L06：学习路线放全书按主题查页（前言已满一页）
     ...(qrMode ? [new TextRun({ text: '　·　', font: FF, size: 16, color: 'A6A6A6' }), new TextRun({ text: '↗ 灰字', font: FF, size: 16, color: '808080' }), new TextRun({ text: '：其他主题的条目，在此也可查', font: FF, size: 16, color: '808080' })] : [])] }));
   let bad = 0, firstDim = true;
   const NC = PORTRAIT ? 2 : 3, GAP = 300, colW = Math.floor((TOTAL - GAP * (NC - 1)) / NC), NUMW = qrMode ? 540 : 820;
@@ -2705,9 +2721,9 @@ const PREFACE_SIGNATURE = process.env.DOC_PREFACE_SIGNATURE || AUTHOR;
 const editionLabel = (() => {
   const value = String(process.env.DOC_EDITION || '').trim();
   if (!value) return '';
-  return /^版本号(?:\s|$)/.test(value)
-    ? value.replace(/^版本号\s*/, '版本号 ')
-    : `版本号 ${value}`;
+  const suf = String(process.env.DOC_EDITION_SUFFIX || '').trim();   // 1019R6（记录第 49 条）：版本号同一行加署名「版本号 ××××R×　·　YZYBOEING」
+  const base = /^版本号(?:\s|$)/.test(value) ? value.replace(/^版本号\s*/, '版本号 ') : `版本号 ${value}`;
+  return suf ? base + '　·　' + suf : base;
 })();
 const noticeRuns = (size = 18, color = '404040') => {
   const value = String(process.env.DOC_NOTICE || '');
@@ -2918,7 +2934,51 @@ function buildPreface() {
   return out;
 }
 const preface = buildPreface();
-const front = cover.concat(preface, toc, buildTopicIndex());
+/* 1019R6（记录第 49 条）：前言之后的「使用说明」页——文字来自 DOC_USAGE（gh-private/使用说明.md、速查/使用说明.md）：
+   「**小标题**」一行 = 深蓝加粗小标题；连续「| … |」行 = 表格（首行表头，按内容定列宽）；其余为段落。 */
+function buildUsage() {
+  const uf = process.env.DOC_USAGE;
+  if (!uf || !fs.existsSync(uf)) return [];
+  const out = [];
+  out.push(new Paragraph({ pageBreakBefore: !DUPLEX, alignment: AlignmentType.CENTER, spacing: { before: PORTRAIT ? 400 : 120, after: 120 }, outlineLevel: 0,
+    children: [new Bookmark({ id: 'USAGE', children: [new TextRun({ text: '使用说明', font: FF, size: 40, bold: true, characterSpacing: 60, color: H1_C, style: 'HdrChap' })] }), SECMARK()] }));
+  out.push(rule({ size: 12, color: H1_LINE, after: 160 }));
+  const vis = (t) => { let n = 0; for (const ch of String(t)) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u22FF\u25A0-\u27BF]/.test(ch) ? 2 : 1; return n; };   // ★ ● → 等按全角计
+  const tbl = (rows) => {
+    const n = Math.max(...rows.map(r => r.length));
+    // 1019R6：按最长一行定列宽（9pt：中文 180 twip、半角 90 twip + 边距 + 少量余量），表宽不撑满；超宽时只压长列（T13 / T14）
+    const need = Array.from({ length: n }, (_, ci) => Math.max(...rows.map((r, ri) => Math.ceil(vis((n === 2 && ci === 1 && ri > 0 ? '• ' : '') + (r[ci] || '')) * 90 + (ri === 0 || ci === 0 ? 40 : 0) + (n === 2 && ci === 1 && ri > 0 ? 100 : 0)))) + 210 + 160);   // 加点列多算圆点悬挂缩进
+    const W = need.slice(); let tot = W.reduce((a, b) => a + b, 0);
+    while (tot > TOTAL) { const mx = Math.max(...W); const i = W.indexOf(mx); W[i] -= Math.min(mx - Math.round(TOTAL * 0.12), tot - TOTAL); tot = W.reduce((a, b) => a + b, 0); if (W[i] <= Math.round(TOTAL * 0.12)) break; }
+    const TW = W.reduce((a, b) => a + b, 0);
+    return new Table({ layout: TableLayoutType.FIXED, columnWidths: W, width: { size: TW, type: WidthType.DXA }, alignment: AlignmentType.CENTER, rows: rows.map((cells, ri) => new TableRow({ cantSplit: true,
+      children: Array.from({ length: n }, (_, ci) => new TableCell({ width: { size: W[ci], type: WidthType.DXA },
+        shading: { type: ShadingType.CLEAR, color: 'auto', fill: ri === 0 ? HDR_F : 'FFFFFF' },
+        borders: { top: { style: BorderStyle.SINGLE, size: 2, color: LINE }, bottom: { style: BorderStyle.SINGLE, size: 2, color: LINE }, left: { style: BorderStyle.SINGLE, size: 2, color: LINE }, right: { style: BorderStyle.SINGLE, size: 2, color: LINE } },
+        margins: { top: 30, bottom: 30, left: 120, right: 90 }, verticalAlign: VerticalAlign.CENTER,
+        children: [new Paragraph({ keepNext: ri < rows.length - 1, keepLines: true, alignment: (ri === 0 || ci === 0) ? AlignmentType.CENTER : undefined, children: runs((n === 2 && ci === 1 && ri > 0 ? '• ' : '') + (cells[ci] || ''), { bold: ri === 0 || ci === 0, size: 18 }), spacing: { before: 10, after: 10, line: 260 } })] })) })) });
+  };
+  const lines = fs.readFileSync(uf, 'utf8').split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (!l) continue;
+    if (/^\|/.test(l)) {
+      const rows = [];
+      while (i < lines.length && /^\|/.test(lines[i].trim())) {
+        const t = lines[i].trim();
+        if (!/^\|[\s|:-]+\|$/.test(t)) rows.push(t.replace(/^\||\|$/g, '').split('|').map(x => x.trim()));
+        i++;
+      }
+      i--; out.push(tbl(rows)); if (lines.slice(i + 1).some(x => x.trim())) out.push(new Paragraph({ spacing: { before: 0, after: 80 }, children: [] })); continue;   // 1019R6：末尾的表后不留空段（表排到页底时空段会单独占一页）
+    }
+    const h = /^\*\*(.+)\*\*$/.exec(l);
+    if (h) { out.push(new Paragraph({ keepNext: true, spacing: { before: 120, after: 80 }, children: [new TextRun({ text: h[1], font: FF, size: 22, bold: true, color: LEAD_C })] })); continue; }
+    out.push(new Paragraph({ spacing: { before: 0, after: 100, line: 300 }, children: runs(l, { size: 20 }) }));
+  }
+  return out;
+}
+const usage = buildUsage();
+const front = cover.concat(preface, usage, toc, buildTopicIndex());
 
 /* ---------- 分节与页眉页脚 ---------- */
 const PAGE = {
@@ -3003,6 +3063,8 @@ if (!DUPLEX) {
     ...(preface.length ? [{ properties: { page: PAGE, type: SectionType.ODD_PAGE },
       headers: { default: emptyHF().header, even: emptyHF().header },   // SD-97
       footers: HF.footers, children: preface }] : []),
+    ...(usage.length ? [{ properties: { page: PAGE, type: SectionType.ODD_PAGE },
+      headers: { default: emptyHF().header, even: emptyHF().header }, footers: HF.footers, children: usage }] : []),
     /* 目录：从右页开始；页眉外侧固定写「目录」（STYLEREF 在目录页会取到第零章，不用） */
     { properties: { page: PAGE, type: SectionType.ODD_PAGE },
       headers: { default: emptyHF().header, even: emptyHF().header },   // SD-97
@@ -3084,7 +3146,7 @@ Packer.toBuffer(doc).then(async b => {
       });
       /* 页脚「第 X 页」整段链到目录（TOC_MAIN）；没有目录书签的文档不加。
          2026-10-11 用户：「把速查手册右下角的页码改成返回按主题查的主题页面」（选「保留页码，改跳按主题查」）——速查单册链到 TOPICS */
-      const FOOT_ANCHOR = (SINGLE && process.env.DOC_QRDIMS && TOPICS_DONE) ? 'TOPICS' : 'TOC_MAIN';
+      const FOOT_ANCHOR = TOPICS_DONE ? 'TOPICS' : 'TOC_MAIN';   // 1019R6（记录第 49 条）：完整版页码也改回「主题目录」，两本统一
       let hx3 = hx2;
       if (TOC_MARKED || FOOT_ANCHOR === 'TOPICS') hx3 = hx2.replace(/(<w:r>(?:(?!<w:r>)[\s\S])*?<w:t[^>]*>第 <\/w:t><\/w:r>[\s\S]*?<w:t[^>]*> 页<\/w:t><\/w:r>)/g, m => (nh++, '<w:hyperlink w:anchor="' + FOOT_ANCHOR + '" w:history="1">' + m + '</w:hyperlink>'));
       if (hx3 !== hx) zh.file(name, hx3);

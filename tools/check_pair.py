@@ -153,7 +153,9 @@ def main():
         tag = '速查表 %d / 完整版表 %d「%s」' % (qt['t'], ft['t'], name)
         hq, hf = hdr(qt), hdr(ft)
         nq = sum(c['cs'] for r in grid(qt)[:1] for c in r); nf = sum(c['cs'] for r in grid(ft)[:1] for c in r)
-        if nq != nf: errs.append(('P1', tag, '列数 速查 %d ／ 完整版 %d' % (nq, nf)))
+        _okf = os.path.join(REPO, '两本同表已核.json'); _OK = json.load(open(_okf, encoding='utf-8')) if os.path.exists(_okf) else {}
+        if '%s｜P1' % name in _OK: pass   # 1019R6：速查汇编表（几节内容合一张）列数 / 表头与配上的完整版表不同，核过登记「首格前 16 字｜P1」
+        elif nq != nf: errs.append(('P1', tag, '列数 速查 %d ／ 完整版 %d' % (nq, nf)))
         elif [norm(x) for x in hq] != [norm(x) for x in hf]: errs.append(('P1', tag, '表头 速查「%s」／ 完整版「%s」' % (' | '.join(hq), ' | '.join(hf))))
         # 格级：同列、同文字的格排法要一样
         fcell = {}

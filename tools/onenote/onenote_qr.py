@@ -11,7 +11,7 @@ os.environ['ONENOTE_SPEC'] = 'quickref'
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from onenote_api import req, content, list_pages, create_page, delete_page
 from onenote_conv import convert, page, flat_lists
-from onenote_build import NB_ID, locate, find_anchor
+from onenote_build import NB_ID, locate, find_anchor, add_cell_imgs
 from onenote_api import patch_with_image
 from onenote_conv import TABW, FONT
 import struct, uuid
@@ -163,7 +163,7 @@ def main():
             L('写', p['title'], 'OK' if pid else '!! 失败')
             if pid:
                 time.sleep(8)
-                try: add_qr_figs(pid)
+                try: add_qr_figs(pid); add_cell_imgs(pid, p['title'], open(os.path.join(REPO, '速查', '速查源.md'), encoding='utf-8').read())   # 1019R6：格内小图（ND 符号表）
                 except RuntimeError as e: L('!! 补图失败（稍后 --only 该页重写）', p['title'], str(e)[:60])   # 2026-10-10：504 曾使整区写入中断
             time.sleep(10)
     for q in list_pages(sid):          # 新页有时标题为空：按页眉「基础知识速查区 ｜ 页名」补（2026-10-08 系统、七两页）

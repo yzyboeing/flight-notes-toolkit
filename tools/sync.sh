@@ -161,13 +161,15 @@ if [ "$BUILD" = 1 ]; then
   DOC_QRTOPICS="${DOC_QRTOPICS:-$ROOT/速查主题索引.json}"; export DOC_QRTOPICS
   # SD-139 目录后「按主题查」索引（主题 → 正文块「节号 块号」）
   DOC_TOPICS="${DOC_TOPICS:-$ROOT/按主题查索引.json}"; export DOC_TOPICS
-  # SD-209 L3：附录「缩写与术语」数据（两本末尾），从两本「注：缩写：英文全称（中文）」收集
-  if [ -f "$TOOLKIT/abbr_index.py" ]; then python3 "$TOOLKIT/abbr_index.py" --repo "$ROOT" --out "$ROOT/build/缩写表.json" | sed 's/^/  /'; DOC_ABBR="$ROOT/build/缩写表.json"; export DOC_ABBR; fi
+  # SD-209 L3 附录「缩写与术语」1019R6 撤销（记录第 19 / 48 条，用户：去掉专门的缩写查询页）——缩写写在表下注；不再导出 DOC_ABBR
+  unset DOC_ABBR
   # 2026-10-12 用户取消正文「相关」行（「太乱了」）：不再传 DOC_RELATED（相关节索引.json 停用备查）
   unset DOC_RELATED
   DOC_NOTICE="${DOC_NOTICE:-$(cfg notes.docNotice)}"; export DOC_NOTICE
   DOC_PREFACE="${DOC_PREFACE:-$ROOT/前言.md}"; export DOC_PREFACE   # SD-51 前言页（文件不存在则不出前言）
   DOC_PREFACE_SIGNATURE="${DOC_PREFACE_SIGNATURE:-$(cfg notes.docPrefaceSignature)}"; export DOC_PREFACE_SIGNATURE
+  DOC_USAGE="${DOC_USAGE:-$ROOT/使用说明.md}"; export DOC_USAGE   # 1019R6（记录第 49 条）：前言后的「使用说明」页
+  DOC_EDITION_SUFFIX="${DOC_EDITION_SUFFIX:-$(cfg notes.docEditionSuffix)}"; export DOC_EDITION_SUFFIX   # 封面「版本号 ××××R×　·　YZYBOEING」
   # SD-67（2026-09-29 用户）：主题线索引页撤出成品。源文件 主题线索引.md 保留在库里，
   # 需要时把下一行取消注释即可恢复。
   # DOC_TOPICINDEX="${DOC_TOPICINDEX:-$ROOT/主题线索引.md}"; export DOC_TOPICINDEX

@@ -248,7 +248,7 @@ _SRCS = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-5]*', '*.md'))) + [
 for f in _SRCS:
     fn = os.path.basename(f).replace('.md', '') if 'notes_src' in f else '速查'
     for title, body in _entries(f):
-        notes = [l for l in body.split('\n') if l.startswith('注：') and not re.match(r'注：(?:缩写：)?[A-Z][A-Za-z/\-]{1,12}：[A-Z]', l)]   # 缩写注不计（批 3）
+        notes = [l for l in body.split('\n') if l.startswith('注：') and not re.match(r'注：(?:缩写[：——]+)?[A-Z][A-Za-z/\-]{1,12}：[A-Z]', l)]   # 缩写注不计（批 3；1019R6 写法「注：缩写——X：…」）
         if (ONLY is None or 'T32' in ONLY) and len(notes) >= 4:
             rep('T32', fn, title, '一条目 %d 条注（B37：≥ 4 条改「注表」或并回表格行）' % len(notes))
         if ONLY is None or 'T33' in ONLY:
@@ -261,10 +261,18 @@ for f in _SRCS:
                 if len(re.findall(r'<em>', c)) >= 2:
                     rep('T34', fn, title, '一格 %d 处红「%s…」（W02：一格通常不超过一处红）' % (len(re.findall(r'<em>', c)), plain(c)[:20]))
         if ONLY is None or 'T35' in ONLY:
-            for l in notes:
+            for l in [l for l in body.split('\n') if l.startswith('注：')]:   # 1019R6：缩写注不计入 T32，但 T35 照查
                 for seg in re.split(r'[；。]', plain(l)):
                     m = re.match(r'\s*(?:注：)?([A-Z][A-Za-z/\-]{1,12})：([A-Z][A-Za-z][A-Za-z /\-]*)(.*)$', seg)
-                    if m and not re.search(r'[\u4e00-\u9fff]', m.group(3)):   # 英文全称后面（逗号或括号里）没有任何中文
+                    _pb = plain(body)
+                    if m:   # 1019R6：表格里缩写与中文名同格（「MEA<br>最低航路飞行高度」）或同一行有短中文名格（「IRS 显示组件 | 1 个 | ISDU」）也算条目里已有中文名
+                        _ab = m.group(1); _hit = False
+                        for _row in re.findall(r'<tr[^>]*>(.*?)</tr>', body, re.S):
+                            _cs = [plain(c).strip() for c in re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', _row, re.S)]
+                            if any(c == _ab for c in _cs) and any(c != _ab and re.search(r'[\u4e00-\u9fff]', c) and len(c) <= 14 for c in _cs): _hit = True
+                            if any(c.startswith(_ab) and re.fullmatch(_ab + r'\s*[\u4e00-\u9fff /、]{2,14}', c) for c in _cs): _hit = True
+                        if _hit: continue
+                    if m and not re.search(r'[\u4e00-\u9fff]', m.group(3)) and not re.search(re.escape(m.group(1)) + r'\s*[（(][^）)]*[\u4e00-\u9fff]|[\u4e00-\u9fff][）)]?\s*[（(]\s*' + re.escape(m.group(1)) + r'\s*[）)]', _pb):   # 英文全称后面没有中文；W06（1019R6）：条目里已有「缩写（中文）/ 中文（缩写）」的只写英文全称
                         rep('T35', fn, title, '缩写注「%s：%s」缺中文（W06：缩写：英文全称（中文））' % (m.group(1), m.group(2)[:30]))
 # T28 术语格（SD-206）：缩写定义格在内容列有多行的表里须写「缩写<br>中文」；内容列都一行的表须写「缩写（中文）」
 try:

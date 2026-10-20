@@ -71,11 +71,12 @@ def main():
                     kd, p = kinds[j]
                     if kd == 'skip': continue
                     is_last = (i == last_i)
+                    if not is_last and re.match(r'[（(]', plain(parts[idx[j + 1]])): continue   # 1019R6：下一行是括注（「真空速<br>（白色）」，C29 括注另起一行）——续行，不算分项
                     cur_end = p[-1] if p[-1] in '。；;，,' else ''
                     key = re.sub(r'[。；;，,]$', '', p)
                     if is_last:
                         want = '。' if kd in ('S',) else ('' if kd in ('P',) else None)
-                        if want is None and key in DEC: want = '。' if DEC[key] == '。' else ''; kd = 'S' if want else 'P'
+                        if key in DEC: want = '。' if DEC[key] == '。' else ''; kd = 'S' if want else 'P'   # 1019R6：人工裁定优先于机判（原先只在机判不准时查）
                     else:
                         want = '；'; kd = 'S' if kd != 'P' else 'P'          # 多项格中间项一律「；」（规则 A）
                     if want is None:
