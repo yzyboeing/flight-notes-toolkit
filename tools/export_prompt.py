@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = ('SKILL.md', 'prompt/rules.md', 'prompt/standing-decisions.md')
+SOURCES = ('SKILL.md', 'prompt/portable-instruction.md', 'prompt/layout-checklist.md', 'prompt/content-core.md')
 TARGET = ROOT / 'prompt/SKILL.md'
 
 

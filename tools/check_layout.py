@@ -743,6 +743,45 @@ if not SECTION and os.path.exists(os.path.join(REPO, '用户点名排版台账.j
     except Exception as _e:
         sug('USERPIN', '用户点名排版核对未能运行：%s' % _e)
 
+# K-L7 自绘图数值核对、K-RULES 规则自检（2026-10-21 规则重组轮 A1）：结果并进本报告的错误级
+if not SECTION:
+    for _tool, _tag, _code in (('check_figs.py', 'FIGS 错误 ', 'L7'), ('check_rules.py', 'RULES 错误 ', 'RULES')):
+        try:
+            _o = subprocess.run([sys.executable, os.path.join(T, _tool), REPO] + (['--no-copies'] if _code == 'RULES' else []), capture_output=True, text=True, timeout=300).stdout
+            for _l in _o.splitlines():
+                if _l.startswith(_tag): err(_code, _l[len(_tag):])
+        except Exception as _e:
+            sug(_code, '%s 未能运行：%s' % (_tool, _e))
+
+# K-T38（Q06；2026-10-21 规则自检发现登记了没实现）：速查一条 ≤ 1 页、以表为主。按 PDF 实测条目内容高度（标题到下一条标题，
+# 跨页时各页内容高度相加，不计页底留白）；含插图、one-page、split-ok 的条目按 Q06 例外不报。存量较多，暂为建议级，等用户定处理方式
+if QON and not SECTION:
+    try:
+        _ents = [e.split('\n%%PART%%')[0].split('\n## ')[0] for e in re.split(r'\n### ', open(os.path.join(REPO, '速查', '速查源.md'), encoding='utf-8').read())[1:]]
+        _qd = pymupdf.open(QREF); _qh = _qd[0].rect.height; _pos = {}; _lns = {}
+        for _pi in range(len(_qd)):
+            _L = []
+            for _b in _qd[_pi].get_text('dict')['blocks']:
+                if _b['type'] == 1: _L.append((_b['bbox'][1], _b['bbox'][3])); continue
+                for _l in _b.get('lines', []):
+                    if not _l['spans'] or _l['bbox'][1] > _qh - 48: continue
+                    _L.append((_l['bbox'][1], _l['bbox'][3]))
+                    _m = re.match(r'(\d+)\.\s', ''.join(s['text'] for s in _l['spans']).strip())
+                    if _m and abs(_l['spans'][0]['size'] - 10.5) < 0.3 and any('Bold' in s['font'] for s in _l['spans']):
+                        _pos[int(_m.group(1))] = (_pi, _l['bbox'][1])
+            _lns[_pi] = _L
+        for _n in range(1, len(_ents) + 1):
+            _e = _ents[_n - 1]; _t = _e.split('\n')[0].strip()
+            if '<table' not in _e: err('T38', '速查第 %d 条「%s」没有表格——速查以表为主（Q06）' % (_n, _t[:24]))
+            if _n not in _pos or _n + 1 not in _pos or any(k in _e for k in ('%%FIG', 'one-page', 'split-ok')): continue
+            (_p1, _y1), (_p2, _y2) = _pos[_n], _pos[_n + 1]; _h = 0
+            for _pi in range(_p1, _p2 + 1):
+                _L = [(a, b) for a, b in _lns[_pi] if (_pi > _p1 or a >= _y1 - 1) and (_pi < _p2 or a < _y2 - 1)]
+                if _L: _h += max(b for a, b in _L) - min(a for a, b in _L)
+            if _h > 525: sug('T38', '速查第 %d 条「%s」（第 %d 页起）内容约 %.1f 页——一条 ≤ 1 页，拆条或精简（Q06）' % (_n, _t[:24], _p1 + 1, _h / 521))
+    except Exception as _e:
+        sug('T38', '速查一条一页核对未能运行：%s' % _e)
+
 # P 前言（SD-73 / SD-74）与总目录（单节预览不查）
 pre = 0 if SECTION else next((i for i in range(1, 5) if nosp(book[i].get_text()).find('前言') >= 0), None)
 if SECTION: pass

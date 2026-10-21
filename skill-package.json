@@ -24,8 +24,9 @@
   "prompt": [
     "SKILL.md",
     "AGENTS.md",
-    "prompt/rules.md",
-    "prompt/standing-decisions.md",
+    "prompt/portable-instruction.md",
+    "prompt/layout-checklist.md",
+    "prompt/content-core.md",
     "prompt/AGENTS-common.md"
   ],
   "stages": {

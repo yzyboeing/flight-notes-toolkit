@@ -46,6 +46,9 @@ def main():
     result = subprocess.run([sys.executable, str(ROOT / 'tools/export_prompt.py'), '--check'])
     if result.returncode:
         errors.append('Stale prompt export')
+    rules = subprocess.run([sys.executable, str(ROOT / 'tools/check_rules.py'), '--no-copies'], capture_output=True, text=True)
+    if rules.returncode:   # K-RULES：过时说法、K- 号与检查脚本对应（私有库不在时只查本仓库）
+        errors.append('Rule self-check failed:\n' + rules.stdout.strip())
     if errors:
         raise SystemExit('\n'.join(errors))
     print('Package checks passed; ' + ('private-keyword scan completed' if args.private_keywords else 'private-keyword scan NOT run'))
