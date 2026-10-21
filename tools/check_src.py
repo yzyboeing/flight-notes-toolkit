@@ -275,6 +275,16 @@ def main():
             fp = os.path.join(SRC, m.group(1).strip())
             if not os.path.exists(fp): errors.append('L6 %s 插图文件不存在：%s' % (b[:-3], m.group(1).strip()))
             if not m.group(2).strip(): errors.append('L6 %s 插图缺图注：%s' % (b[:-3], m.group(1).strip()))
+    # W13 手册用语（SD-177 / 215，2026-10-21 方案 A2）：私有库《手册用语表.json》里的禁用说法，两本去标签后逐字查（建议级）
+    _wf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '手册用语表.json')
+    if os.path.exists(_wf):
+        _ban = [(x['禁用'], x['改用']) for x in json.load(io.open(_wf, encoding='utf-8')).get('条目', [])]
+        _qf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '速查', '速查源.md')
+        for f in list(files) + ([_qf] if os.path.exists(_qf) else []):
+            for _i, _ln in enumerate(io.open(f, encoding='utf-8'), 1):
+                _p = re.sub(r'<[^>]+>', '', _ln)
+                for _b, _r in _ban:
+                    if _b in _p: warns.append('W13 %s:%d 用了手册没有的说法「%s」——改用「%s」（手册用语表）' % (os.path.basename(f)[:-3], _i, _b, _r))
     # S9 主题挂靠（2026-10-19 1019R4：批 5 新增 8 条没挂进按主题查，完整版主题页漏列）：完整版每个块至少在 按主题查索引.json 的一个主题里
     topf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '按主题查索引.json')
     if os.path.exists(topf):

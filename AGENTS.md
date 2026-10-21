@@ -14,14 +14,17 @@
 
 | 文件 | 内容 | 注意 |
 |---|---|---|
-| `prompt/rules.md` | 整理规则真源——归属判定、结构方法、标记约定、排版规则 | 整理笔记内容时读取；工具维护只读相关章节 |
-| `prompt/standing-decisions.md` | **长期决策记录（SD-1…）** | 整理笔记时读取；已有结论不得重复提问；「历史决策」中已放弃的方案不得重新提出 |
+| `prompt/portable-instruction.md` | **规则总纲**——硬约束、结构、写法要点、工作方式、流程、新知识点入库、验证、出基线、工具清单 | 开工前通读 |
+| `prompt/layout-checklist.md` | **排版规则总表**——全部排版规则与检查器规则号（K-） | 排版判定以它为准 |
+| `prompt/content-core.md` | **内容校对核心规则** | 整理与核对内容时读取 |
+| `prompt/standing-decisions.md` | 长期决策记录（SD-1…），来历流水 | 只查来历；已有结论不得重复提问，已放弃的方案不得重新提出 |
+| `prompt/archive/` | 已作废的旧版规则 | 不再使用 |
 | `prompt/AGENT.md` | 简短任务入口 | 引导读取规则并实测能力 |
 | `README.md` | 对外说明 | |
 
 兼容 raw 入口仍为 `https://raw.githubusercontent.com/yzyboeing/flight-notes-toolkit/main/prompt/SKILL.md`，由 `tools/export_prompt.py` 自动生成。
 
-三者冲突时以 `prompt/rules.md` 为准。
+冲突时：用户最新指示 ＞ 三份现行规则 ＞ 长期决策。改规则后跑 `python3 tools/check_rules.py`（规则自检）。
 
 ## 四、执行约定
 

@@ -26,12 +26,13 @@
 ## 仓库结构
 
 ```
-SKILL.md              标准 Skill 入口（name: flight-theory-notes）
-prompt/rules.md       整理规则（真源）
-prompt/SKILL.md       自动导出的完整 Prompt（兼容旧网址）——格式约定、排版规则、归属判定、校验流程
+SKILL.md                       标准 Skill 入口（name: flight-theory-notes）
+prompt/portable-instruction.md 规则总纲（硬约束、结构、工作方式、流程、验证、出基线）
+prompt/layout-checklist.md     排版规则总表（规则与检查器规则号）
+prompt/content-core.md         内容校对核心规则
+prompt/SKILL.md                自动导出的完整 Prompt（兼容旧网址）
 tools/assemble.py     从源文件组装章节 md 与全书 md
 tools/build_docx.js   md + 内嵌 HTML 表格 → A4 横版 docx
-tools/docx2md.py      既有 docx → 源格式（无损保留加粗/红字/合并单元格）
 tools/check_src.py    源文件校验（front matter / id / 双链 / 标签配对 / MANIFEST 对账）
 tools/verify.py       交付前 PDF 校验
 examples/             源格式示例
@@ -110,14 +111,14 @@ python3 tools/verify.py build/manual.pdf   # 空白页 / 标签泄漏 / 项目�
 - **技术冲突不自行裁决**，列出双方原文与出处，请使用者判定
 - **原始材料不完整时不猜写**，标 `【缺失，待原件补充】`
 
-细则见 [`prompt/rules.md`](prompt/rules.md)。
+细则见 [`prompt/portable-instruction.md`](prompt/portable-instruction.md)。
 
 ---
 
 ## 依赖
 
 - Node.js + [`docx`](https://www.npmjs.com/package/docx) ≥ 9
-- Python 3 + `python-docx`（仅 docx2md 需要）、`pymupdf`（仅 verify 需要）
+- Python 3 + `pymupdf`（verify 与检查器需要）
 - LibreOffice（仅校验环节需要，用于转 PDF）
 
 ---
@@ -136,6 +137,6 @@ python3 tools/check_package.py --private-keywords ~/.leakscan-keywords
 python3 -m unittest discover -s tests -v
 ```
 
-只编辑 `prompt/rules.md` 和长期决策文件，再生成兼容 Prompt。CI 检查导出是否过期、引用是否完整及虚构案例是否通过源检查。CI 不持有个人敏感关键词，公开发布前必须在本机运行带私有关键词的检查。一次规则反馈不自动授权长期维护或公开推送。
+只编辑 `prompt/` 下三份现行规则（总纲、排版规则总表、内容校对核心规则），再生成兼容 Prompt。CI 检查导出是否过期、引用是否完整及虚构案例是否通过源检查。CI 不持有个人敏感关键词，公开发布前必须在本机运行带私有关键词的检查。一次规则反馈不自动授权长期维护或公开推送。
 
 源码版本以 Git 提交号识别；安装副本记录来源提交，备份移到 Skill 发现目录之外。规则和工具的自有原创部分采用 MIT 许可证；第三方材料仍适用其原许可，许可证不授权传播公司手册或笔记正文。

@@ -299,7 +299,7 @@ PYEOF
     if [ "$FULL" = 1 ]; then
       mkdir -p "$ROOT/规则" "$ROOT/交接" "$ROOT/协作/噜噜"
       cp "$TOOLKIT/../prompt/portable-instruction.md" "$ROOT/规则/规则总纲.md" 2>/dev/null
-      cp "$TOOLKIT/../prompt/layout-checklist.md"     "$ROOT/规则/排版检查清单.md" 2>/dev/null
+      cp "$TOOLKIT/../prompt/layout-checklist.md"     "$ROOT/规则/排版规则总表.md" 2>/dev/null
       cp "$TOOLKIT/../prompt/content-core.md"         "$ROOT/规则/内容校对核心规则.md" 2>/dev/null
       # 给噜噜的规则与台账（2026-10-05 单源）：正本在 pub/prompt（排版规则总表、内容校对核心规则）与私有库根目录（内容裁定台账.json），
       # 先拷进桌面交接包；下面的噜噜镜像再从交接包整体拷回（含 *.json），不要再直接写 协作/噜噜/（那里每次会被清空重建）
@@ -315,12 +315,17 @@ PYEOF
       HAND="$HOME/Desktop/飞行理论笔记整理"
       if [ -d "$HAND" ]; then
         cp "$HAND/00_先读我_AI交接.md" "$ROOT/交接/" 2>/dev/null
+        [ -f "$HAND/现状一页纸.md" ] && cp "$HAND/现状一页纸.md" "$ROOT/交接/" 2>/dev/null
         cp "$HAND"/AI交接/0*.md "$ROOT/交接/" 2>/dev/null
         rm -rf "$ROOT/协作/噜噜"; mkdir -p "$ROOT/协作/噜噜"
         cp "$HAND"/Muse交接包/*.md "$HAND"/Muse交接包/*.json "$HAND"/噜噜_*.md "$ROOT/协作/噜噜/" 2>/dev/null
         [ -f "$HAND/噜噜收件箱/README.md" ] && cp "$HAND/噜噜收件箱/README.md" "$ROOT/协作/噜噜/噜噜收件箱_README.md"
       fi
       ok "规则 / 结构索引 / 交接快照 / 噜噜指令 已同步进私有库"
+      # K-RULES（2026-10-21）：副本复制完再核一次与真本一致（过时说法、K- 号已在排版总检查里查过）
+      if [ -f "$TOOLKIT/check_rules.py" ]; then
+        python3 "$TOOLKIT/check_rules.py" "$ROOT" --copies-only >/dev/null 2>&1 && ok "规则副本与真本一致" || warn "规则副本与真本不一致——跑 python3 $TOOLKIT/check_rules.py --copies-only 看明细"
+      fi
     fi
   else
     warn "未装 LibreOffice，跳过排版校验（空白页 / 表格跨页查不了）"
