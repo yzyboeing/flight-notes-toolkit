@@ -541,7 +541,9 @@ def scan(pdf, name, header):
                                 else [c for c in cs if vis(c) >= 36 or re.search(r'[，。；]', c)])   # 与生成器同口径，门槛略放宽避免临界误报
                         # SD-119 修订：单句不加点；只有格内有多句（「；」「。」分开 ≥ 2 句）却整列没加点时才提示
                         multi = [c for c in cs if len([p for p in re.split(r'[；]', c) if len(p.strip()) >= 4]) >= 2]
-                        if (not serial and bul == 0 and len(sent) >= 0.6 * len(cs) and h not in EXPLICIT_NOBULLET
+                        b124 = (len(hdrs) >= 3 and not re.search(r'737|仅|两型', h)
+                                and all(not re.search(r'[；。]', c.rstrip('；。')) for c in cs))   # 第 124 条（SD-219）：三列以上表整列单项居中不加点，不论字数
+                        if (not serial and bul == 0 and not b124 and len(sent) >= 0.6 * len(cs) and h not in EXPLICIT_NOBULLET
                                 and (DESC_H.match(h) or re.search(r'(条件|要求|说明|逻辑|措施|处置|要点|内容)$', h))):
                             sug('T11', '%s 第 %d 页：说明类句子列「%s」没有加「•」——整列左对齐加点（SD-102）' % (name, i + 1, h))
                 except Exception: serial = False
