@@ -140,9 +140,14 @@ rows = {
     '基线 Word': '`%s%s.docx`（sha256 前 16 位 %s）' % (STEMS[0], ED, sha16(info[(STEMS[0], 'docx')])),
     '生成日期': datetime.date.today().isoformat(),
 }
+secs = [f for f in glob.glob(os.path.join(G, 'notes_src', '[1-9] *', '*.md')) if re.match(r'\d+\.\d+ ', os.path.basename(f))]
+nent = sum(len(re.findall(r'(?m)^### \d+\. ', open(f, encoding='utf-8').read())) for f in secs)
+qsrc = open(os.path.join(G, '速查', '速查源.md'), encoding='utf-8').read()
+qdesc = '%d 条，%d 段 %d 个主题' % (len(re.findall(r'(?m)^### ', qsrc)), len(re.findall(r'(?m)^%%PART%%', qsrc)), len(re.findall(r'(?m)^## ', qsrc)))
+fdesc = '%d 章 %d 节 %d 条' % (len({os.path.dirname(f) for f in secs}), len(secs), nent)
 try:
-    rows['基线 PDF'] = '`%s%s.pdf`（%d 页；sha256 前 16 位 %s）。**页码一律以这份为准**' % (STEMS[0], ED, pages(info[(STEMS[0], 'pdf')]), sha16(info[(STEMS[0], 'pdf')]))
-    rows['速查版'] = '`%s%s.pdf`（%d 页；sha256 前 16 位 %s；Word 同名，%s）。独立成册' % (STEMS[1], ED, pages(info[(STEMS[1], 'pdf')]), sha16(info[(STEMS[1], 'pdf')]), sha16(info[(STEMS[1], 'docx')]))
+    rows['基线 PDF'] = '`%s%s.pdf`（%d 页；%s；sha256 前 16 位 %s）。**页码一律以这份为准**' % (STEMS[0], ED, pages(info[(STEMS[0], 'pdf')]), fdesc, sha16(info[(STEMS[0], 'pdf')]))
+    rows['速查版'] = '`%s%s.pdf`（%d 页，%s；sha256 前 16 位 %s；Word 同名，%s）。独立成册' % (STEMS[1], ED, pages(info[(STEMS[1], 'pdf')]), qdesc, sha16(info[(STEMS[1], 'pdf')]), sha16(info[(STEMS[1], 'docx')]))
 except Exception as ex:
     print('  ! 页数 / 校验值没取到：%s' % ex)
 txt = open(bi, encoding='utf-8').read()
