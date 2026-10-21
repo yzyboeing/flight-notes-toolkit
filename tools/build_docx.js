@@ -773,10 +773,15 @@ function htmlTableCore(html) {
                 if (!t || /^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(t)) return;
                 n0++;
                 if (t.replace(/（[^）]{0,12}）/g, '').length >= 15) longS = true;   // 第 91 条（用户 2026-10-20）：长句（≥ 15 字，短括注不计）
-                if (/<br\s*\/?>/i.test(raw) || /(^|\n)\s*(- |• |[①-⑳])/.test(raw.replace(/<[^>]+>/g, '')) || /<img\b/i.test(raw)) multi = true; }); });
+                if (/<br\s*\/?>/i.test(raw) || /(^|\n)\s*(- |• |[①-⑳])/.test(raw.replace(/<[^>]+>/g, '')) || /<img\b/i.test(raw)) multi = true;
+                if (/[；。]/.test(t.replace(/[；。]$/, ''))) multi = true; }); });   // 第 124 条：格内「；」分项或两句以上（中间有句号）也算多项
             /* 第 91 / 92 条（用户 2026-10-20「凡是长句列，不论表头，都改成靠左加点；用户点名的『时间』『定义』照旧居中」）：
                列里有长句 → 整列靠左加点（B03），不看表头；只有全是短值 / 短句的单项列才居中（B38）。用户点名居中的列在源文件显式标 col-center */
-            if (n0 >= 1 && longS) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(center|plain)(?=\s|$)/g, ' ') + ' col-bullet long-col').trim();
+            /* 第 124 条（用户 2026-10-21 选 B）：整列每格只有一项（无 <br>、无分项符号、格中间无「。」「；」）→ 居中不加点，不论字数；
+               机型列（表头含 737 / 仅 / 两型）仍按原规则（长句靠左加点） */
+            const typeCol = /737|仅|两型/.test(plainOf(hc.text));
+            if (n0 >= 1 && !multi && !typeCol) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-bullet(?=\s|$)/g, ' ') + ' col-center single-col').trim();
+            else if (n0 >= 1 && longS) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(center|plain)(?=\s|$)/g, ' ') + ' col-bullet long-col').trim();
             else if (n0 >= 1 && !multi) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-bullet(?=\s|$)/g, ' ') + ' col-center single-col').trim(); }); }
         hr0.cells.forEach((hc, hk) => { const col = startCol[hri0][hk];
           if (hc.colspan !== 1 || col === 0 || /(^|\s)col-(center|bullet|plain|left)(\s|$)/.test(hc.cls || '')) return;
