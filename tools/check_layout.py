@@ -786,7 +786,7 @@ if QON and not SECTION:
             _e = _ents[_n - 1]; _t = _e.split('\n')[0].strip()
             if '<table' not in _e: err('T38', '速查第 %d 条「%s」没有表格——速查以表为主（Q06）' % (_n, _t[:24]))
             if _n not in _pos or _n + 1 not in _pos or any(k in _e for k in ('%%FIG', 'one-page', 'split-ok')): continue
-            if _KEEP.get(_t, {}).get('指纹') == hashlib.sha1(_e.encode('utf-8')).hexdigest()[:12]: continue   # 2026-10-21：《速查超页保留.json》登记的例外（内容改了指纹对不上照报）
+            if _KEEP.get(_t, {}).get('指纹') == hashlib.sha1(re.sub(r' class="[^"]*"', '', _e).encode('utf-8')).hexdigest()[:12]: continue   # 2026-10-21：《速查超页保留.json》登记的例外（内容改了指纹对不上照报）
             (_p1, _y1), (_p2, _y2) = _pos[_n], _pos[_n + 1]; _h = 0
             for _pi in range(_p1, _p2 + 1):
                 _L = [(a, b) for a, b in _lns[_pi] if (_pi > _p1 or a >= _y1 - 1) and (_pi < _p2 or a < _y2 - 1)]
