@@ -220,8 +220,10 @@ def _measure_pages(pdf, srcmd, pages):
                         sl = 0 if (wr or not ls0) else max(0, (c0[2] - c0[0]) - PAD - mx0 - 6)
                         for q in cv: capk[q] = min(capk[q], sl / len(cv))
                 rows_sl = []; f0 = len(found)
+                _imgx = [((b['bbox'][0] + b['bbox'][2]) / 2) for b in p.get_text('dict', clip=t.bbox)['blocks'] if b.get('type') == 1]   # SD-218：图标列（格里是图片）文字测不到宽度，不算空白
                 for k0 in range(ncol_t):
                     cw0 = xs[k0 + 1] - xs[k0]
+                    if any(xs[k0] <= cxi <= xs[k0 + 1] for cxi in _imgx): nlk[k0] = 0
                     slack = 0 if (not nlk[k0] or wrk[k0]) else max(0, cw0 - PAD - mxk[k0] - 6)   # 撑起行高的格已折行到满：不收
                     slack = min(slack, capk[k0])
                     slack_s = 0 if (not nlk[k0] or wrk[k0] or anyw[k0]) else min(capk[k0], max(0, cw0 - PAD - mxs[k0] - 6))   # 有真折行的列不按严格口径收（只在「让给更挤的列」那一次收），防收窄 / 拉满来回拉锯

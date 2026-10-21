@@ -212,12 +212,14 @@ def explicit_br(first_line):
     return bool(k) and (k + '|') in BRTEXT
 # R6（SD-152）：源文件标 one-page 的表（允许 7.5pt）——取表头文字作识别签名
 ONEPAGE_SIGS = []
+SMALL_SIGS = []
 try:
     _bm = open(MDP, encoding='utf-8').read()
     _qm = os.path.join(REPO, 'build', 'qr_single.md')   # 2026-10-09：速查单册的 one-page / w-NN 表也要认（此前只读全书）
     if os.path.exists(_qm): _bm += '\n' + open(_qm, encoding='utf-8').read()
     for _m in re.finditer(r'<table class="[^"]*\bone-page\b[^"]*">(?:(?!</table>).)*?<tr class="hdr">(.*?)</tr>', _bm, re.S):
         ONEPAGE_SIGS.append(nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12])
+    SMALL_SIGS = [nosp(re.sub(r'<[^>]+>', '', _m.group(1)))[:12] for _m in re.finditer(r'<table class="[^"]*\bsmall\b[^"]*">(?:(?!</table>).)*?<tr class="hdr">(.*?)</tr>', _bm, re.S)]   # SD-218：用户点名缩小的表（small）也不按 9pt 查
     # SD-208（2026-10-18）：签名改为「表头 + 第一行」前 30 字（原只取表头 12 字，表头相同的自动宽度表——「类别｜条件」「项目｜说明」——被一并跳过，A/T 脱开条件表的大片空白因此漏报）；
     #   区分锁宽（w-lock，空白 ≥ 30pt 才报）与起始比例（w-NN，fit_fix 多留 14pt，空白 ≥ 24pt 才报）
     FIXW_SIGS = []
@@ -341,6 +343,10 @@ def scan(pdf, name, header):
                          if sp['text'].strip() and sp['text'].strip() != '●' and sp['size'] < 7.9]   # 分条圆点「●」按半号排，不算小字
                 if small and min(small) >= 6.9 and any(sig in nosp(p.get_text()) for sig in ONEPAGE_SIGS): small = []   # R6：源文件标 one-page 的超大表允许 7.5pt
                 if small: err('T5', '%s 第 %d 页：表内有 %.1fpt 的字，低于 8pt 底线' % (name, i + 1, min(small)))
+                elif not any(sig in nosp(p.get_text()) for sig in ONEPAGE_SIGS + SMALL_SIGS):   # SD-218：表格一律正文 9pt，不再逐级压缩（点名整页表、机型标签【…】除外）
+                    sm9 = [sp['size'] for b in p.get_text('dict', clip=t.bbox)['blocks'] for l in b.get('lines', []) for sp in l['spans']
+                           if sp['text'].strip() and sp['text'].strip() not in ('●', '–') and not sp['text'].strip().startswith('【') and sp['size'] < 8.9]
+                    if sm9: err('T5', '%s 第 %d 页：表内有 %.1fpt 的字——表格一律正文 9pt（SD-218，只有点名整页的表可以压缩）' % (name, i + 1, min(sm9)))
                 if tw > CW + 4: err('T1', '%s 第 %d 页：表格宽 %.0fpt 超过版心 %.0fpt' % (name, i + 1, tw, CW))
                 rows = [[c for c in r.cells] for r in t.rows]
                 if not rows: continue
@@ -394,6 +400,7 @@ def scan(pdf, name, header):
                 first = [''.join(l[2] for l in r[0][1]).strip() for r in info[1:] if r and r[0] and r[0][1] and not (len(r) > 1 and all(x is None for x in r[1:]))]   # 跳过整行合并的说明行（SD-129 表后说明进表格末行）
                 _sr = lambda x: re.match(r'^([①-⑳]|\d{1,2}[.、]?)$', x)
                 serial = len(first) >= 2 and all(_sr(x) for x in (first if _sr(first[-1]) else first[:-1])) and len(first) - (0 if _sr(first[-1]) else 1) >= 2   # 末行可以是表后说明行（SD-129）
+                serial = serial or (len(first) >= 1 and all(re.match(r'^[①-⑳]$', x) for x in first))   # SD-218：跨页拆开的序号表，这一截可能只有一两行（③④）
                 for k in (range(1, ncol) if not serial and not _two188 and not _span188 else []):
                     cells = [r[k] for r in info[1:] if k < len(r) and r[k] and (k + 1 >= len(r) or r[k + 1] is not None)]
                     cells = [x for x in cells if x[1]]
@@ -490,7 +497,8 @@ def scan(pdf, name, header):
                         if _sc > 0 and not re.fullmatch(r'(序号|#|编号|步骤|条款)', _hd0[_sc].replace(' ', '')): continue
                         firsts = [ctext(r[_sc]) for r in info[1:] if r and _sc < len(r) and r[_sc]]
                         firsts = [f[0] if re.match(r'[\u2460-\u2473]\s*\S', f) else f for f in firsts]   # 「① 加标签文字」首列按序号表（2026-10-06 用户）
-                        serial = len(firsts) >= 2 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in firsts)
+                        _hsr = bool(re.fullmatch(r'(序号|#|编号|步骤|条款)', _hd0[_sc].replace(' ', ''))) if _sc < len(_hd0) else False
+                        serial = (len(firsts) >= 2 or (len(firsts) >= 1 and (_hsr or all(re.fullmatch(r'[\u2460-\u2473]', f) for f in firsts)))) and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in firsts)
                         def _sv(t):
                             t = re.sub(r'[\s（()）.、]', '', t)
                             return ord(t) - 0x245F if re.fullmatch(r'[\u2460-\u2473]', t) else int(t) if t.isdigit() else ord(t.lower()) - 96 if re.fullmatch(r'[a-zA-Z]', t) else -1
@@ -500,7 +508,8 @@ def scan(pdf, name, header):
                                 if len(hd) >= 3 and all(re.fullmatch(r'([\u2460-\u2473]|\d{1,2}[.、]?|[（(]\s*(\d{1,2}|[a-zA-Z])\s*[)）]|[a-zA-Z][.、)）])', f) for f in hd) and [_sv(f) for f in hd] == list(range(1, len(hd) + 1)):
                                     serial = True; firsts = hd; break
                         else:
-                            serial = serial and [_sv(f) for f in firsts] == list(range(1, len(firsts) + 1))   # 从 1 开始的连续编号才算（襟翼位置 10 / 15 / 25 不算）
+                            _vs = [_sv(f) for f in firsts]
+                            serial = serial and bool(_vs) and _vs == list(range(_vs[0], _vs[0] + len(_vs))) and (_vs[0] == 1 or _hsr or all(re.fullmatch(r'[\u2460-\u2473]', f) for f in firsts))   # 从 1 开始的连续编号才算（襟翼位置 10 / 15 / 25 不算）；SD-218：跨页续截可从 ③ 起
                         if serial and len([h for h in _hd0[_sc + 1:] if h.strip()]) >= 2 and not os.environ.get('DOC_SERIAL_OLD'): serial = False   # SD-207 方案 A：序号列右边两列以上内容的不按序号表（与生成器 serialColOf 同口径）
                         if serial: sc = _sc; break
                     hdrs = [ctext(x) for x in info[0]] if info else []
@@ -826,7 +835,7 @@ for pdf in (BOOK,) + ((QREF,) if QON else ()):
     r = _R('check_splits.py', pdf)
     for l in r.stdout.splitlines()[1:]:
         l = l.strip()
-        rule = 'B1' if '本可整页' in l else 'B2' if '孤行' in l else 'B3'
+        rule = 'B3' if '页底只有标题' in l else 'B1'   # SD-218：B1 坏断点（截行不足 / 页底只剩表头 / 页底分组行 / 断在合并格），B3 标题孤立
         err(rule, '%s %s' % ('全书' if pdf == BOOK else '单册', l))
 
 # Z 压缩表清单（SD-80）：fit_fix.py 为「略超一页」的表选的压缩级别，供人工抽看是否仍清晰易读
@@ -834,7 +843,7 @@ for kf in sorted(glob.glob(os.path.join(REPO, 'build', 'keep_force_*.txt'))):
     book_name = os.path.basename(kf)[11:-4]
     for l in open(kf, encoding='utf-8'):
         l = l.strip()
-        if l.startswith('~'):
+        if l.startswith('~'):   # SD-218：只有点名整页（one-page）的表还会压缩
             sug('Z1', '%s：「%s…」按第 %s 级压缩后整表同页（%s）——抽看是否清晰' % (
                 book_name, l[3:23], l[1], {'1': '9pt、行距收紧', '2': '8.5pt', '3': '8pt'}.get(l[1], '?')))
         elif l.startswith('!'):
