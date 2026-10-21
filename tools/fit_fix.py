@@ -293,10 +293,11 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     import fitz as _fz
     fadd = 0
     try:
-        _figsrc = {}; _figbase = {}
+        _figsrc = {}; _figbase = {}; _figfixed = set()
         for _l in open(MD, encoding='utf-8'):
             _m = re.match(r'%%FIG%%\s*([^|]+)\|\s*(图\s*[\d.]+-\d+)[^|]*\|\s*([\d.]+)', _l)
             if _m: _figsrc[re.sub(r'\s', '', _m.group(2))] = os.path.basename(_m.group(1).strip()); _figbase[os.path.basename(_m.group(1).strip())] = float(_m.group(3))
+            if _m and re.search(r'\|\s*定\s*(\||$)', _l): _figfixed.add(os.path.basename(_m.group(1).strip()))   # 第 96 / 103 条：图行标「定」＝用户定过的宽度，不再按版面放大 / 缩小
         _figdir = os.environ.get('DOC_FIG_DIR') or os.path.join(os.getcwd(), 'notes_src')
         _prev = None   # 上一页：(页脚上缘, 正文最低处)
         for _pg in _fz.open(pdf):
@@ -315,7 +316,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
                 _cb, _ct = _cap[0]
                 _mm0 = re.match(r'(图\s*[\d.]+-\d+)', _ct)
                 _fn = _figsrc.get(re.sub(r'\s', '', _mm0.group(1))) if _mm0 else None
-                if not _fn: continue
+                if not _fn or _fn in _figfixed: continue
                 if any(_bb[3] > _ib.y0 and _bb[1] < _ib.y1 and (_bb[2] < _ib.x0 - 4 or _bb[0] > _ib.x1 + 4) for _bb, _t in _lines): continue   # 图旁有文字（并排）
                 _cur = _ib.width / 72 * 25.4
                 # ① 被挤到本页顶上、上一页底部空着：缩到上一页能放下（不小于原来的 60%）
@@ -402,7 +403,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
             one = s in onep   # 源文件标 one-page 的超大表：可压到 4 级（7.5pt），不论超出多少都先试
             if s not in lv:
                 if sp['fits']: lv[s] = 0; add += 1
-                elif one: lv[s] = 3 if sp['over'] <= 1.2 else 4 if sp['over'] <= 1.35 else 5; up += 1
+                elif one: lv[s] = 1 if sp['over'] <= 1.04 else 2 if sp['over'] <= 1.10 else 3 if sp['over'] <= 1.2 else 4 if sp['over'] <= 1.35 else 5; up += 1   # 第 108 条（2026-10-20）：从够用的最低级起压，不够再逐级升（原直接 3～5 级，速查 285 页常用速度表压到约 8pt、页下空 120pt）
                 elif sp['over'] <= 1.2 and not sp['multi']:
                     lv[s] = 1 if sp['over'] <= 1.04 else 2 if sp['over'] <= 1.10 else 3; up += 1
             elif lv[s] < (5 if one else MAXLV):

@@ -413,6 +413,7 @@ function tableGap(src, i) {
 let PROBE = false, TBL_IDX = -1, KEEP_LAST = false;
 /* KEEP_FORCE 文件（fit_fix.py 维护）：一行一个表签名＝强制整表同页；「~N:签名」＝整表同页并按第 N 级压缩（SD-80）；「!签名」＝已放弃（fit_fix 自用） */
 const NCOND = new Map();   // SD-130 表外注段落收紧字距（fit_fix 写入 N:）
+let SIDE_FILL = false;   // 第 109 条：图表并排栏内的表占满栏宽
 const FFIX = new Map();   // SD-148 实测拉满（fit_fix 写入 F:）
 const BWFIX = new Map();   // 2026-10-15 借宽（fit_fix 写入 BW:收列:借出列:DXA:签名）：孤字 / 省行列向本表可借出宽度最多的列借，表总宽不变，定宽表也生效
 const FIGW = new Map();   // 1020R1：图文件名 → 实测放大后的宽度 mm
@@ -707,7 +708,12 @@ function htmlTableCore(html) {
           && !/(^|\s)no-cmp(\s|$)/.test(hr2.cells[0].cls || '')
           && !/(^|\s)col-center(\s|$)/.test(hr2.cells[1].cls || '')) {   // 1019R6（记录第 47 条，B10 ② 例外）：第二列表头显式标 col-center 的取值 / 等级标签列整列居中、不加点   // SD-198：首列表头标 no-cmp 的同类并列两列表（如 1.13 A-1 系统 A ｜ 系统 B）不自动加点，按表头 col-center 整列居中
         const setB = (hc) => { hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(center|plain|left)(?=\s|$)/g, ' ') + ' col-bullet').trim(); };
-        setB(hr2.cells[1]); if (parTbl) setB(hr2.cells[0]); } }
+        /* 第 95 条（用户 2026-10-20，速查 55 页增压数据「数值这一列去掉前面小圆点，统一居中」）：第二列全是取值（数值 + 单位，可带 ≤ / > / 约 与短括注）→ 整列居中不加点 */
+        const valC = (c) => { let s = plainOf(String(c.text || '')).replace(/\s+/g, '').replace(/（[^）]{0,14}）|\([^)]{0,14}\)/g, '').replace(/^(约|至少|不少于|不超过|最多|最少|小于|大于)/, '');
+          return !!s && /\d/.test(s) && /^[\d.,:：;；~～+\-−–≤≥<>%\/°×±℃a-zA-Z·→]*$/.test(s); };
+        const body2 = parsed.filter(r => !/hdr|note|premise|warn/.test(r.cls) && r.cells.length === 2 && plainOf(String(r.cells[1].text || '')).trim());
+        if (!parTbl && body2.length >= 2 && body2.every(r => valC(r.cells[1]))) hr2.cells[1].cls = (String(hr2.cells[1].cls || '') + ' col-center').trim();
+        else { setB(hr2.cells[1]); if (parTbl) setB(hr2.cells[0]); } } }
     /* SD-204（2026-10-17 用户：「整个表格的第一列是不可能靠左前面加小圆点的，为什么这张图上的表格逻辑完全没有筛选出来？」）：
        首列一律不加点、不靠左——源文件里首列的 col-bullet / cell-bullet 标注作废（并列对照表 parallel 两列都是内容，除外）。check_src 同时报错 */
     if (!parTbl) { const hrF = parsed.find(r => r.cls.includes('hdr'));
@@ -731,14 +737,18 @@ function htmlTableCore(html) {
         if (nC0 >= 3 && !hasShared0 && !/(^|\s)(no-cmp|no-share)(\s|$)/.test(hr0.cells[0].cls || '') && !serialTable(parsed, startCol)) {
           hr0.cells.forEach((hc, hk) => { const col = startCol[hri0][hk];
             if (hc.colspan !== 1 || col === 0 || /(^|\s)col-(center|bullet|plain|left)(\s|$)/.test(hc.cls || '')) return;   // 源文件手工标注优先（col-bullet 不改）
-            let n0 = 0, multi = false;
+            let n0 = 0, multi = false, longS = false;
             parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
               r.cells.forEach((c, k) => { if (startCol[ri][k] !== col || c.colspan !== 1) return;
                 const raw = String(c.text || ''); const t = plainOf(raw).replace(/\s+/g, '');
                 if (!t || /^[—－\-–\/／无空×✕✓√?？…（）()]*$/.test(t)) return;
                 n0++;
+                if (t.replace(/（[^）]{0,12}）/g, '').length >= 15) longS = true;   // 第 91 条（用户 2026-10-20）：长句（≥ 15 字，短括注不计）
                 if (/<br\s*\/?>/i.test(raw) || /(^|\n)\s*(- |• |[①-⑳])/.test(raw.replace(/<[^>]+>/g, '')) || /<img\b/i.test(raw)) multi = true; }); });
-            if (n0 >= 1 && !multi) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-bullet(?=\s|$)/g, ' ') + ' col-center single-col').trim(); }); }
+            /* 第 91 / 92 条（用户 2026-10-20「凡是长句列，不论表头，都改成靠左加点；用户点名的『时间』『定义』照旧居中」）：
+               列里有长句 → 整列靠左加点（B03），不看表头；只有全是短值 / 短句的单项列才居中（B38）。用户点名居中的列在源文件显式标 col-center */
+            if (n0 >= 1 && longS) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(center|plain)(?=\s|$)/g, ' ') + ' col-bullet long-col').trim();
+            else if (n0 >= 1 && !multi) hc.cls = (String(hc.cls || '').replace(/(^|\s)col-bullet(?=\s|$)/g, ' ') + ' col-center single-col').trim(); }); }
         hr0.cells.forEach((hc, hk) => { const col = startCol[hri0][hk];
           if (hc.colspan !== 1 || col === 0 || /(^|\s)col-(center|bullet|plain|left)(\s|$)/.test(hc.cls || '')) return;
           const hp = plainOf(hc.text).replace(/\s+/g, ' ');
@@ -1407,7 +1417,7 @@ function htmlTableCore(html) {
         const d0 = j >= 0 ? Math.min(dd - f0, Math.floor(0.25 * W[j])) : 0;
         if (d0 > 0) { W[k] += d0; W[j] -= d0; } }
       /* SD-144 实测收窄（fit_fix 写入 NW:）：这一列按成品实测收到最长行 + 6pt，表格整体变窄；下限 FLOOR，防御性再留 tokMin */
-      for (const [k, dd] of (NWFIX.get(sig0) || [])) { if (k >= nCols) continue;
+      for (const [k, dd] of (SIDE_FILL ? [] : (NWFIX.get(sig0) || []))) { if (k >= nCols) continue;   // 第 109 条：图表并排的表占满栏宽，不再实测收窄
         const lo = FLOOR;   // 2026-10-06：实测收窄已保证不增行，不再用估算的「不可断词宽」做下限（把「【737-NG】37000ft」当整体估宽过大，实测还能收也收不下去）
         const nv = Math.max(lo, W[k] - dd);
         if (process.env.W_LOG && nv < W[k]) console.error('NARROW', k, W[k], '→', nv);
@@ -1979,6 +1989,10 @@ function htmlTableCore(html) {
   });
   /* 固定列宽：Word 默认「根据内容自动调整」会改写按内容算好的列宽，导致首列等短列被拉宽 */
   if (DUMP) { const sw = W.reduce((a, b) => a + b, 0); require('fs').appendFileSync(TBL_DUMP_F, JSON.stringify({ t: TBL_IDX, w: W.map(x => Math.round(x * 1000 / TOTAL) / 10), tw: Math.round(sw * 1000 / TOTAL) / 10, cells: DUMP }) + '\n'); }
+  /* 第 109 条（用户 2026-10-20，速查 287 页）：图表并排时右（左）栏里的表占满所在栏——多出的宽度按各列现宽比例分给非首列 */
+  if (SIDE_FILL) { const sumW = W.reduce((a, b) => a + b, 0), extra = TOTAL - sumW;
+    if (extra > 0 && W.length >= 2) { const rest = W.slice(1).reduce((a, b) => a + b, 0); let left = extra;
+      for (let k = 1; k < W.length; k++) { const d = k === W.length - 1 ? left : Math.floor(extra * W[k] / rest); W[k] += d; left -= d; } } }
   return new Table({ layout: TableLayoutType.FIXED, columnWidths: W, width: { size: W.reduce((a,b)=>a+b,0), type: WidthType.DXA }, rows: trs.filter((_, ri) => !/(^|\s)ghost(\s|$)/.test(parsed[ri].cls || '')) });   // ghost 表头不印
 }
 
@@ -2355,7 +2369,7 @@ function bodyTopicPage() {
   return out;
 }
 function qrTopicPage() {
-  if (SINGLE && process.env.DOC_QRDIMS) return bodyTopicPage().concat(starListPage());   // SD-146：速查版用五维网格；SD-209 N5：其后接「必背清单（★★）」
+  if (SINGLE && process.env.DOC_QRDIMS) return bodyTopicPage();   // SD-213（用户 2026-10-20 第 87 条）：删「必背清单」，两本条目标题不再标星级   // SD-146：速查版用五维网格；SD-209 N5：其后接「必背清单（★★）」
   const fp = process.env.DOC_QRTOPICS;
   if (!fp || !fs.existsSync(fp)) return [];
   let topics;
@@ -2580,7 +2594,7 @@ while (i < src.length) {
     while (i < src.length && !src[i].trim()) i++;
     const buf = []; while (i < src.length && !/<\/table>/.test(src[i])) buf.push(src[i++]); buf.push(src[i++]);
     const lw0 = f0.wtw + 240, TOT0 = TOTAL; TOTAL = TOT0 - lw0 - 300;   // 右栏里的表按右栏宽度排
-    let tbs; try { tbs = htmlTable(buf.join('\n')).filter(Boolean); } finally { TOTAL = TOT0; }
+    let tbs; SIDE_FILL = true; try { tbs = htmlTable(buf.join('\n')).filter(Boolean); } finally { TOTAL = TOT0; SIDE_FILL = false; }
     const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
     const nb = { top: none, bottom: none, left: none, right: none };
     const lw = f0.wtw + 240, rw = TOTAL - lw;
@@ -2588,8 +2602,8 @@ while (i < src.length) {
     body.push(new Table({ width: { size: TOTAL, type: WidthType.DXA }, columnWidths: RIGHT ? [rw, lw] : [lw, rw], layout: TableLayoutType.FIXED,
       borders: { top: none, bottom: none, left: none, right: none, insideHorizontal: none, insideVertical: none },
       rows: [new TableRow({ cantSplit: true, children: (() => {
-        const figC = new TableCell({ width: { size: lw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.CENTER, children: [f0.img, ...(f0.capP ? [f0.capP] : [])] });
-        const tblC = new TableCell({ width: { size: rw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.CENTER, margins: RIGHT ? { right: 200 } : { left: 200 }, children: [...tbs, new Paragraph('')] });
+        const figC = new TableCell({ width: { size: lw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.TOP, children: [f0.img, ...(f0.capP ? [f0.capP] : [])] });
+        const tblC = new TableCell({ width: { size: rw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.TOP,   /* 第 109 条：图、表顶端对齐（原垂直居中，图高于表时表上方留大块空白） */ margins: RIGHT ? { right: 200 } : { left: 200 }, children: [...tbs, new Paragraph('')] });
         return RIGHT ? [tblC, figC] : [figC, tblC]; })() })] }));
     body.push(new Paragraph({ spacing: { before: 0, after: 60 }, children: [] }));   // 1020R1：并排表后紧跟下一张表时 LibreOffice 把两张并成一张，外层表按下一张表的列宽排窄、图被压住（1.14-1 刹车压力图）——后面也隔一段
     continue;

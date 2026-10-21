@@ -127,6 +127,9 @@ def main():
         for ln_no, line in enumerate(body.split('\n'), 1):
             if re.match(r'^[ \t]*(?:>[ \t]*)?(?:\*\*)?(来源|出处)[：:]', line) or '（来源：' in line:
                 errors.append('SD-138 来源 / 出处 %s:%d' % (rel(f), ln_no))
+            # SD-213（2026-10-20 用户第 87 条「条目标题后的星标两本一并去掉」）：标题不再标 {★} / {★★}
+            if re.match(r'^#{1,4}\s.*\{★+\}\s*$', line):
+                errors.append('SD-213 标题带星级标记 %s:%d' % (rel(f), ln_no))
             # SD-212（2026-10-20 用户「图注里的手册出处都去掉，按『引用只写名字』的原则统一处理」）：图注不写手册出处与「依据……」
             cm = re.match(r'%%FIG(?:SIDE|RIGHT)?%%[^|]*\|([^|]*)', line)
             if cm and re.search(r'(?:FCOM|FCTM|AFM|QRH) [\d.]+|AC-\d+-\d+ 图|技术提示汇总|依据', cm.group(1)):
