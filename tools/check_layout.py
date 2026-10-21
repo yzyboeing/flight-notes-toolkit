@@ -625,7 +625,7 @@ try:
         _keys = list(_segs); _grp = {}; _gid = 0
         for _q, _k in enumerate(_keys):
             _e = _segs[_k][0]
-            _cand = [kk for kk in _keys[:_q] if kk[0] == _k[0] - 1 and _segs[kk][0]['nc'] == _e['nc'] and abs(_segs[kk][0]['tw'] - _e['tw']) < 3] if _e['tb'] < 70 else []
+            _cand = [kk for kk in _keys[:_q] if kk[0] == _k[0] - 1 and (_segs[kk][0]['nc'] == _e['nc'] or (abs(_segs[kk][0]['nc'] - _e['nc']) == 1 and _segs[kk][0].get('head') and _segs[kk][0].get('head') == _e.get('head'))) and abs(_segs[kk][0]['tw'] - _e['tw']) < 3] if _e['tb'] < 70 else []   # 1021：续页一截偶尔多认一列（空合并格），首列表头相同也算同一张表
             _prev = _cand[-1] if _cand else None   # 上一页列数、表宽相同的那张（块索引可按块分页，不一定是上一页最后一张、也不一定排到页底）
             if _prev:
                 _grp[_k] = _grp[_prev]
