@@ -184,6 +184,14 @@ if [ "$BUILD" = 1 ]; then
     out="build/B737机型理论知识笔记.docx"
     DOC_HEADER="${DOC_HEADER:-B737-NG / B737-8 机型理论知识笔记}"; export DOC_HEADER
     python3 "$TOOLKIT/make_book.py" || die "拼合订本失败"
+    # E6（2026-10-21 规则重组方案）：速查版与完整版并行构建——速查用独立的 LibreOffice profile，在后台跑，总检查前等它结束
+    QRPID=""
+    if [ -f "$TOOLKIT/quickref.py" ] && [ -z "${SYNC_SERIAL:-}" ]; then
+      ( LO_PROFILE="${TMPDIR:-/tmp}/lo-sync-profile-qr" python3 "$TOOLKIT/quickref.py" --repo "$ROOT" > build/quickref_run.log 2>&1; echo "QREXIT $?" >> build/quickref_run.log ) &
+      QRPID=$!
+      trap 'if [ -n "${QRPID:-}" ]; then pkill -P "$QRPID" 2>/dev/null; kill "$QRPID" 2>/dev/null; fi; [ -n "${LOCK:-}" ] && rm -rf "$LOCK"' EXIT   # 完整版失败中止时不留后台进程
+      info "速查版在后台并行构建（日志 build/quickref_run.log）"
+    fi
     # SD-79（2026-09-30 用户）：一页放得下的表绝不拆开——fit_fix.py 两遍排版（出 PDF 实测断表 → 强制整表同页 → 重出）
     python3 "$TOOLKIT/fit_fix.py" build/book.md "$out" || die "全书渲染失败（横版）"
     # SD-71（2026-09-29 用户）：只出横版。竖版的表格在窄版面里文字堆叠严重、不利阅读，不再产出、也不再为竖版优化排版。
@@ -258,7 +266,10 @@ PYEOF
     done || die "排版校验未通过，已中止（未提交）"
     ok "排版校验通过"
     # 速查版（SD-146）：速查/速查源.md 生成单册；放在总检查之前，让 check_layout 查到的是本次生成的速查版（2026-10-06）
-    if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/quickref.py" ]; then
+    if [ "$FULL" = 1 ] && [ -n "${QRPID:-}" ]; then
+      wait "$QRPID"
+      grep -q '^QREXIT 0$' build/quickref_run.log && grep -v '^QREXIT' build/quickref_run.log | tail -1 | sed 's/^/  /' || { warn "速查版生成失败（不影响完整版）"; tail -5 build/quickref_run.log | sed 's/^/    /'; }
+    elif [ "$FULL" = 1 ] && [ -f "$TOOLKIT/quickref.py" ]; then
       python3 "$TOOLKIT/quickref.py" --repo "$ROOT" 2>/dev/null | tail -1 | sed 's/^/  /' || warn "速查版生成失败（不影响完整版）"
     fi
     # 2026-10-16（待改清单第 6 / 16 条）：两本同表对比——同格排法不同、表头 / 列数不同报错误；收工前改到 0

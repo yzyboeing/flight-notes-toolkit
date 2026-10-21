@@ -252,7 +252,7 @@ updated: "2026-10-21"
 4. **源头校验**：`python3 ../pub/tools/check_src.py --src notes_src`、`check_blocks.py`、`check_struct.py` 全部通过。
 5. **单节预览**：`python3 ../pub/tools/preview.py <节号…>`（每节 1～2 分钟），改到 0 错误再全量。
 6. **全量重建**：`DOC_EDITION=<版本名> ./sync.sh --full "改了什么"`（有意删除速查表行时前面加 `SRC_NO_S7=1`；约 17 分钟；生成两本、跑全部检查、本地提交）。
-7. **收口**：读 `build/排版检查报告.md`——**错误必须为 0**。T13 / T14（列空白 / 该加宽）收不拢的表，在源文件表头按实测写 `w-NN` + `w-lock`，并清掉 `build/keep_force_*.txt` 里该表的旧 W / NW / BW / C 记录；孤标题页可加 `P:标题` 记录。新建议逐条看成品页，裁定写进 `排版建议裁定.json`。
+7. **收口**：读 `build/排版检查报告.md`——**错误必须为 0**。T13 / T14（列空白 / 该加宽）收不拢的表，跑 `python3 ../pub/tools/closeout.py --repo .`（先看列单，再加 `--apply`）：按实测在源文件表头写 `w-NN` + `w-lock`，并清掉 `build/keep_force_*.txt` 里该表的旧 W / NW / BW / F / C 记录；孤标题页可加 `P:标题` 记录。新建议逐条看成品页，裁定写进 `排版建议裁定.json`。
 8. **看成品页**：`pdftoppm -f N -l N -r 60 -png <pdf> out` 渲染被改动的页和用户点名的页目视检查；插图页用 `figaudit.py <pdf> <输出目录>` 拼版过目。没看过成品不能说「已验证」。
 9. **逐条验收**：优化意见记录每条填「验收」（机判的看 K-USERPIN / 检查报告，人工的写成品页码）。
 10. **记录**：见第七节第 14 条；新规则写进三份现行规则（排版 → 总表，内容 → 核心规则，流程 → 本文），来历编 SD 号写进《长期决策》。
@@ -303,7 +303,8 @@ updated: "2026-10-21"
 
 **排障经验**：
 - 与改动无关的孤页或断表，先查 `build/keep_force_*.txt` 里该表是否被标「!」（放弃整页）或有过期的 `P:` / `~N` 记录，删掉那一行再重建。
-- 「LibreOffice 没能生成 PDF」且无报错，多半是两个构建抢同一个配置目录，确认只有一个构建在跑。
+- 「LibreOffice 没能生成 PDF」且无报错，多半是两个构建抢同一个配置目录，确认只有一个构建在跑。全量重建时速查版与完整版并行（速查用独立配置 `lo-sync-profile-qr`，日志 `build/quickref_run.log`）；要排查时加 `SYNC_SERIAL=1` 改回串行。
+- fit_fix 在两种列宽状态间来回跳（trace 里 `two-state`）时，同样的源文件两次重建个别格的列宽会差几 pt，可能让一条孤字在「建议」和「错误」之间来回——属已知问题，待提速轮 E4 / E5 解决；遇到时按错误处理（借宽或 `closeout.py` 锁宽）。
 - 改生成器后先 `node --check build_docx.js`；改 docx XML 的正则不要跨越 `<w:r>`。
 - 图表并排的外层表紧挨另一张表时 LibreOffice 会把两张表并成一张——生成器已在前后加隔断段，不要删。
 
@@ -313,6 +314,8 @@ updated: "2026-10-21"
 
 ## 十、出基线与交接清单（按顺序，每步核对）
 
+**一键执行**：`python3 ~/flight-repos/pub/tools/release.py` 先做前置检查并列出每一步（不改任何东西），确认后加 `--go` 照单执行（下表第 1、3～9、11、12 步的机械部分；任一步失败即停）；变动说明正文、《基线信息》叙述、《00_先读我》记录仍手工写。
+
 | # | 步骤 | 命令 / 位置 | 验收 |
 |---|---|---|---|
 | 1 | 版本名 | `python3 ../pub/tools/release_name.py --next` | 得到「月日 R 序号」（如 1020R2）与标签 `baseline/YYYYMMDD-N` |
@@ -320,12 +323,12 @@ updated: "2026-10-21"
 | 3 | 提交与推送 | 两库 `git commit`；`../pub/tools/push_all.sh`（提示词过期先 `python3 tools/export_prompt.py`） | 私有库、工具库都显示已推送；泄漏扫描无命中 |
 | 4 | 打标签 | `git tag -a baseline/... -m "..." && git push origin baseline/...` | 推送成功后再打 |
 | 5 | 分发成品 | 桌面 `~/Desktop/飞行理论笔记整理/`、`用户改稿/基线/`（只放 Word）、`Muse交接包/`：放 `B737机型理论知识{笔记,速查}<版本名>.{docx,pdf}` | 旧版移 `~/flight-repos/_to_delete/成品旧版_<日期>/<版本>/` |
-| 6 | 对照表 | `python3 work/claude_tools/title_map.py "Muse交接包/两本标题与主题对照表_<版本名>.md"` | 未挂主题 0、无绑定速查 0 |
+| 6 | 对照表 | `python3 ~/flight-repos/pub/tools/title_map.py "Muse交接包/两本标题与主题对照表_<版本名>.md"` | 未挂主题 0、无绑定速查 0 |
 | 7 | 源码包 | `../pub/tools/lulu_bundle.sh <版本名>` | 新 bundle 生成，旧的移走 |
 | 8 | 学习系统 | `cd ~/flight-repos/study && python3 tools/study.py check && python3 tools/study.py snapshot "<云盘>/…/学习系统/笔记源快照"` | 引文错误 0 |
 | 9 | 基线信息与规则副本 | 更新 `Muse交接包/基线信息.md`（标签、提交号、页数、sha256、差别）；复制 `SKILL.md`、`排版规则总表.md`、`内容校对核心规则.md`、`规则总纲.md` | 与真本一致（K-RULES） |
 | 10 | 变动说明 | `噜噜收件箱_核对意见/Claude_<版本名>变动说明_….md`；上一版移走 | — |
-| 11 | 云盘复查 | DriveFS 数据库（`~/Library/Application Support/Google/DriveFS/<id>/metadata_sqlite_db`，连同 -wal / -shm 复制出来查）逐个比对文件大小 | 未确认 0；不同步先 `pgrep -fl "Google Drive"`，计数长时间不动就退出重开 |
+| 11 | 云盘复查 | `python3 ~/flight-repos/pub/tools/drive_verify.py <文件或文件夹…>`（读 DriveFS 元数据库副本，逐个比对已上传条目的大小） | 未确认 0；不同步先 `pgrep -fl "Google Drive"`，计数长时间不动就退出重开 |
 | 12 | 交接记录 | 《00_先读我》顶部一轮记录；`status_page.py` 重新生成《现状一页纸》；OneNote待同步记录追加一行 | — |
 
 ---
@@ -337,8 +340,8 @@ updated: "2026-10-21"
 | 一键构建（sync 自动调） | `sync.sh`、`assemble.py`、`make_book.py`、`build_docx.js`、`fit_fix.py`（含 `layout_measure.py`、`fixosc.py`、`check_splits.py`）、`quickref.py`、`autow.py`、`notes_index.py`、`release_name.py`、`verify.py` | 组装、生成两本、排版迭代、转 PDF |
 | 检查（sync 自动调） | `check_src.py`、`check_blocks.py`、`check_struct.py`（用 `fixw_fit.py`）、`check_quickref.py`、`check_pair.py`、`check_layout.py`（含 `check_userpins.py`、`fixw_grow.py`）、`check_linkage.py`、`check_rules.py`（K-RULES）、`check_figs.py`（K-L7）、`punct_rule.py`、`quickref_sync_hint.py` | 规则检查与报告 |
 | 日常手动 | `preview.py`（单节预览）、`move_items.py`（增删条目、改号）、`diff_body.py`（文字守恒）、`check_adjudicated.py`（过滤已裁定）、`check_coverage.py`（手册覆盖）、`word_sync.py`（用户改 Word 对回源文件）、`split_table.py`、`figaudit.py`（插图页拼版过目）、`status_page.py`（生成《现状一页纸》） | — |
-| 收口定宽 | `t13_lock.py`、`fixw_lock.py`（工具提速轮合并为一键收口） | T13 / T14 收不拢的表写回定宽 |
-| 出基线 | `push_all.sh`、`export_prompt.py`、`check_package.py`、`lulu_bundle.sh` | 第十节 |
+| 收口定宽 | `closeout.py`（一键：调 `t13_lock.py`、`fixw_lock.py` 并清 keep_force 旧记录） | T13 / T14 收不拢的表写回定宽 |
+| 出基线 | `release.py`（一键）、`push_all.sh`、`export_prompt.py`、`check_package.py`、`lulu_bundle.sh`、`title_map.py`、`drive_verify.py` | 第十节 |
 | OneNote | `onenote/`（流程见 `onenote/OneNote写入流程.md`） | 只在用户指令时用 |
 | 已停用 | `archive/`（见其中 README） | 不再使用 |
 

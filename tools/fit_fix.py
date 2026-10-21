@@ -21,7 +21,7 @@ MD, OUT = sys.argv[1], sys.argv[2]
 name = os.path.splitext(os.path.basename(OUT))[0]
 KF = os.path.join(os.path.dirname(OUT) or '.', 'keep_force_%s.txt' % name)
 SOF = shutil.which('soffice') or '/Applications/LibreOffice.app/Contents/MacOS/soffice'
-PROF = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'lo-sync-profile')
+PROF = os.environ.get('LO_PROFILE') or os.path.join(os.environ.get('TMPDIR', '/tmp'), 'lo-sync-profile')   # E6（2026-10-21）：两本并行构建时各用一个 LibreOffice profile
 MAXLV = 3
 
 def build(dump):

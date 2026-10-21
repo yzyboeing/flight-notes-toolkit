@@ -145,7 +145,7 @@ def main():
     _ok = OUT_DOCX + '.pdf-ok'   # 2026-10-07：fit_fix 已交出同一份 docx 的 PDF 就不重转
     if not (os.path.exists(_ok) and open(_ok).read().strip() == str(int(os.path.getmtime(OUT_DOCX))) and os.path.exists(os.path.splitext(OUT_DOCX)[0] + '.pdf')):
         sof = shutil.which('soffice') or '/Applications/LibreOffice.app/Contents/MacOS/soffice'
-        prof = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'lo-sync-profile')
+        prof = os.environ.get('LO_PROFILE') or os.path.join(os.environ.get('TMPDIR', '/tmp'), 'lo-sync-profile')
         subprocess.run([sof, '-env:UserInstallation=file://' + prof, '--headless', '--convert-to', 'pdf', '--outdir', BUILD, OUT_DOCX], capture_output=True)
     pdf = OUT_DOCX[:-5] + '.pdf'
     try:   # 与 sync.sh 全书同：打开即展开书签栏；书签去掉「（单位：…）」，正文标题保留
