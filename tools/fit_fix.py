@@ -64,6 +64,8 @@ for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
         splitok.add(l[2:])
     elif l.startswith('P:'):
         pbreak.add(l[2:])
+    elif l.startswith('B:') or l.startswith('SB:'):
+        pass   # SD-218：整表下移 / 大表拆开只在本次运行内有效（分页位置随内容变）
     elif l.startswith('WB:'):
         pass   # 1020R1（用户 2026-10-20 第 290 页「右侧有很大空间，为什么不增加表格宽度以减少行数」）：WB（加宽放弃）不再跨运行保留——旧记录让 56 张窄表永远不加宽；本次运行内仍防拉锯
     elif l.startswith('NW:'):
@@ -85,8 +87,13 @@ for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
     elif l.startswith('!'): block.add(l[1:])
     elif l.startswith('~'): lv[l[3:]] = int(l[1])
     else: lv[l] = 0
+MINR = int(os.environ.get('SPLIT_MINROWS', '1'))   # SD-218：每截至少几行数据（用户定 1）
+brk, sbk = set(), {}   # SD-218：本次运行内的整表下移（B:）与大表拆开位置（SB:）
 def save():
     with open(KF, 'w', encoding='utf-8') as f:
+        for sg in sorted(brk): f.write('B:' + sg + '\n')
+        for sg, ks in sorted(sbk.items()):
+            for k in sorted(ks): f.write('SB:%d:%s\n' % (k, sg))
         for s, v in sorted(lv.items()): f.write((('~%d:' % v) if v else '') + s + '\n')
         for s in sorted(block): f.write('!' + s + '\n')
         for (sg, k), dd in sorted(wfix.items()): f.write('W:%d:%d:%s\n' % (k, dd, sg))
@@ -127,6 +134,7 @@ MAXPASS = int(os.environ.get('FITFIX_MAXPASS', '10'))   # 预览（preview.py）
 seen_state = {}   # 2026-10-07 提前停止：记录每遍开工前的状态，状态重复＝来回拉锯，再跑也只是循环（用户：「为什么每次都这么久」）
 last_pdf = None
 prev_calm = False
+split_pending = False
 hist = []
 snap = {}
 for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多了，收敛要多几遍）
@@ -147,6 +155,8 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     onep = {t['sig'] for t in tbls if t.get('onepage')}
     changed = [s for s in list(lv) if s not in sigs]            # 表已改动：撤出
     for s in changed: del lv[s]
+    for s in [s for s in list(lv) if s not in onep]: del lv[s]   # SD-218：只有点名整页的表压缩；旧的整表 / 压缩记录撤掉
+    block &= onep
     block &= sigs
     for key in [k2 for k2 in wfix if k2[0] not in sigs]: del wfix[key]
     for key in [k2 for k2 in nwfix if k2[0] not in sigs]: del nwfix[key]
@@ -371,19 +381,24 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
         for sg in match(x['table'], tbls):
             if sg.startswith('块主题条目'):
                 if sg not in splitok: splitok.add(sg); lv.pop(sg, None); ladd += 1
-            elif sg not in block and sg not in splitok:
+            elif sg in onep and sg not in block and sg not in splitok:
                 need = 1 if x['over'] <= 1.04 else 2 if x['over'] <= 1.10 else 3 if x['over'] <= 1.2 else 0
                 if need and lv.get(sg, 0) < need: lv[sg] = max(need, lv.get(sg, 0) + (1 if sg in lv else 0)); ladd += 1
     # SD-89 只有一两行的页：上一页最后一张表收紧一级（最多到 3 级），把这一两行拉回上一页
     from layout_measure import sparse
     for x in sparse(pdf):
         sgs = match(x['table'], tbls) if x['table'] else set()
-        live = [sg for sg in sgs if sg not in block and sg not in splitok]
+        live = [sg for sg in sgs if sg in onep and sg not in block and sg not in splitok]
         for sg in live:
             if lv.get(sg, 0) < 3: lv[sg] = lv.get(sg, 0) + 1; ladd += 1
             else: block.add(sg); lv.pop(sg, None)
+        # SD-218：非点名整页的表——把它最后一行挪到下一页，和这一两行（通常是表后注）作伴，不留孤页
+        nd = {t['sig']: len(t.get('rows') or []) or t.get('ndata', 0) for t in tbls}
+        moved = False
+        for sg in sgs - onep - splitok:
+            if nd.get(sg, 0) >= 2 and not sbk.get(sg): sbk.setdefault(sg, set()).add(nd[sg] - 1); ladd += 1; moved = True
         # 表已收紧到底（或上一页没有可收紧的表）仍只剩一两行：上一页最后一个条目标题另起一页
-        if not live and x.get('head') and x['head'] not in pbreak: pbreak.add(x['head']); ladd += 1
+        if not live and not moved and x.get('head') and x['head'] not in pbreak: pbreak.add(x['head']); ladd += 1
     splitok &= sigs
     # 2026-10-15（噜噜虚拟机自检报「JSON 解析错」）：不再丢掉 check_splits 的 stderr；取最后一行 JSON（PyMuPDF 旧版会把警告打到 stdout），解析不了就把真正原因报出来
     _out, _err = _cs.communicate()   # 先收断表结果再删临时目录
@@ -393,29 +408,50 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
         sys.exit('fit_fix：断表检查 check_splits.py 没有给出结果（退出码 %s）。\n  stdout 末尾：%s\n  stderr 末尾：%s'
                  % (_cs.returncode, _out.strip()[-500:] or '（空）', _err.strip()[-1500:] or '（空）'))
     shutil.rmtree(os.path.dirname(pdf), ignore_errors=True)
-    add, up, gave, miss = 0, 0, 0, []
+    add, up, gave, miss, stuck = 0, 0, 0, [], 0
     for sp in res['splits']:
+        one_hit = match(sp['text'], tbls) & onep
+        if not sp.get('orphan') and not one_hit: continue          # SD-218：合格的跨页断点不动；点名整页的表任何断开都要处理
         cand = match(sp['text'], tbls)
         if not cand:
-            if sp['fits']: miss.append('第 %d 页（%s…）' % (sp['page'], sp['text'][:16]))
-            continue
-        for s in cand - block - splitok:   # 允许按块分页的块索引表不再强制 / 压缩
-            one = s in onep   # 源文件标 one-page 的超大表：可压到 4 级（7.5pt），不论超出多少都先试
-            if s not in lv:
-                if sp['fits']: lv[s] = 0; add += 1
-                elif one: lv[s] = 1 if sp['over'] <= 1.04 else 2 if sp['over'] <= 1.10 else 3 if sp['over'] <= 1.2 else 4 if sp['over'] <= 1.35 else 5; up += 1   # 第 108 条（2026-10-20）：从够用的最低级起压，不够再逐级升（原直接 3～5 级，速查 285 页常用速度表压到约 8pt、页下空 120pt）
-                elif sp['over'] <= 1.2 and not sp['multi']:
-                    lv[s] = 1 if sp['over'] <= 1.04 else 2 if sp['over'] <= 1.10 else 3; up += 1
-            elif lv[s] < (5 if one else MAXLV):
-                lv[s] = max(lv[s] + 1, 1); up += 1                 # 强制 / 压缩后仍断开：升一级
+            miss.append('第 %d 页（%s…）' % (sp['page'], sp['text'][:16])); continue
+        for s in cand - block - splitok:
+            if s in onep:   # 点名整页：从页首开始，仍放不下就逐级压缩（最多 7.5pt）
+                if s not in brk: brk.add(s); add += 1
+                elif lv.get(s, 0) < 5: lv[s] = lv.get(s, 0) + 1; up += 1
+                else: del lv[s]; block.add(s); gave += 1
+                continue
+            da, db = sp.get('da', 0), sp.get('db', 0)
+            if sp['fits'] and s not in brk:                         # 一页放得下：整表移到下一页
+                brk.add(s); add += 1
+            elif da < MINR and sp.get('orphan') and s not in brk and not sp.get('multi'):    # 大表页底只剩表头 / 一两行：从下一页开始
+                brk.add(s); add += 1
+            elif db < MINR or sp.get('group_tail') or sp.get('span_cut'):   # 页顶不足 / 页底是分组行 / 断在合并格：提前拆开
+                rws = next((t.get('rows') for t in tbls if t['sig'] == s and t.get('rows')), [])
+                fb = sp.get('first_b', '')
+                b0 = next((j for j, r in enumerate(rws) if fb and r['t'] and (r['t'].startswith(fb[:12]) or fb.startswith(r['t'][:12]))), None)   # 下截第一行在整表里的行号
+                if b0 is None:   # 合并格里的长文字续到了下一页、定位不到行：整张表从下一页开始
+                    if s not in brk: brk.add(s); add += 1
+                    else: stuck += 1
+                    continue
+                k = b0
+                if sp.get('span_cut'):
+                    while k > 0 and rws[k]['c']: k -= 1                 # 退到合并格那一组的首行
+                elif sp.get('group_tail'): k = b0 - 1                   # 分组行挪到下一页
+                else: k = b0 - (MINR - db)
+                ks = sbk.setdefault(s, set())
+                if k >= MINR and k not in ks: ks.add(k); up += 1
+                elif (sp['fits'] or k < MINR) and s not in brk: brk.add(s); add += 1   # 组从表首开始：整表从下一页开始（放不下的大表随后在合格处断开）
+                else: stuck += 1
             else:
-                del lv[s]; block.add(s); gave += 1                  # 8pt 仍放不下：放弃，照常分页
+                stuck += 1
     print('fit_fix 第 %d 遍：%d 页，断表 %d 处（本可整页 %d）；新增整表 %d、压缩升级 %d、放弃 %d、撤出 %d；当前压缩 %d 张；列宽调整 ±%d、放弃 %d；标题孤页处理 %d%s' % (
         n, res['pages'], len(res['splits']), sum(s['fits'] for s in res['splits']), add, up, gave, len(changed),
         sum(1 for v in lv.values() if v), wadd, wgive, ladd, ('；匹配不到：' + '、'.join(miss)) if miss else ''))
     if cadd: print('fit_fix 第 %d 遍：末行孤字收紧字距 %d 格' % (n, cadd))
     if nbw: print('fit_fix 第 %d 遍：借宽 %d 处（孤字 / 省行列向本表可借出宽度最多的列借）' % (n, nbw))
     print('fit_fix 第 %d 遍用时 %ds' % (n, time.time() - t0))
+    split_pending = bool(add or up or ladd)   # SD-218：这一遍新记的整表下移 / 拆开还没排进成品
     if not (add or up or gave or changed or wadd or wgive or ladd or cadd or nbw or fadd): break
     hist.append((res['pages'], len(res['splits']), wadd + wgive, add or up or gave or changed or ladd or cadd or nbw))   # 2026-10-16：借宽的一遍不算「状态重复」
     _sd = os.path.join(os.path.dirname(dump), 'p%d' % n); os.makedirs(_sd, exist_ok=True)   # 每遍留一份 docx / PDF，循环时挑好的那遍
@@ -434,6 +470,10 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
         print('fit_fix：连续两遍只有零星列宽微调（≤ 3 处），提前停止'); break
     prev_calm = calm
     if n == 7: print('fit_fix：7 遍仍未稳定，docx 保持本遍结果，交 check_layout 报告')
+# SD-218：循环提前停下（两种列宽状态来回跳 / 到遍数上限）时，最后一遍新记的断点修正还没排进成品——按当前记录再排一遍
+if split_pending:
+    save(); build(dump); _p = to_pdf(); shutil.copy2(_p, last_pdf); shutil.rmtree(os.path.dirname(_p), ignore_errors=True)
+    print('fit_fix：补排一遍，把最后记下的断点修正排进成品')
 save()
 # 交出最后一遍的 PDF（与 docx 同一遍生成），sync.sh / quickref.py 见到标记就不再重转一次（2026-10-07，省一次整本转换）
 if last_pdf and os.path.exists(last_pdf):
