@@ -498,6 +498,7 @@ function coreSplit(h) {
   const data = rows.slice(lead);
   const ks = [...new Set((SPLITB.get(sig) || []).filter(k => k >= 1 && k < data.length))].sort((a, b) => a - b);
   if (!ks.length) return [htmlTableCore(h)];
+  if (SIDE_FILL) { FORCE_BRK = true; try { return [htmlTableCore(h)]; } finally { FORCE_BRK = false; } }   // 1021：图表并排的表不拆（B20）——拆开记录改为整组（图 + 表）移到下一页，见 FIGSIDE 分支
   const open = (String(h).match(/^\s*<table[^>]*>/) || ['<table class="ftn">'])[0].trim();
   const ghost = tr => /^<tr\s+class="/.test(tr) ? tr.replace(/^<tr\s+class="/, '<tr class="ghost ') : tr.replace(/^<tr\b/, '<tr class="ghost"');
   const part = (a, b) => open + '\n' + rows.slice(0, lead).join('\n') + '\n' + data.map((tr, j) => (j >= a && j < b) ? tr : ghost(tr)).join('\n') + '\n</table>';
@@ -2630,13 +2631,15 @@ while (i < src.length) {
     const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
     const nb = { top: none, bottom: none, left: none, right: none };
     const lw = f0.wtw + 240, rw = TOTAL - lw;
+    const sideBrk = !PROBE && tbs.some(t => BRK_TABLES.has(t));   // 1021：fit_fix 判定并排表要下移 / 拆开时，作用到外层图表组（内层表不在正文流里，原先分页记录落空）
     if (body.length && body[body.length - 1] instanceof Table) body.push(new ParagraphX({ spacing: { before: 0, after: 60 }, children: [] }));   // 1020R1（用户截图 8：图与表的位置乱七八糟）：紧接上一张表时先隔一段，否则 LibreOffice 把两张表并成一张、外层表沿用上一张的宽度，图被表压住
-    body.push(new Table({ width: { size: TOTAL, type: WidthType.DXA }, columnWidths: RIGHT ? [rw, lw] : [lw, rw], layout: TableLayoutType.FIXED,
+    const sideTbl = new Table({ width: { size: TOTAL, type: WidthType.DXA }, columnWidths: RIGHT ? [rw, lw] : [lw, rw], layout: TableLayoutType.FIXED,
       borders: { top: none, bottom: none, left: none, right: none, insideHorizontal: none, insideVertical: none },
       rows: [new TableRow({ cantSplit: true, children: (() => {
         const figC = new TableCell({ width: { size: lw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.TOP, children: [f0.img, ...(f0.capP ? [f0.capP] : [])] });
         const tblC = new TableCell({ width: { size: rw, type: WidthType.DXA }, borders: nb, verticalAlign: VerticalAlign.TOP,   /* 第 109 条：图、表顶端对齐（原垂直居中，图高于表时表上方留大块空白） */ margins: RIGHT ? { right: 200 } : { left: 200 }, children: [...tbs, new ParagraphX('')] });
-        return RIGHT ? [tblC, figC] : [figC, tblC]; })() })] }));
+        return RIGHT ? [tblC, figC] : [figC, tblC]; })() })] });
+    body.push(sideTbl); if (sideBrk) BRK_TABLES.add(sideTbl);
     body.push(new ParagraphX({ spacing: { before: 0, after: 60 }, children: [] }));   // 1020R1：并排表后紧跟下一张表时 LibreOffice 把两张并成一张，外层表按下一张表的列宽排窄、图被压住（1.14-1 刹车压力图）——后面也隔一段
     continue;
   }
