@@ -236,9 +236,11 @@ def main():
                 x = _P(x); sh = [x[i:i + 4] for i in range(len(x) - 3)]
                 return sum(1 for y in sh if y in _NS) / max(1, len(sh))
             _lost = 0
+            try: _DEL = set(json.load(open(os.path.join(ROOT, '速查删行台账.json'), encoding='utf-8')).get('行', {}))
+            except (OSError, ValueError): _DEL = set()
             for m in re.finditer(r'(?ms)^### (.+?)\n(.*?)(?=^### |^## |^%%PART%%|\Z)', _old):
                 for r in re.findall(r'<tr.*?</tr>', m.group(2), re.S):
-                    if len(_P(r)) >= 8 and _rc(r) < 0.6:
+                    if len(_P(r)) >= 8 and _rc(r) < 0.6 and _P(r)[:30] not in _DEL:   # 2026-10-21：《速查删行台账.json》登记的已确认删除不报
                         _lost += 1
                         if _lost <= 20: errors.append('S7 速查「%s」原有表行在新文件里找不到（相对 %s）：「%s」' % (m.group(1)[:20], _base, _P(r)[:30]))
             if _lost > 20: errors.append('S7 …共 %d 行' % _lost)
