@@ -18,7 +18,7 @@
 verify.py 查的是排版结果（空白页、跨页、标签泄漏到 PDF），
 本脚本查的是源头。两者互补，不能互相替代。
 """
-import json, io, os, re, sys, glob, collections
+import json, io, os, re, subprocess, sys, glob, collections
 
 def _arg(flag, default):
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
@@ -297,6 +297,19 @@ def main():
             if not _m: continue
             _miss += ['%s %s' % (_m.group(1), n) for n in re.findall(r'(?m)^### (\d+)\. ', io.open(f, encoding='utf-8').read()) if '%s %s' % (_m.group(1), n) not in _top]
         if _miss: errors.append('S9 %d 个块没挂进 按主题查索引.json 的任何主题：%s' % (len(_miss), '、'.join(_miss[:20])))
+    # S10 引用的图都已入库（2026-10-21：figures/nd/ 10 张 ND 符号图被 .gitignore 的 *.png 挡掉，bundle 与 GitHub 备份缺图，换机 / 噜噜重建会失败；10-14 同类问题第二次出现）
+    _root = os.path.dirname(os.path.abspath(SRC.rstrip('/')))
+    try:
+        _trk = set(subprocess.run(['git', '-C', _root, 'ls-files', '-z'], capture_output=True, text=True).stdout.split('\0'))
+    except Exception:
+        _trk = None
+    if _trk and len(_trk) > 1:
+        _refs = set()
+        for f in files + [os.path.join(_root, '速查', '速查源.md')]:
+            if os.path.exists(f):
+                _refs |= {'notes_src/' + m for m in re.findall(r'figures/[^\s|)\]"\'<>]+\.(?:png|jpe?g|svg)', io.open(f, encoding='utf-8').read())}
+        _un = sorted(r for r in _refs if r not in _trk)
+        if _un: errors.append('S10 %d 张引用的图没有入库（git add -f，并检查 .gitignore 是否挡掉了子目录）：%s' % (len(_un), '、'.join(_un[:10])))
     # 约定保留（私有库根目录《两型混写保留.json》，2026-10-09）：按「文件 + 去标签前 24 字」匹配，只计数不列为待处理
     keepf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '两型混写保留.json')
     keep = set()
