@@ -265,7 +265,7 @@ updated: "2026-10-21"
 | 5 | 分发成品 | 桌面 `~/Desktop/飞行理论笔记整理/`、`用户改稿/基线/`（只放 Word）、`Muse交接包/`：放 `B737机型理论知识{笔记,速查}<版本名>.{docx,pdf}` | 旧版移 `~/flight-repos/_to_delete/成品旧版_<日期>/<版本>/` |
 | 6 | 对照表 | `python3 ~/flight-repos/pub/tools/title_map.py "Muse交接包/两本标题与主题对照表_<版本名>.md"` | 未挂主题 0、无绑定速查 0 |
 | 7 | 源码包 | `../pub/tools/lulu_bundle.sh <版本名>` | 新 bundle 生成，旧的移走 |
-| 8 | 学习系统 | `cd ~/flight-repos/study && python3 tools/study.py check && python3 tools/study.py snapshot "<云盘>/…/学习系统/笔记源快照"` | 引文错误 0 |
+| 8 | 学习系统（SD-220：**默认不做**，只在用户指令更新学习系统时做；release.py 加 `--study`） | `cd ~/flight-repos/study && python3 tools/study.py check && python3 tools/study.py snapshot "<云盘>/…/学习系统/笔记源快照"` | 引文错误 0 |
 | 9 | 基线信息与规则副本 | 更新 `Muse交接包/基线信息.md`（标签、提交号、页数、sha256、差别）；复制 `SKILL.md`、`排版规则总表.md`、`内容校对核心规则.md`、`规则总纲.md` | 与真本一致（K-RULES） |
 | 10 | 变动说明 | `噜噜收件箱_核对意见/Claude_<版本名>变动说明_….md`；上一版移走 | — |
 | 11 | 云盘复查 | `python3 ~/flight-repos/pub/tools/drive_verify.py <文件或文件夹…>`（读 DriveFS 元数据库副本，逐个比对已上传条目的大小） | 未确认 0；不同步先 `pgrep -fl "Google Drive"`，计数长时间不动就退出重开 |
