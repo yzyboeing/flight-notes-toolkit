@@ -6,11 +6,11 @@
       python3 release.py --go --study   # 另做第 ⑧ 步学习系统（SD-220：只在用户指令更新学习系统时加）
 前提：已按总纲第八节全量重建并收口（DOC_EDITION=<版本名> ./sync.sh --full），build/ 里是本次成品。
 
-自动做：①版本名 ②前置检查（排版报告错误 0、规则自检、两库无未提交改动、成品版本号对得上）③推送两库（push_all.sh）
+自动做：①版本名 ②前置检查（排版报告错误 0、规则自检、两库无未提交改动、成品版本号对得上、两本 verify、整本缩略图过目登记 SD-221）③推送两库（push_all.sh）
 ④推送成功后打标签并推标签 ⑤分发成品到桌面 / 用户改稿基线 / 交接包（旧版移 _to_delete）⑥对照表 ⑦源码包
 ⑧学习系统 check + snapshot（SD-220：默认跳过，用户指令时加 --study）⑨更新《基线信息》表格各行 ⑩重新生成《现状一页纸》⑪云盘复查（未确认的过几分钟再跑 drive_verify.py）。
 不自动做（脚本最后提醒）：变动说明正文、《基线信息》「本基线新增」叙述、《00_先读我》本轮记录、OneNote（只在用户指令时）。"""
-import datetime, glob, hashlib, os, re, shutil, subprocess, sys
+import datetime, glob, hashlib, json, os, re, shutil, subprocess, sys
 
 H = os.path.expanduser('~')
 G = os.path.join(H, 'flight-repos', 'gh-private')
@@ -82,6 +82,17 @@ for s in STEMS:
     for e in ('docx', 'pdf'):
         if not os.path.exists(os.path.join(G, 'build', '%s.%s' % (s, e))): probs.append('缺 build/%s.%s' % (s, e))
 if subprocess.run(['git', 'rev-parse', '-q', '--verify', 'refs/tags/' + TAG], cwd=G, capture_output=True).returncode == 0: probs.append('标签 %s 已存在' % TAG)
+# SD-221（2026-10-21 用户：「应该是你自己审核的时候就发现并优化」）：两本都过 verify.py（空白页等），且整本缩略图已逐张过目并登记
+for s in STEMS:
+    pdf = os.path.join(G, 'build', s + '.pdf')
+    if os.path.exists(pdf) and subprocess.run([sys.executable, os.path.join(T, 'verify.py'), pdf], capture_output=True).returncode:
+        probs.append('%s 没过 verify.py（空白页 / 标签泄漏等）' % s)
+try:
+    _rec = json.load(open(os.path.join(G, 'build', '整本过目.json'), encoding='utf-8'))
+    _cur = {s: hashlib.sha256(open(os.path.join(G, 'build', s + '.pdf'), 'rb').read()).hexdigest()[:16] for s in STEMS}
+    if _rec.get('版本') != ED or _rec.get('成品') != _cur: probs.append('整本过目登记与当前成品不符——跑 contact_sheet.py 逐张看完再 --done')
+except Exception:
+    probs.append('没有整本过目登记——python3 %s/contact_sheet.py --repo %s，逐张看完、存疑页处理完后 --done' % (T, G))
 for p in probs: print('  ✗ ' + p)
 if probs: sys.exit('前置检查没过，未做任何改动')
 print('  ✓ 全部通过')

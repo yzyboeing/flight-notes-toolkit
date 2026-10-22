@@ -237,6 +237,7 @@ updated: "2026-10-21"
 13. **OneNote 只在用户指令时更新**：每次写入都记进桌面《OneNote待同步记录.md》；一轮定稿后整本重写（字体 FangSong），旧分区接口删不掉的请用户手删。
 14. **每轮结束写交接**：本轮全部工作写进《00_先读我_AI交接.md》顶部（用户原话、决定、改了什么、提交号、验证结果、遗留；只留最近三轮，更早的移进 `历史记录/`），并跑 `python3 ~/flight-repos/pub/tools/status_page.py` 重新生成《现状一页纸》。
 15. **一律用中文**；结论先行；不附和——用户的判断错了就直说，给理由和替代方案；区分事实、推断、建议和无法核实的部分。
+16. **主动完善流程与检查（SD-221，2026-10-21 用户：「对整个流程应该是越来越完善，越来越高效……你也可以自己主动去发现并完善流程和检查机制」「以后不要再出现这种情况，应该是你自己审核的时候就发现并优化」）**：交付前自己先审——出基线前整本缩略图逐张过目（第十节第 2b 步），存疑页逐页放大并优化；用户指出的问题先问「检查器为什么没报、流程哪一步漏了」，补检查或工具，让同类问题以后自动拦下；发现流程慢、重复、易错的环节，主动提出并落实改进（改动写进交接与本总纲）。
 
 ---
 
@@ -320,6 +321,7 @@ updated: "2026-10-21"
 |---|---|---|---|
 | 1 | 版本名 | `python3 ../pub/tools/release_name.py --next` | 得到「月日 R 序号」（如 1020R2）与标签 `baseline/YYYYMMDD-N` |
 | 2 | 重建收口 | 第八节第 6～9 步 | 错误 0、新建议已裁定、验收全打勾 |
+| 2b | 整本过目（SD-221） | `python3 ~/flight-repos/pub/tools/contact_sheet.py --repo .`：两本每页缩成小图（build/整本过目/，每张 40 页），逐张看；自动列出的空白页 / 半空页逐页放大；处理完 `--done` 登记 | 空白页 0；半空页逐页看过、能优化的已优化；release.py 前置检查核登记与当前成品一致、两本 verify 通过 |
 | 3 | 提交与推送 | 两库 `git commit`；`../pub/tools/push_all.sh`（提示词过期先 `python3 tools/export_prompt.py`） | 私有库、工具库都显示已推送；泄漏扫描无命中 |
 | 4 | 打标签 | `git tag -a baseline/... -m "..." && git push origin baseline/...` | 推送成功后再打 |
 | 5 | 分发成品 | 桌面 `~/Desktop/飞行理论笔记整理/`、`用户改稿/基线/`（只放 Word）、`Muse交接包/`：放 `B737机型理论知识{笔记,速查}<版本名>.{docx,pdf}` | 旧版移 `~/flight-repos/_to_delete/成品旧版_<日期>/<版本>/` |
@@ -341,7 +343,7 @@ updated: "2026-10-21"
 | 检查（sync 自动调） | `check_src.py`、`check_blocks.py`、`check_struct.py`（用 `fixw_fit.py`）、`check_quickref.py`、`check_pair.py`、`check_layout.py`（含 `check_userpins.py`、`fixw_grow.py`）、`check_linkage.py`、`check_rules.py`（K-RULES）、`check_figs.py`（K-L7）、`punct_rule.py`、`quickref_sync_hint.py` | 规则检查与报告 |
 | 日常手动 | `preview.py`（单节预览）、`move_items.py`（增删条目、改号）、`diff_body.py`（文字守恒）、`check_adjudicated.py`（过滤已裁定）、`check_coverage.py`（手册覆盖）、`word_sync.py`（用户改 Word 对回源文件）、`split_table.py`、`figaudit.py`（插图页拼版过目）、`status_page.py`（生成《现状一页纸》） | — |
 | 收口定宽 | `closeout.py`（一键：调 `t13_lock.py`、`fixw_lock.py` 并清 keep_force 旧记录） | T13 / T14 收不拢的表写回定宽 |
-| 出基线 | `release.py`（一键）、`push_all.sh`、`export_prompt.py`、`check_package.py`、`lulu_bundle.sh`、`title_map.py`、`drive_verify.py` | 第十节 |
+| 出基线 | `release.py`（一键）、`contact_sheet.py`（整本缩略图过目，SD-221）、`push_all.sh`、`export_prompt.py`、`check_package.py`、`lulu_bundle.sh`、`title_map.py`、`drive_verify.py` | 第十节 |
 | OneNote | `onenote/`（流程见 `onenote/OneNote写入流程.md`） | 只在用户指令时用 |
 | 已停用 | `archive/`（见其中 README） | 不再使用 |
 
@@ -377,6 +379,7 @@ updated: "2026-10-21"
 | 整表替换补行 | 通用表头误配、丢行 | 逐行合并；补完跑 K-S7 |
 | 云盘复制后只看 md5 | 上传中悄悄丢文件 | 按 DriveFS 数据库逐个比对 |
 | 先打标签后推送 | 分叉 | 推送成功后再打标签 |
+| 只看检查器报告、不整本过目 | 速查 1021R1 第 15 页空白页（verify 只去「第 N 页」、速查不跑 verify）被用户先看到 | 两本都跑 verify；出基线前整本缩略图过目（SD-221）；用户指出的问题先补检查 |
 
 ---
 
