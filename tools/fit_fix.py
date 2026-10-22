@@ -89,6 +89,7 @@ for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
     else: lv[l] = 0
 MINR = int(os.environ.get('SPLIT_MINROWS', '1'))   # SD-218：每截至少几行数据（用户定 1）
 brk, sbk = set(), {}   # SD-218：本次运行内的整表下移（B:）与大表拆开位置（SB:）
+sbfree = set()   # 2026-10-21：本次运行里撤销过强制拆开的表——不再对它强制拆开（防来回）
 def save():
     with open(KF, 'w', encoding='utf-8') as f:
         for sg in sorted(brk): f.write('B:' + sg + '\n')
@@ -396,7 +397,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
         nd = {t['sig']: len(t.get('rows') or []) or t.get('ndata', 0) for t in tbls}
         moved = False
         for sg in sgs - onep - splitok:
-            if nd.get(sg, 0) >= 2 and not sbk.get(sg): sbk.setdefault(sg, set()).add(nd[sg] - 1); ladd += 1; moved = True
+            if nd.get(sg, 0) >= 2 and not sbk.get(sg) and sg not in sbfree: sbk.setdefault(sg, set()).add(nd[sg] - 1); ladd += 1; moved = True
         # 表已收紧到底（或上一页没有可收紧的表）仍只剩一两行：上一页最后一个条目标题另起一页
         if not live and not moved and x.get('head') and x['head'] not in pbreak: pbreak.add(x['head']); ladd += 1
     splitok &= sigs
@@ -407,6 +408,29 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     except (IndexError, ValueError):
         sys.exit('fit_fix：断表检查 check_splits.py 没有给出结果（退出码 %s）。\n  stdout 末尾：%s\n  stderr 末尾：%s'
                  % (_cs.returncode, _out.strip()[-500:] or '（空）', _err.strip()[-1500:] or '（空）'))
+    # 2026-10-21（用户：节末尾行收回上一页）：复查本次运行里早先做的强制拆开（SB）——后面几遍别处调整、内容前移后，
+    # 当初的原因（页底放不下 / 表后注成孤页）可能已经没了，强制拆开反而留下只有表尾的半空页。
+    # 拆开后下一页只剩这截表尾（下面没有别的内容），而上一页的空位放得下它（续页表头不算）→ 撤销，本次运行不再对这张表强制拆开。
+    unsb = 0
+    try:
+        import pymupdf
+        _d = pymupdf.open(pdf)
+        def _span(pg):
+            bl = [b for b in pg.get_text('blocks') if b[4].strip()]
+            ft = [b for b in bl if re.search(r'第\s*\d+\s*页\s*$', b[4].strip())]
+            fy = min((b[1] for b in ft), default=pg.rect.height - 36)
+            body = [b for b in bl if b[3] < fy - 2]
+            return (min((b[1] for b in body), default=fy), max((b[3] for b in body), default=0), fy)
+        for sp in res['splits']:
+            if sp['page'] >= len(_d): continue
+            for s in (match(sp['text'], tbls) & set(sbk)) - sbfree:
+                _, a_bot, a_fy = _span(_d[sp['page'] - 1]); b_top, b_bot, _ = _span(_d[sp['page']])
+                tail = b_bot - b_top - 20                           # 续页表头约 20pt，收回后不再重复
+                if b_bot < 0.45 * _d[0].rect.height and a_fy - 8 - a_bot >= tail:
+                    sbk.pop(s, None); sbfree.add(s); unsb += 1
+    except Exception as e:
+        print('fit_fix：复查强制拆开出错（跳过）：%s' % e)
+    if unsb: print('fit_fix 第 %d 遍：撤销过时的强制拆开 %d 处（表尾收回上一页）' % (n, unsb))
     shutil.rmtree(os.path.dirname(pdf), ignore_errors=True)
     add, up, gave, miss, stuck = 0, 0, 0, [], 0
     for sp in res['splits']:
@@ -439,6 +463,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
                     while k > 0 and rws[k]['c']: k -= 1                 # 退到合并格那一组的首行
                 elif sp.get('group_tail'): k = b0 - 1                   # 分组行挪到下一页
                 else: k = b0 - (MINR - db)
+                if s in sbfree: stuck += 1; continue          # 2026-10-21：撤销过强制拆开的表，本次运行不再拆
                 ks = sbk.setdefault(s, set())
                 if k >= MINR and k not in ks: ks.add(k); up += 1
                 elif (sp['fits'] or k < MINR) and s not in brk: brk.add(s); add += 1   # 组从表首开始：整表从下一页开始（放不下的大表随后在合格处断开）
@@ -451,8 +476,8 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     if cadd: print('fit_fix 第 %d 遍：末行孤字收紧字距 %d 格' % (n, cadd))
     if nbw: print('fit_fix 第 %d 遍：借宽 %d 处（孤字 / 省行列向本表可借出宽度最多的列借）' % (n, nbw))
     print('fit_fix 第 %d 遍用时 %ds' % (n, time.time() - t0))
-    split_pending = bool(add or up or ladd)   # SD-218：这一遍新记的整表下移 / 拆开还没排进成品
-    if not (add or up or gave or changed or wadd or wgive or ladd or cadd or nbw or fadd): break
+    split_pending = bool(add or up or ladd or unsb)   # SD-218：这一遍新记的整表下移 / 拆开还没排进成品
+    if not (add or up or gave or changed or wadd or wgive or ladd or cadd or nbw or fadd or unsb): break
     hist.append((res['pages'], len(res['splits']), wadd + wgive, add or up or gave or changed or ladd or cadd or nbw))   # 2026-10-16：借宽的一遍不算「状态重复」
     _sd = os.path.join(os.path.dirname(dump), 'p%d' % n); os.makedirs(_sd, exist_ok=True)   # 每遍留一份 docx / PDF，循环时挑好的那遍
     snap[n] = (wadd + wgive + cadd, shutil.copy2(OUT, os.path.join(_sd, 'o.docx')), shutil.copy2(last_pdf, os.path.join(_sd, 'o.pdf')))
