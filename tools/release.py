@@ -3,11 +3,12 @@
 
 用法：python3 release.py            # 只做前置检查并列出每一步要做什么（不改任何东西）
       python3 release.py --go       # 照单执行；任一步失败立即停下，后面的步骤不做
+      python3 release.py --go --study   # 另做第 ⑧ 步学习系统（SD-220：只在用户指令更新学习系统时加）
 前提：已按总纲第八节全量重建并收口（DOC_EDITION=<版本名> ./sync.sh --full），build/ 里是本次成品。
 
 自动做：①版本名 ②前置检查（排版报告错误 0、规则自检、两库无未提交改动、成品版本号对得上）③推送两库（push_all.sh）
 ④推送成功后打标签并推标签 ⑤分发成品到桌面 / 用户改稿基线 / 交接包（旧版移 _to_delete）⑥对照表 ⑦源码包
-⑧学习系统 check + snapshot ⑨更新《基线信息》表格各行 ⑩重新生成《现状一页纸》⑪云盘复查（未确认的过几分钟再跑 drive_verify.py）。
+⑧学习系统 check + snapshot（SD-220：默认跳过，用户指令时加 --study）⑨更新《基线信息》表格各行 ⑩重新生成《现状一页纸》⑪云盘复查（未确认的过几分钟再跑 drive_verify.py）。
 不自动做（脚本最后提醒）：变动说明正文、《基线信息》「本基线新增」叙述、《00_先读我》本轮记录、OneNote（只在用户指令时）。"""
 import datetime, glob, hashlib, os, re, shutil, subprocess, sys
 
@@ -118,7 +119,9 @@ run([os.path.join(T, 'lulu_bundle.sh'), ED])
 
 # ⑧ 学习系统
 step(8, '学习系统 check + snapshot')
-if os.path.isdir(STUDY):
+if '--study' not in sys.argv:   # SD-220（2026-10-21 用户）：「学习系统以后都不要同步更新了除非我指令更新」
+    print('  · 默认跳过（SD-220）；用户指令更新学习系统时加 --study')
+elif os.path.isdir(STUDY):
     run([sys.executable, 'tools/study.py', 'check'], cwd=STUDY)
     run([sys.executable, 'tools/study.py', 'snapshot', SNAP], cwd=STUDY)
 else:
