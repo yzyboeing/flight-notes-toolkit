@@ -233,7 +233,7 @@ updated: "2026-10-21"
 9. **排版问题调两轮不收敛就停**：个别孤字、略多一行接受并记一句；影响阅读的给 2～3 个做法与代价、标出推荐，用户定了再动。
 10. **交付按需**：全书 PDF / Word、OneNote 只在用户要求时给；用户说「最新文件」只给速查 PDF；完整版和 Word 点名才给。
 11. **交接走谷歌云盘**（`~/Library/CloudStorage/GoogleDrive-yzyboeing@gmail.com/My Drive/03_AI协作交接/`，桌面 `Muse交接包`、`噜噜收件箱*` 是它的链接）：写完等上传确认再通知；复制后 md5 对不算数，上传后按 DriveFS 数据库逐个比对大小（第十节）。
-12. **测试别在正用的仓库**：会真跑构建的测试放临时副本；先查 `ps` 有没有别的构建在跑。合并提交前查是否已推送；标签在主线推送成功后再打。
+12. **测试别在正用的仓库**：会真跑构建的测试放临时副本——用 `pub/tools/sandbox.sh new <目录>` 一键建沙盒、`sandbox.sh run <目录> ./sync.sh --full "…"` 构建（隔离 HOME，不写桌面 / 云盘）、`sandbox.sh drop` 拆；先查 `ps` 有没有别的构建在跑。合并提交前查是否已推送；标签在主线推送成功后再打。
 13. **OneNote 只在用户指令时更新**：每次写入都记进桌面《OneNote待同步记录.md》；一轮定稿后整本重写（字体 FangSong），旧分区接口删不掉的请用户手删。
 14. **每轮结束写交接**：本轮全部工作写进《00_先读我_AI交接.md》顶部（用户原话、决定、改了什么、提交号、验证结果、遗留；只留最近三轮，更早的移进 `历史记录/`），并跑 `python3 ~/flight-repos/pub/tools/status_page.py` 重新生成《现状一页纸》。
 15. **一律用中文**；结论先行；不附和——用户的判断错了就直说，给理由和替代方案；区分事实、推断、建议和无法核实的部分。
@@ -341,7 +341,7 @@ updated: "2026-10-21"
 |---|---|---|
 | 一键构建（sync 自动调） | `sync.sh`、`assemble.py`、`make_book.py`、`build_docx.js`、`fit_fix.py`（含 `layout_measure.py`、`fixosc.py`、`check_splits.py`）、`quickref.py`、`autow.py`、`notes_index.py`、`release_name.py`、`verify.py` | 组装、生成两本、排版迭代、转 PDF |
 | 检查（sync 自动调） | `check_src.py`、`check_blocks.py`、`check_struct.py`（用 `fixw_fit.py`）、`check_quickref.py`、`check_pair.py`、`check_layout.py`（含 `check_userpins.py`、`fixw_grow.py`）、`check_linkage.py`、`check_rules.py`（K-RULES）、`check_figs.py`（K-L7）、`punct_rule.py`、`quickref_sync_hint.py` | 规则检查与报告 |
-| 日常手动 | `preview.py`（单节预览）、`move_items.py`（增删条目、改号）、`diff_body.py`（文字守恒）、`check_adjudicated.py`（过滤已裁定）、`check_coverage.py`（手册覆盖）、`word_sync.py`（用户改 Word 对回源文件）、`split_table.py`、`figaudit.py`（插图页拼版过目）、`status_page.py`（生成《现状一页纸》） | — |
+| 日常手动 | `preview.py`（单节预览）、`sandbox.sh`（一键沙盒：两库 worktree + 隔离 HOME）、`move_items.py`（增删条目、改号）、`diff_body.py`（文字守恒）、`check_adjudicated.py`（过滤已裁定）、`check_coverage.py`（手册覆盖）、`word_sync.py`（用户改 Word 对回源文件）、`split_table.py`、`figaudit.py`（插图页拼版过目）、`status_page.py`（生成《现状一页纸》） | — |
 | 收口定宽 | `closeout.py`（一键：调 `t13_lock.py`、`fixw_lock.py` 并清 keep_force 旧记录；报告里「fit_fix 未加宽」的 T14 按页码找表、清它的旧收窄 / 加宽放弃记录） | T13 / T14 收不拢的表写回定宽或解除旧记录 |
 | 出基线 | `release.py`（一键）、`contact_sheet.py`（整本缩略图过目，SD-221）、`push_all.sh`、`export_prompt.py`、`check_package.py`、`lulu_bundle.sh`、`title_map.py`、`drive_verify.py` | 第十节 |
 | OneNote | `onenote/`（流程见 `onenote/OneNote写入流程.md`） | 只在用户指令时用 |
