@@ -272,6 +272,11 @@ PYEOF
     elif [ "$FULL" = 1 ] && [ -f "$TOOLKIT/quickref.py" ]; then
       python3 "$TOOLKIT/quickref.py" --repo "$ROOT" 2>/dev/null | tail -1 | sed 's/^/  /' || warn "速查版生成失败（不影响完整版）"
     fi
+    # 2026-10-21：速查版也跑 verify.py（空白页 / 标签泄漏等）；原先只查完整版，速查 1021R1 第 15 页空白页漏报
+    QRPDF="build/B737机型理论知识速查.pdf"
+    if [ "$FULL" = 1 ] && [ -f "$QRPDF" ]; then
+      if QV="$(python3 "$TOOLKIT/verify.py" "$QRPDF" 2>&1)"; then ok "速查版校验通过"; else warn "速查版校验未通过（收工前须改到 0）："; printf '%s\n' "$QV" | sed 's/^/    /'; fi
+    fi
     # 2026-10-16（待改清单第 6 / 16 条）：两本同表对比——同格排法不同、表头 / 列数不同报错误；收工前改到 0
     if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/check_pair.py" ]; then
       if python3 "$TOOLKIT/check_pair.py" --repo "$ROOT" | sed 's/^/  /'; then :; else warn "两本同表有错误 → build/两本同表对照报告.md（收工前须改到 0）"; fi

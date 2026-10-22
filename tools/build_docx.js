@@ -2400,8 +2400,8 @@ function bodyTopicPage() {
       kids.push(new InternalHyperlink({ anchor: n.id, children: [new TextRun({ text: n.text.replace(/ /g, '\u00A0'), font: FF_HEAD, size: 18, bold: true, color: H2_C, underline: { type: UnderlineType.SINGLE, color: H2_C } })] })); });   // 2026-10-16 用户：「01-09 下面加一根横线……让人知道点击就可以跳转」   // 段名内不折行
     out.splice(NAV_AT, 0, new ParagraphX({ keepNext: true, alignment: AlignmentType.CENTER, spacing: { before: 100, after: 40, line: 260 }, children: kids }));
   }
-  /* 网格最后一行贴近页底时，表后必需的那个段落会溢出成一张空白页：让它只占 1pt，并收掉最后一行的底部留白 */
-  out.push(new ParagraphX({ spacing: { before: 0, after: 0, line: 20, lineRule: 'exact' }, children: [new TextRun({ text: '', size: 2 })] }));
+  /* 2026-10-21：原「网格表后补 1pt 段落」已删——10-11 改报栏式分栏后末尾不是表格，这个段落落在分栏节之后，
+     目录排满页底时被挤成单独一页、下一节再段前分页，留下空白页（速查 1021R1 第 15 页） */
   TOPICS_DONE = true;
   if (bad) console.error('按主题查索引：共 ' + bad + ' 处引用找不到对应的块');
   return out;
