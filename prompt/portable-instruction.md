@@ -282,7 +282,7 @@ updated: "2026-10-21"
 | 一键构建（sync 自动调） | `sync.sh`、`assemble.py`、`make_book.py`、`build_docx.js`、`fit_fix.py`（含 `layout_measure.py`、`fixosc.py`、`check_splits.py`）、`quickref.py`、`autow.py`、`notes_index.py`、`release_name.py`、`verify.py` | 组装、生成两本、排版迭代、转 PDF |
 | 检查（sync 自动调） | `check_src.py`、`check_blocks.py`、`check_struct.py`（用 `fixw_fit.py`）、`check_quickref.py`、`check_pair.py`、`check_layout.py`（含 `check_userpins.py`、`fixw_grow.py`）、`check_linkage.py`、`check_rules.py`（K-RULES）、`check_figs.py`（K-L7）、`punct_rule.py`、`quickref_sync_hint.py` | 规则检查与报告 |
 | 日常手动 | `preview.py`（单节预览）、`move_items.py`（增删条目、改号）、`diff_body.py`（文字守恒）、`check_adjudicated.py`（过滤已裁定）、`check_coverage.py`（手册覆盖）、`word_sync.py`（用户改 Word 对回源文件）、`split_table.py`、`figaudit.py`（插图页拼版过目）、`status_page.py`（生成《现状一页纸》） | — |
-| 收口定宽 | `closeout.py`（一键：调 `t13_lock.py`、`fixw_lock.py` 并清 keep_force 旧记录） | T13 / T14 收不拢的表写回定宽 |
+| 收口定宽 | `closeout.py`（一键：调 `t13_lock.py`、`fixw_lock.py` 并清 keep_force 旧记录；报告里「fit_fix 未加宽」的 T14 按页码找表、清它的旧收窄 / 加宽放弃记录） | T13 / T14 收不拢的表写回定宽或解除旧记录 |
 | 出基线 | `release.py`（一键）、`contact_sheet.py`（整本缩略图过目，SD-221）、`push_all.sh`、`export_prompt.py`、`check_package.py`、`lulu_bundle.sh`、`title_map.py`、`drive_verify.py` | 第十节 |
 | OneNote | `onenote/`（流程见 `onenote/OneNote写入流程.md`） | 只在用户指令时用 |
 | 已停用 | `archive/`（见其中 README） | 不再使用 |
