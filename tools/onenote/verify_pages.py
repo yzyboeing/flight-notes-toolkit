@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """verify_pages.py —— 写入后逐页读回核对（2026-10-06）：全文（含表格）逐字、每格对齐与圆点、表宽。
-用法：python3 verify_pages.py --docx <基线docx> [--chapters 1-5]
+用法：python3 verify_pages.py --docx <基线docx> [--chapters 1-6]
 对比对象：同一基线的转换结果（onenote_conv.convert）。插图图注只在读回里有，比对时去掉。"""
 import argparse, html, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -24,7 +24,7 @@ def cells(h):
 def widths(h):   # 每张表首行各格宽度之和（OneNote 把合并格拆成单格，格数会变，总宽不变；读回为 width:162，无 px）
     return [sum(int(x) for x in re.findall(r'<td\b[^>]*?width:(\d+)', re.search(r'<tr\b.*?</tr>', tb, re.S).group(0)))
             for tb in re.findall(r'<table\b.*?</table>', h, re.S) if '<tr' in tb]
-ap = argparse.ArgumentParser(); ap.add_argument('--docx', required=True); ap.add_argument('--chapters', default='1-5'); a = ap.parse_args()
+ap = argparse.ArgumentParser(); ap.add_argument('--docx', required=True); ap.add_argument('--chapters', default='1-6'); a = ap.parse_args()
 lo, hi = a.chapters.split('-'); want = [NUM[str(n)] for n in range(int(lo), int(hi) + 1)]
 secs, _ = locate(NB_ID); bad = 0
 for p in [p for p in split(a.docx) if p['chap'] in want]:

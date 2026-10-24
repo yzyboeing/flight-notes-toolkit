@@ -18,13 +18,18 @@ def skey(k):
     a, b = k.split(' '); x, y = a.split('.'); return (int(x), int(y), b)
 order.sort(key=skey)
 # 完整版主题
-full = json.load(io.open(R + '/按主题查索引.json', encoding='utf-8'))
+# 2026-10-23（SD-233）：完整版主题取「速查目录」（qr_directory.py 现算；只记直接项），原「按主题查索引.json」已撤
+import subprocess, tempfile
+_tmp = os.path.join(tempfile.mkdtemp(), 'd.json')
+subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'qr_directory.py'), '--repo', R, '--out', _tmp], check=True, capture_output=True)
+full = json.load(io.open(_tmp, encoding='utf-8'))
 fth = {}
 for d in full:
     for t in d['themes']:
         for it in t['items']:
-            k, _, alias = it.partition('|')   # 「块号|主题目录显示标题」
-            fth.setdefault(k, []).append('%s›%s%s' % (d['dim'], t['theme'], '（目录显示为「%s」）' % alias if alias else ''))
+            p = it.split('|')
+            if len(p) > 2 and p[2] == 'x': continue
+            fth.setdefault(p[0], []).append('%s›%s' % (d['dim'], t['theme']))
 # 速查条目
 q = io.open(R + '/速查/速查源.md', encoding='utf-8').read()
 qj = json.load(io.open(R + '/速查/速查按主题查.json', encoding='utf-8'))

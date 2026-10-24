@@ -30,6 +30,8 @@ SKILL.md                       标准 Skill 入口（name: flight-theory-notes�
 prompt/portable-instruction.md 规则总纲（硬约束、结构、工作方式、流程、验证、出基线）
 prompt/layout-checklist.md     排版规则总表（规则与检查器规则号）
 prompt/content-core.md         内容校对核心规则
+prompt/lessons.md              经验与教训（现象 → 根因 → 规则 → 拦截）
+prompt/decisions-index.md      长期决策索引（自动生成）
 prompt/SKILL.md                自动导出的完整 Prompt（兼容旧网址）
 tools/assemble.py     从源文件组装章节 md 与全书 md
 tools/build_docx.js   md + 内嵌 HTML 表格 → A4 横版 docx

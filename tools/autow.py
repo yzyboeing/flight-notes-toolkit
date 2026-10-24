@@ -69,8 +69,8 @@ def from_report():
     hits = re.findall(r'\[T1[34]\] (全书|单册) 第 (\d+) 页：[^\n]*?第 (\d+) 列（「([^」]*)」）[^\n]*?空约 (\d+)pt', txt)
     done = set()
     for book, pg, col, colh, spare in hits:
-        pdf = 'build/B737机型理论知识笔记.pdf' if book == '全书' else 'build/B737机型理论知识速查.pdf'
-        srcs = sorted(glob.glob('notes_src/[1-5]*/*.md')) if book == '全书' else ['速查/速查源.md']
+        pdf = 'build/B737机型理论速查笔记.pdf' if book == '全书' else 'build/B737机型理论速查.pdf'
+        srcs = sorted(glob.glob('notes_src/[1-6]*/*.md')) if book == '全书' else ['速查/速查源.md']
         p = pymupdf.open(pdf)[int(pg) - 1]
         cand = [t for t in p.find_tables().tables if len(t.extract()[0]) >= int(col) and N((t.extract()[0][int(col) - 1] or '')).startswith(N(colh)[:6])]
         if not cand: print('  第 %s 页：找不到「%s」列所在的表' % (pg, colh)); continue

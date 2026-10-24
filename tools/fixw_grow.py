@@ -28,8 +28,8 @@ def fixed_tables(srcs):
 
 def scan(repo, books=None, auto=False):   # 1020R1：auto=True 只查自动宽度表（用户 2026-10-20：「右侧有很大的空间，为什么不增加表格宽度以减少行数」）
     hits = {}
-    books = books or (('全书', 'build/B737机型理论知识笔记.pdf', sorted(glob.glob(os.path.join(repo, 'notes_src/[1-5]*/*.md')))),
-                      ('单册', 'build/B737机型理论知识速查.pdf', [os.path.join(repo, '速查/速查源.md')]))
+    books = books or (('全书', 'build/B737机型理论速查笔记.pdf', sorted(glob.glob(os.path.join(repo, 'notes_src/[1-6]*/*.md')))),
+                      ('单册', 'build/B737机型理论速查.pdf', [os.path.join(repo, '速查/速查源.md')]))
     for name, pdf, srcs in books:
         pdf = os.path.join(repo, pdf)
         if not os.path.exists(pdf): continue

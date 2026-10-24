@@ -76,9 +76,10 @@ def main():
                         if m: return m.group(1)
         return None
     def addb(m):
-        k = CN.find(m.group(1)); b = blurb(k) if k >= 0 else None
+        k = 6 if m.group(1) == '附录' else CN.find(m.group(1)[1])   # SD-234：附录是第 6 章文件夹
+        b = blurb(k) if k >= 0 else None
         return m.group(0) + ('\n\n%%CHAPDESC%% ' + b if b else '')
-    text = re.sub(r'(?m)^## 第(.)章[^\n]*$', addb, text)
+    text = re.sub(r'(?m)^## (第.章|附录)[^\n]*$', addb, text)
     io.open(out, 'w', encoding='utf-8').write(text)
     mods = re.findall(r'(?m)^## (.+)$', io.open(out, encoding='utf-8').read())
     print('book.md 已生成：%d 个分册 -> %s' % (len(mods), out))

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "flight-theory-notes",
-  "version": "1.2.2",
+  "version": "1.3.5",
   "repository": "https://github.com/yzyboeing/flight-notes-toolkit",
   "visibility": "public",
   "root": ".",
@@ -27,6 +27,8 @@
     "prompt/portable-instruction.md",
     "prompt/layout-checklist.md",
     "prompt/content-core.md",
+    "prompt/lessons.md",
+    "prompt/decisions-index.md",
     "prompt/AGENTS-common.md"
   ],
   "stages": {

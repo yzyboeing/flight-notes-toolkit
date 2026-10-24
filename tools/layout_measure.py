@@ -384,7 +384,10 @@ def sparse(pdf):
         ln = [l for l in lines_of(d[i]) if l[1] > 0.06 * H]
         fy = max((l[1] for l in ln if re.search(r'第\s*\d+\s*页\s*$', l[4])), default=H + 1)   # SD-97 页脚整行去掉
         ln = [l for l in ln if l[1] < fy - 2]
-        if not (0 < len(ln) <= 2): continue
+        # 2026-10-22：节末几条注掉到下一页（3～8 行、全是「注：」段、正文高度不到版心两成，1022R1 完整版 383 / 432 页）也按孤页处理
+        _noteonly = 2 < len(ln) <= 8 and ln[0][4].strip().startswith('注') and (max(l[3] for l in ln) - min(l[1] for l in ln)) <= 0.2 * H
+        if not (0 < len(ln) <= 2 or _noteonly): continue
+        if any((x['bbox'][2] - x['bbox'][0]) * (x['bbox'][3] - x['bbox'][1]) > 20000 for x in d[i].get_image_info()): continue   # 插图页：图注一两行不算孤页（不再为它把上一页表格拆一行下来）
         try: tabs = [t for t in d[i - 1].find_tables().tables if t.bbox[1] > 0.07 * H and t.bbox[3] - t.bbox[1] > 10]
         except Exception: tabs = []
         # 上一页最后一个条目标题（不在页顶）：表收紧也救不回时，fit_fix 让它另起一页（P:）
@@ -392,5 +395,6 @@ def sparse(pdf):
         head = re.sub(r'\s+', '', heads[-1][4]) if heads else ''
         if not tabs and not head: continue
         t = max(tabs, key=lambda t: t.bbox[3]) if tabs else None
-        out.append({'page': i + 1, 'table': norm(d[i - 1].get_text(clip=t.bbox)) if t else '', 'head': head})
+        out.append({'page': i + 1, 'table': norm(d[i - 1].get_text(clip=t.bbox)) if t else '', 'head': head, 'noteonly': _noteonly,
+                    'th': (t.bbox[3] - t.bbox[1]) if t else 0, 'sh': (max(l[3] for l in ln) - min(l[1] for l in ln)) if ln else 0, 'area': (H - 50) - 36})   # 2026-10-22：表高、掉页部分高、版心高（fit_fix 判断表＋注 9pt 是否放得下一页）
     return out

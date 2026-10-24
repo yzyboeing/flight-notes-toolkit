@@ -13,7 +13,7 @@ import os, re, sys, json, glob, html, unicodedata
 
 APPLY = '--apply' in sys.argv
 B = 'build'
-BOOKS = {'B737机型理论知识笔记': sorted(glob.glob('notes_src/*/*.md')), 'B737机型理论知识速查': ['速查/速查源.md']}
+BOOKS = {'B737机型理论速查笔记': sorted(glob.glob('notes_src/*/*.md')), 'B737机型理论速查': ['速查/速查源.md']}
 
 def sig_of(tbl):
     """与 build_docx.js 同口径：表头前的前提行、表尾的通栏注解 / 警示行移出表格，不进签名"""

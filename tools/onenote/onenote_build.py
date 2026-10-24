@@ -3,7 +3,7 @@
 用法：
   python3 onenote_auth.py                                   # 首次或令牌失效时登录
   python3 onenote_build.py --docx 基线.docx --notebook 日积月累 --group "B737 机型理论知识笔记（新版）"
-  可选：--chapters 1-5（默认，第零章不写）  --only 1.6,3.2（只重写这些节，要求同分区其后的节一并重写以保页序）
+  可选：--chapters 1-6（默认，第零章不写）  --only 1.6,3.2（只重写这些节，要求同分区其后的节一并重写以保页序）
         --figs-only（只补插图）  --audit-only（只核查）
 步骤：docx → LibreOffice HTML → 按 h1 章 / h2 节拆页 → 转换（宋体-简、对齐、宽度、去块索引 / 来源）
       → 建分区组和分区 → 逐页建页并读回确认 → 按 notes_src 的 %%FIG%% 补插图 → 只读核查。"""
@@ -13,9 +13,9 @@ from onenote_api import req, content, list_pages, create_page, patch_with_image,
 from onenote_conv import convert, page, strip_index, FONT, TABW
 NS = os.path.expanduser('~/flight-repos/gh-private/notes_src/')
 WORK = os.path.expanduser('~/flight-repos/_work/onenote')
-CHN = {'第一章': '第一章 系统描述', '第二章': '第二章 机组训练手册', '第三章': '第三章 运行手册', '第四章': '第四章 模拟机训练', '第五章': '第五章 技术提示'}
+CHN = {'第一章': '第一章 系统描述', '第二章': '第二章 操作程序', '第三章': '第三章 运行手册', '第四章': '第四章 飞行技术提示', '第五章': '第五章 模拟机笔记', '附录': '附录 机型差异'}   # 2026-10-24 SD-234
 # 2026-10-15 SD-185 第一章改名「系统描述」；接口不能改分区名——OneNote 里还叫旧名时沿用旧分区写入，页眉照新名（用户在 OneNote 里右键改名即可）
-ALIAS = {'第一章 系统描述': '第一章 系统理论'}
+ALIAS = {'第一章 系统描述': '第一章 系统理论', '第二章 操作程序': '第二章 机组训练手册', '第四章 飞行技术提示': '第五章 技术提示', '第五章 模拟机笔记': '第四章 模拟机训练'}   # SD-234（2026-10-24）：沿用旧分区写入，用户在 OneNote 里右键改名
 def sec_name(name, secs): return name if name in secs or ALIAS.get(name) not in secs else ALIAS[name]
 NB_ID = '0-A7EF8B8B1AAC2778!s8966e7df85744afd957d97c2f66eb275'   # 用户自己的「飞行」笔记本（2026-10-05 用户：「以后更新就在这里更新」）
 def locate(nb_id, group=''):
@@ -27,7 +27,7 @@ def locate(nb_id, group=''):
     else:
         parent = '/notebooks/%s' % nb_id
     return {s['displayName']: s['id'] for s in req('GET', parent + '/sections?$select=id,displayName')['value']}, parent
-NUM = {'1': '第一章', '2': '第二章', '3': '第三章', '4': '第四章', '5': '第五章'}
+NUM = {'1': '第一章', '2': '第二章', '3': '第三章', '4': '第四章', '5': '第五章', '6': '附录'}
 def L(*a): print(*a, flush=True)
 def txt(x): return re.sub(r'[\s​]+', ' ', html.unescape(re.sub(r'<[^>]+>', '', x))).strip()
 def xref_plain(body):
@@ -46,7 +46,7 @@ def split(docx):
     marks = [(m.start(), m.group(1), txt(m.group(2))) for m in re.finditer(r'<(h[12])\b[^>]*>(.*?)</\1>', s, re.S)]
     pages, chap = [], None
     for k, (pos, tag, t) in enumerate(marks):
-        if tag == 'h1': chap = t[:3]; continue
+        if tag == 'h1': chap = '附录' if t.startswith('附录') else t[:3]; continue   # SD-234：附录章（「附录　机型差异」）
         end = marks[k + 1][0] if k + 1 < len(marks) else s.find('</body>')
         body = s[s.find('>', pos) + 1:end]
         body = re.split(r'<p\b[^>]*>\s*<a name="TOPICS', body)[0]                   # SD-149「按主题查」排在第五章后，属索引，OneNote 不要
@@ -144,7 +144,7 @@ def main():
     ap.add_argument('--docx', required=True)
     ap.add_argument('--notebook-id', default=NB_ID, help='默认：用户自己的「飞行」笔记本（另有同名共享只读本，必须按编号区分）')
     ap.add_argument('--group', default='', help='分区组名；留空表示分区直接放在笔记本下（2026-10-05 起）')
-    ap.add_argument('--chapters', default='1-5')
+    ap.add_argument('--chapters', default='1-6')
     ap.add_argument('--prune', action='store_true', help='整章重写后删掉本次写入分区里、标题不在新基线中的旧页（节号 / 节名变了时用）')
     ap.add_argument('--only', default=''); ap.add_argument('--figs-only', action='store_true'); ap.add_argument('--audit-only', action='store_true')
     a = ap.parse_args()
@@ -193,7 +193,7 @@ def main():
     for name, sid in secs.items():
         for q in list_pages(sid):
             if q['title']: continue
-            m = re.search(r'第[一二三四五]章 [^｜<]+ ｜ ([^<]+)', content(q['id']) or '')
+            m = re.search(r'(?:第[一二三四五]章|附录) [^｜<]+ ｜ ([^<]+)', content(q['id']) or '')   # SD-234：附录页眉
             if not m: continue
             for k in range(6):
                 try: req('PATCH', '/pages/%s/content' % q['id'], [{'target': 'title', 'action': 'replace', 'content': m.group(1).strip()}]); L('补标题', m.group(1).strip()); break

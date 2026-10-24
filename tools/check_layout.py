@@ -41,8 +41,8 @@ def _nocmp_hdrs():   # SD-188：源文件首格标 no-cmp 的表（跨列格不�
     return out
 NOCMP_HDRS = _nocmp_hdrs()
 T = os.path.dirname(os.path.abspath(__file__))
-BOOK = arg('--book') or os.path.join(REPO, 'build', 'B737机型理论知识笔记.pdf')
-QREF = arg('--qref') or os.path.join(REPO, 'build', 'B737机型理论知识速查.pdf')
+BOOK = arg('--book') or os.path.join(REPO, 'build', 'B737机型理论速查笔记.pdf')
+QREF = arg('--qref') or os.path.join(REPO, 'build', 'B737机型理论速查.pdf')
 SECTION = '--section' in sys.argv   # 2026-10-07 单节预览（preview.py）：只查表格与版面，跳过成品文件、前言 / 目录、速查等整书检查
 MDP = arg('--md') or os.path.join(REPO, 'build', 'book.md')   # 生成这本 PDF 的源（取源文件 <br>、one-page、w-NN 标记）
 if SECTION and '--qref' not in sys.argv: QREF = '/nonexistent'
@@ -82,7 +82,7 @@ try:
     if not os.path.exists(_QMD): raise StopIteration
     _q = open(_QMD, encoding='utf-8').read()
     _files = {}
-    for _f in glob.glob(os.path.join(REPO, 'notes_src', '[1-5]*', '*.md')):
+    for _f in glob.glob(os.path.join(REPO, 'notes_src', '[1-6]*', '*.md')):
         _m = re.match(r'(\d\.\d+)', os.path.basename(_f))
         if _m: _files[_m.group(1)] = _f
     for _it in re.split(r'(?m)^(?=### \d+\. )', _q):
@@ -236,13 +236,16 @@ try:
 except Exception:
     FIXW_SIGS = []
 BWB = set()
+WZ = set()   # 2026-10-23（SD-232 ⑨）：fit_fix 实测调整来回跳、已冻结的列（keep_force 的 WZ: 记录）：T13 / T8 只提示
 NWL = set()   # fit_fix 实测证明「再收就多行」的列（keep_force 的 NWL: 记录）：已收到「不增行」的极限，T13 不报
 try:
-    for _kf in ('keep_force_B737机型理论知识笔记.txt', 'keep_force_B737机型理论知识速查.txt'):   # 全书与速查各有一份记录
+    for _kf in ('keep_force_B737机型理论速查笔记.txt', 'keep_force_B737机型理论速查.txt') + ((os.path.join('preview', 'keep_force_预览.txt'),) if SECTION else ()):   # 全书与速查各有一份记录；单节预览（--section）另读预览自己的一份——全量时不读，免得旧预览记录豁免整书错误
         if not os.path.exists(os.path.join(REPO, 'build', _kf)): continue
         for _l in open(os.path.join(REPO, 'build', _kf), encoding='utf-8'):
             if _l.startswith('NWL:'):
                 _k, _sg = _l.strip()[4:].split(':', 1); NWL.add((_sg[:20], int(_k)))
+            if _l.startswith('WZ:'):
+                _k, _sg = _l.strip()[3:].split(':', 1); WZ.add((_sg[:20], int(_k)))
             if _l.startswith('BWB:'):   # SD-192：借过宽、借出列因此出孤字已撤销的列——借不到，T8 按建议
                 _k, _sg = _l.strip()[4:].split(':', 1); BWB.add(_sg[:20])
 except Exception:
@@ -340,13 +343,10 @@ def scan(pdf, name, header):
                 tw = t.bbox[2] - t.bbox[0]
                 # T5 表内字号底线 8pt（SD-80）
                 small = [sp['size'] for b in p.get_text('dict', clip=t.bbox)['blocks'] for l in b.get('lines', []) for sp in l['spans']
-                         if sp['text'].strip() and sp['text'].strip() != '●' and sp['size'] < 7.9]   # 分条圆点「●」按半号排，不算小字
+                         if sp['text'].strip() and sp['text'].strip() != '●' and sp['size'] < 6.9]   # 分条圆点「●」按半号排，不算小字；2026-10-22 SD-223：底线 7.5pt（压缩后放进一页的表）
                 if small and min(small) >= 6.9 and any(sig in nosp(p.get_text()) for sig in ONEPAGE_SIGS): small = []   # R6：源文件标 one-page 的超大表允许 7.5pt
-                if small: err('T5', '%s 第 %d 页：表内有 %.1fpt 的字，低于 8pt 底线' % (name, i + 1, min(small)))
-                elif not any(sig in nosp(p.get_text()) for sig in ONEPAGE_SIGS + SMALL_SIGS):   # SD-218：表格一律正文 9pt，不再逐级压缩（点名整页表、机型标签【…】除外）
-                    sm9 = [sp['size'] for b in p.get_text('dict', clip=t.bbox)['blocks'] for l in b.get('lines', []) for sp in l['spans']
-                           if sp['text'].strip() and sp['text'].strip() not in ('●', '–') and not sp['text'].strip().startswith('【') and sp['size'] < 8.9]
-                    if sm9: err('T5', '%s 第 %d 页：表内有 %.1fpt 的字——表格一律正文 9pt（SD-218，只有点名整页的表可以压缩）' % (name, i + 1, min(sm9)))
+                if small: err('T5', '%s 第 %d 页：表内有 %.1fpt 的字，低于 7pt 底线' % (name, i + 1, min(small)))
+                # 2026-10-22（SD-223）：取消「表格一律 9pt」——一页放得下、下截只差一点的表允许收紧到 8pt 留在本页（fit_fix 实测定级），底线仍是 8pt
                 if tw > CW + 4: err('T1', '%s 第 %d 页：表格宽 %.0fpt 超过版心 %.0fpt' % (name, i + 1, tw, CW))
                 rows = [[c for c in r.cells] for r in t.rows]
                 if not rows: continue
@@ -601,18 +601,18 @@ if QON and hasattr(os, 'fork') and not os.environ.get('CHECK_SERIAL'):
     _n0 = (len(ERR), len(SUG)); _r, _w = os.pipe(); _qpid = os.fork()
     if _qpid == 0:
         os.close(_r)
-        try: scan(QREF, '单册', 'B737机型理论知识速查'); _out = ('ok', ERR[_n0[0]:], SUG[_n0[1]:])
+        try: scan(QREF, '单册', 'B737机型理论速查'); _out = ('ok', ERR[_n0[0]:], SUG[_n0[1]:])
         except BaseException as _e: _out = ('fail', repr(_e), None)
         with os.fdopen(_w, 'wb') as _f: pickle.dump(_out, _f)
         os._exit(0)
     os.close(_w); _qfd = _r
-book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|使用说明|总目录|目录|按主题查|主题目录|附录)')   # 1019R6 使用说明页   # SD-209 L05：附录缩写表   # SD-96 页眉左侧为章名
+book = scan(BOOK, '全书', r'(第[零一二三四五六七八九]章|前言|使用说明|总目录|目录|速查目录|按主题查|主题目录|附录)')   # 1019R6 使用说明页   # SD-209 L05：附录缩写表   # SD-96 页眉左侧为章名
 if _qpid:
     with os.fdopen(_qfd, 'rb') as _f: _out = pickle.load(_f)
     os.waitpid(_qpid, 0)
     if _out[0] != 'ok': raise RuntimeError('单册 scan 子进程失败：' + _out[1])
     ERR.extend(_out[1]); SUG.extend(_out[2])
-elif QON: scan(QREF, '单册', 'B737机型理论知识速查')   # SD-146 册名   # SD-139 单册停出：只有新近生成的单册才检查   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
+elif QON: scan(QREF, '单册', 'B737机型理论速查')   # SD-146 册名   # SD-139 单册停出：只有新近生成的单册才检查   # 单册页眉左侧为册名（2026-09-30 用户定；SD-96 右侧为块名）
 # T8 末行孤字（SD-84 / SD-85，错误级）：用 layout_measure.measure() 实测——与 fit_fix 的自动修复看同一批格子，
 # 检查器不再维护第二套测量（2026-10-05，APU 火警「1s」教训：两套眼睛必然漏）
 try:
@@ -642,7 +642,10 @@ try:
                 _sl = min(v.get('extra_strict', v['extra_pt']) for v in _vals)
                 _thr = max([th for sg, th in FIXW_SIGS if sg and re.sub(r'[^\w]', '', nosp(_vals[0].get('table', ''))).startswith(re.sub(r'[^\w]', '', sg)[:24])] or [10])   # 1020R2：多条签名命中取最宽松（图表并排的 10**6 优先于 w-NN 的 24）   # 锁宽 30pt、起始比例 24pt、自动宽度 10pt
                 if _sl < 30 and any(nosp(_vals[0].get('table', '')).startswith(sg) and kk == _c for sg, kk in NWL): continue   # 已证明收到极限（再收就多行）；1020R1：余量 ≥ 30pt 的不认（收 24pt 不可能多行，旧记录误锁）
-                if _sl >= _thr and not any(v.get('wrapped') or v.get('anywrap') for v in _vals):   # 只查没折行的列（用户原话「空白太多」）
+                _wz = any(re.sub(r'[^\w]', '', nosp(_vals[0].get('table', ''))).startswith(sg) and kk == _c for sg, kk in WZ)   # SD-232 ⑨：列宽实测调整来回跳、fit_fix 已冻结
+                if _sl >= _thr and not any(v.get('wrapped') or v.get('anywrap') for v in _vals) and _wz:
+                    sug('T13', '%s 第 %d 页：第 %d 列（「%s」）右侧仍空约 %.0fpt——fit_fix 实测调整来回跳、已冻结（列宽冻结记录），个别接受' % (_nm, _ks[0][0], _c + 1, _vals[0].get('head', ''), _sl))
+                elif _sl >= _thr and not any(v.get('wrapped') or v.get('anywrap') for v in _vals):   # 只查没折行的列（用户原话「空白太多」）
                     err('T13', '%s 第 %d 页：第 %d 列（「%s」）没有折行，右侧仍空约 %.0fpt——按最长一行收窄（以文字成行为标准）' % (_nm, _ks[0][0], _c + 1, _vals[0].get('head', ''), _sl))
         # T14 有空位却折行（2026-10-09 用户，速查第 135 页「发动机限制、喘振或失速」：「在右侧还有空白区域空间的情况下……这一列可以适当加宽以减小行数」）：
         # 同一张表里短格（≤ 20 字）被迫折成两行，而别的列还有「本格行数不增」的空位、合计够它排成一行——定宽表（w-NN）也查（T13 跳过定宽表，fit_fix 不改定宽表，所以要在这里拦）
@@ -677,6 +680,9 @@ try:
             _g = _gof.get((_x['page'], _x.get('table', '')))
             _don = sorted([(v, c) for (g, c), v in _lendg.items() if g == _g and c != _x['col'] and v >= 2], reverse=True) if _g else []
             _tried = any(nosp(_x.get('table', '')).startswith(b) for b in BWB)   # 借过宽、借出列因此出孤字已撤销 → 借不到
+            _tbn = re.sub(r'[^\w]', '', nosp(_x.get('table', '')))
+            _don = [(v, c) for v, c in _don if not any(_tbn.startswith(sg) and kk == c for sg, kk in WZ)]   # SD-232 ⑨：已冻结的列不算可让出
+            _tried = _tried or any(_tbn.startswith(sg) and kk == _x['col'] for sg, kk in WZ)
             if _don and sum(v for v, c in _don) >= _x['extra_pt'] + 1 and not _x.get('span') and not _tried:   # 跨列格不借宽（fit_fix 同口径），按建议
                 err('T8', '%s 第 %d 页：「%s…」末行只剩一两个字，需约 %.0fpt；同表%s 可让出（不增行）——向这些列借宽（SD-192）' % (
                     _nm, _x['page'], _x['cell'][:16], _x['extra_pt'], '、'.join('第 %d 列约 %.0fpt' % (c + 1, v) for v, c in _don[:3])))
@@ -754,6 +760,30 @@ if not SECTION and os.path.exists(os.path.join(REPO, '用户点名排版台账.j
     except Exception as _e:
         sug('USERPIN', '用户点名排版核对未能运行：%s' % _e)
 
+# K-B5 留白页、K-Z3 过度压缩（SD-229 / 230，2026-10-23 用户：「为什么这一页还存在过度压缩的情况？明明下面还有空间」）：
+# 原来只在交付前手动跑，现在并进本报告的错误级，每次全量自动拦
+if not SECTION:
+    _srcs = sorted(glob.glob(os.path.join(REPO, 'notes_src', '*', '*.md'))) + [os.path.join(REPO, '速查', '速查源.md')]
+    for _pdf, _nm in ((BOOK, '全书'), (QREF, '单册')):
+        if not os.path.exists(_pdf): continue
+        for _tool, _code, _args in (('check_gaps.py', 'B5', []), ('check_overshrink.py', 'Z3', ['--src'] + _srcs)):
+            try:
+                _o = subprocess.run([sys.executable, os.path.join(T, _tool), _pdf] + _args, capture_output=True, text=True, timeout=900).stdout
+                for _l in _o.splitlines():
+                    if _l.startswith('第 ') and '页' in _l[:12]: err(_code, '%s %s' % (_nm, _l))
+                    elif _l.startswith('提示 「'): sug(_code, '%s %s' % (_nm, re.sub(r'（第 \d+ 页）$', '', _l[3:])))   # SD-232：fit_fix 实测退一级会注掉页 / 拆表 / 多页的表，只提示（压缩退级记录_<书名>.json）
+            except Exception as _e:
+                sug(_code, '%s %s 未能运行：%s' % (_nm, _tool, _e))
+
+# K-L8 页脚页码落点（SD-236，2026-10-24 用户：「点击右下角页码……返回到页码对应知识点的主题目录那一页」）：footer_toc_links.py --check 的不符 / 缺链接并进错误级
+if not SECTION and os.path.exists(BOOK):
+    try:
+        _o = subprocess.run([sys.executable, os.path.join(T, 'footer_toc_links.py'), BOOK, '--check'], capture_output=True, text=True, timeout=600).stdout
+        for _l in _o.splitlines():
+            if _l.startswith('  ✗ '): err('L8', '全书 ' + _l[4:])
+    except Exception as _e:
+        sug('L8', '全书 footer_toc_links.py 未能运行：%s' % _e)
+
 # K-L7 自绘图数值核对、K-RULES 规则自检（2026-10-21 规则重组轮 A1）：结果并进本报告的错误级
 if not SECTION:
     for _tool, _tag, _code in (('check_figs.py', 'FIGS 错误 ', 'L7'), ('check_rules.py', 'RULES 错误 ', 'RULES')):
@@ -797,6 +827,15 @@ if QON and not SECTION:
     except Exception as _e:
         sug('T38', '速查一条一页核对未能运行：%s' % _e)
 
+# K-T41（原 K-T40，与序号表编号重号，2026-10-23 改号；2026-10-22 用户：速查第 95 页「放一行」）：「或」「且」「以及」等连接词单独占一行——并到上一行或改写成一句
+for _nm, _dd in (('全书', book), ('单册', pymupdf.open(QREF) if os.path.exists(QREF) else None)):
+    if _dd is None: continue
+    for _i, _p in enumerate(_dd):
+        for _b in _p.get_text('dict')['blocks']:
+            for _l in _b.get('lines', []):
+                _t = ''.join(_s['text'] for _s in _l['spans']).strip()
+                if _t in ('或', '或者', '且', '以及', '和', '及', '并且', '或：'): err('T41', '%s 第 %d 页：连接词「%s」单独成行——并到上一行或改写成一句' % (_nm, _i + 1, _t))
+
 # P 前言（SD-73 / SD-74）与总目录（单节预览不查）
 pre = 0 if SECTION else next((i for i in range(1, 5) if nosp(book[i].get_text()).find('前言') >= 0), None)
 if SECTION: pass
@@ -807,23 +846,23 @@ else:
     if re.search(r'以\s*(SOP|FCOM)[^。]{0,6}为准', t): err('P1', '前言不应再有「以 SOP / FCOM 为准」一句（SD-73）')
 toc = '主题目录' if SECTION else ''.join(book[i].get_text() for i in range(1, min(6, len(book))))
 if '运行规范' in re.sub(r'运行规范\s*C\d+', '', toc): err('P2', '总目录仍出现「运行规范」，第三章名应为「运行手册」（SD-73）')
-if '主题目录' not in toc: err('P2', '目录里缺「主题目录（速查入口）」（SD-139 / SD-149；2026-10-11 由「按主题查」改名）')
-# SD-149（2026-10-06 用户）：五种查法放在第五章之后——第五章最后一页之后才出现「按主题查」页
-_tp = [i for i in range(6, len(book)) if nosp(book[i].get_text()).startswith('主题目录') or '主题目录按系统' in nosp(book[i].get_text())[:40]]
-_c5 = max((i for i in range(len(book)) if re.search(r'第[一二三四五六]章', book[i].get_text()[:60])), default=-1)   # 1019R6：第五章并入前四章后取最后一章
+if '速查目录' not in toc and '主题目录' not in toc: err('P2', '目录里缺「速查目录」（SD-233；原 SD-139 / 149「主题目录」）')
+# SD-233（2026-10-23 两本整合）：「速查目录」放在总目录之后、第一章之前（取代 SD-149「主题目录放在最后一章之后」）
+_tp = [i for i in range(1, len(book)) if re.match(r'(速查目录|主题目录)', nosp(book[i].get_text())[:12]) or nosp(book[i].get_text()).startswith(('速查目录', '主题目录'))]
+_c1 = next((i for i in range(len(book)) if nosp(book[i].get_text()).find('第一章') >= 0 and i > 3 and not re.search(r'目录', nosp(book[i].get_text())[:20])), len(book))
 if SECTION: pass
-elif not _tp: err('P2', '找不到「主题目录」页（SD-149）')
-elif _tp[0] < _c5: err('P2', '「主题目录」在第 %d 页，应放在最后一章之后（SD-149）' % (_tp[0] + 1))
+elif not _tp: err('P2', '找不到「速查目录」页（SD-233）')
+elif _tp[0] > _c1: err('P2', '「速查目录」在第 %d 页，应放在总目录之后、第一章之前（SD-233）' % (_tp[0] + 1))
 
 # R5（SD-154，2026-10-06 用户）：同一条目下同表头的几张表、中间只隔着注——应合成一张（标 one-page）。
 # 例外：压到最小仍放不下一页、用户定为照常跨页的几处（范围 A）
-R5_EXEMPT = {('4.8', '2.'), ('4.14', '2.'), ('1.11', 'GPS 干扰对各系统的影响'), ('2.7', '起飞程序职责交接与推力管理矩阵')}   # 2026-10-19 批 5：改用标题片段，条目改号后不失效   # 2026-10-19 SD-209 批 3：GNSS 干扰 5.12 第 3 条 → 1.11 第 29 条   # 2026-10-15 SD-187：液压相关由 4.9 改为 4.14；SD-189：GNSS 干扰由 5.6 改为 5.12
+R5_EXEMPT = {('*', '电气故障处置'), ('*', '各类液压故障处置'), ('*', 'GPS 干扰对各系统的影响'), ('*', '起飞程序职责交接与推力管理矩阵')}   # 2026-10-23（SD-233 改结构后 4.8 / 4.14 / 1.11 / 2.7 改了号，节号写死的豁免落空）：只按条目标题片段认，不看节号   # 2026-10-19 批 5：改用标题片段，条目改号后不失效   # 2026-10-19 SD-209 批 3：GNSS 干扰 5.12 第 3 条 → 1.11 第 29 条   # 2026-10-15 SD-187：液压相关由 4.9 改为 4.14；SD-189：GNSS 干扰由 5.6 改为 5.12
 import glob as _g
-for _f in sorted(_g.glob(os.path.join(REPO, 'notes_src/[1-5]*/*.md'))):
+for _f in sorted(_g.glob(os.path.join(REPO, 'notes_src/[1-6]*/*.md'))):
     _sec = os.path.basename(_f).split(' ')[0]; _s = open(_f, encoding='utf-8').read()
     for _m in re.finditer(r'(?ms)^#{3,4} ([^\n]*)\n(.*?)(?=^#{2,4} |\Z)', _s):
         _id = _m.group(1).split('　')[0].split(' ')[0]
-        if (_sec, _id) in R5_EXEMPT or any(_sec == _a and len(_b) > 3 and _b in _m.group(1) for _a, _b in R5_EXEMPT): continue
+        if (_sec, _id) in R5_EXEMPT or any(_a in ('*', _sec) and len(_b) > 3 and _b in _m.group(1) for _a, _b in R5_EXEMPT): continue
         _tb = list(re.finditer(r'(?s)<table[^>]*>.*?</table>', _m.group(2)))
         _hd = lambda t: re.sub(r'<[^>]+>|\s', '', (re.search(r'<tr class="hdr">(.*?)</tr>', t, re.S) or [0, ''])[1])
         for _a, _b in zip(_tb, _tb[1:]):

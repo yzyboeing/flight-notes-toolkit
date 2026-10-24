@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""quickref.py —— 生成《B737 机型理论知识速查》（SD-146，2026-10-06 用户；取代 SD-145 的自动摘句版，旧脚本留作 quickref_auto_sd145.py）
+"""quickref.py —— 生成《B737 机型理论速查》（SD-146，2026-10-06 用户；取代 SD-145 的自动摘句版，旧脚本留作 quickref_auto_sd145.py）
 
 用户要求：
   · 「这个形式的速查笔记，不分章节，只分知识点」——参照 1005R2 时的《理论基础知识速查》：一条一个知识点，只有数据、限制、概念，没有多余解释；
@@ -11,7 +11,7 @@
 源：gh-private/速查/速查源.md
   「## 主题」分组（主题名取自 按主题查索引.json）；「### 标题」一条知识点，不写编号（生成时全书连续编号）；
   每条第一行 <!-- 详见 [[x.y 节名|x.y A-n]] --> 绑定正文块：决定五维目录归类，正文改动时提示联动（check_quickref / quickref_sync_hint）。
-产物：build/qr_single.md、build/qr_dims.json、build/B737机型理论知识速查.docx / .pdf（不进 git）。
+产物：build/qr_single.md、build/qr_dims.json、build/B737机型理论速查.docx / .pdf（不进 git）。
 用法：python3 quickref.py [--repo ~/flight-repos/gh-private]
 """
 import sys, os, re, json, subprocess, shutil
@@ -25,7 +25,7 @@ BUILD = os.path.join(REPO, 'build')
 SINGLE_MD = os.path.join(BUILD, 'qr_single.md')
 DIMS_JSON = os.path.join(BUILD, 'qr_dims.json')
 NO_XREF = {'737-NG 与 737-8 差异', '737-NG / 737-8 机型差异对照'}   # 1016R4 改名（SD-195），旧名保留兼容   # 汇总性的分组只挂在自己名下，不按绑定块交叉挂到其他主题（2026-10-07）
-OUT_DOCX = os.path.join(BUILD, 'B737机型理论知识速查.docx')
+OUT_DOCX = os.path.join(BUILD, 'B737机型理论速查.docx')
 
 def parse_src():
     """→ [(主题, [ {t, body:[行], binds:[(节, 块)]} ])]"""
@@ -52,19 +52,8 @@ def parse_src():
             cur_e['body'].append(l)
     return [g for g in groups if g[0] == '%%PART%%' or g[1]]
 
-def main():
-    groups = parse_src()
-    # 1) 组装单册源：全书连续编号；「## 主题」→「### 主题」（单册目录列主题），「### 标题」→「#### N. 标题」
-    out = ['# 机型理论知识速查', '', '## 第零章　速查', '', '%%COMPACT%%', '']   # 单册模式只认「第X章」触发目录页；章名本身不印（页脚用册名 DOC_HEADER）
-    n = 0; ents = []
-    for g, es in groups:
-        if g == '%%PART%%': out += ['%%PART%% ' + es, '', '%%PAGEBREAK%%', '']; continue   # 1020R1（用户：「机型差异开始另起一页，所有的新章节内容开始就新起一页」）：每段从新页开始
-        out += ['### ' + g, '']
-        for e in es:
-            n += 1; e['n'] = n; e['g'] = g; ents.append(e)
-            out += ['#### %d. %s%s' % (n, e['t'], ' {%s}' % e['star'] if e['star'] else '')] + [x for x in e['body'] if not x.startswith('<!--')] + ['', '']
-    out += ['%%ENDCOMPACT%%', '']
-    os.makedirs(BUILD, exist_ok=True)
+def build_dims(ents):
+    """速查目录数据（2026-10-23 SD-233 抽出，qr_directory.py 共用）：→ (dims, subs_of, label)"""
     # 2) 五维目录：条目绑定的正文块落在哪个主题，就挂到哪个主题下（一条可挂多处）；正文分组主题本身也挂
     idx = json.load(open(IDX, encoding='utf-8'))
     # 2026-10-07 用户（选 A）：按主题查压缩——速查索引可写成 {"dims": [...], "short": {全标题前缀: 短标题}}；
@@ -124,12 +113,29 @@ def main():
             themes.append({'theme': tp['theme'], 'items': items})
         if len(themes) == 1: themes[0]['nohead'] = True
         if themes: dims.append({'dim': d['dim'], 'themes': themes})
+    return dims, subs_of, label
+
+
+def main():
+    groups = parse_src()
+    # 1) 组装单册源：全书连续编号；「## 主题」→「### 主题」（单册目录列主题），「### 标题」→「#### N. 标题」
+    out = ['# 机型理论速查', '', '## 第零章　速查', '', '%%COMPACT%%', '']   # 单册模式只认「第X章」触发目录页；章名本身不印（页脚用册名 DOC_HEADER）
+    n = 0; ents = []
+    for g, es in groups:
+        if g == '%%PART%%': out += ['%%PART%% ' + es, '', '%%PAGEBREAK%%', '']; continue   # 1020R1（用户：「机型差异开始另起一页，所有的新章节内容开始就新起一页」）：每段从新页开始
+        out += ['### ' + g, '']
+        for e in es:
+            n += 1; e['n'] = n; e['g'] = g; ents.append(e)
+            out += ['#### %d. %s%s' % (n, e['t'], ' {%s}' % e['star'] if e['star'] else '')] + [x for x in e['body'] if not x.startswith('<!--')] + ['', '']
+    out += ['%%ENDCOMPACT%%', '']
+    os.makedirs(BUILD, exist_ok=True)
+    dims, subs_of, label = build_dims(ents)
     json.dump(dims, open(DIMS_JSON, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     # 2026-10-12 用户：「去掉刚添加的笔记正文中的相关链接等信息，太乱了，包括 onenote」——正文不再写「相关」行（%%XREF%%）；主题目录里的 ↗ 交叉条目保留
     open(SINGLE_MD, 'w', encoding='utf-8').write('\n'.join(out))
     # 3) 排版：与完整版同一套生成器与 fit_fix（整表同页、列宽实测、孤字），单册模式
     env = dict(os.environ)
-    for k in ('DOC_TOPICS', 'DOC_PREFACE', 'DOC_QRTOPICS', 'DOC_TOPICINDEX', 'NO_SEC_BREAK'): env.pop(k, None)
+    for k in ('DOC_TOPICS', 'DOC_TOPICS_FRONT', 'DOC_TOPICS_TITLE', 'DOC_TOPICS_KEY', 'DOC_PREFACE', 'DOC_QRTOPICS', 'DOC_TOPICINDEX', 'NO_SEC_BREAK'): env.pop(k, None)   # SD-233：完整版速查目录的开关不传给单册
     env.setdefault('NODE_PATH', os.path.join(REPO, 'node_modules'))
     def git_cfg(k):   # 2026-10-14：先读库内 成品设置.gitconfig，没有的键再读本机 git config（同 sync.sh 的 cfg）
         r = subprocess.run(['git', '-C', REPO, 'config', '-f', os.path.join(REPO, '成品设置.gitconfig'), '--get', k], capture_output=True, text=True)
@@ -138,9 +144,10 @@ def main():
     env['DOC_USAGE'] = '/nonexistent'
     for k, g in (('DOC_EDITION', 'notes.docEdition'), ('DOC_NOTICE', 'notes.docNotice'), ('DOC_PREFACE_SIGNATURE', 'notes.docPrefaceSignature'), ('DOC_EDITION_SUFFIX', 'notes.docEditionSuffix')):   # 封面版本号、特别提示与全书同（sync 已导出；单独跑时从 git config 取）
         if not env.get(k): env[k] = git_cfg(g)
-    env.update({'DOC_SINGLE': '1', 'DOC_QRDIMS': DIMS_JSON, 'DOC_SINGLE_TOC_TITLE': '目录', 'DOC_SUBTITLE': '数据 · 限制 · 概念', 'DOC_HEADER': 'B737机型理论知识速查',
+    env.update({'DOC_SINGLE': '1', 'DOC_QRDIMS': DIMS_JSON, 'DOC_SINGLE_TOC_TITLE': '目录', 'DOC_SUBTITLE': '数据 · 限制 · 概念', 'DOC_HEADER': 'B737机型理论速查',
                 'DOC_BOOK': 'qr', 'DOC_FIGS': env.get('DOC_QR_FIGS') or ''})   # 2026-10-18 用户：超压场景图（SD-208）  # 2026-10-17 用户：液压表、增压监控表右侧配图   # SD-185：速查版不随完整版放系统原理图   # 2026-10-09 用户：两版都只留目视参考图（SD-136 补充）
     r = subprocess.run([sys.executable, os.path.join(T, 'fit_fix.py'), SINGLE_MD, OUT_DOCX], env=env, cwd=REPO, capture_output=True, text=True)
+    open(os.path.join(BUILD, 'quickref_fitfix.log'), 'w', encoding='utf-8').write(r.stdout + r.stderr)   # 2026-10-22：速查 fit_fix 输出留档（重建五 / 六速查断表、孤行查不到原因）
     if r.returncode: sys.exit('速查版排版失败：' + (r.stderr or r.stdout)[-600:])
     _ok = OUT_DOCX + '.pdf-ok'   # 2026-10-07：fit_fix 已交出同一份 docx 的 PDF 就不重转
     if not (os.path.exists(_ok) and open(_ok).read().strip() == str(int(os.path.getmtime(OUT_DOCX))) and os.path.exists(os.path.splitext(OUT_DOCX)[0] + '.pdf')):

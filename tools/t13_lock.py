@@ -24,8 +24,8 @@ def main():
     repo = os.path.abspath(a.repo)
     rep = io.open(os.path.join(repo, 'build/排版检查报告.md'), encoding='utf-8').read().split('## 新建议')[0]
     errs = [(bk, int(pg), int(col) - 1, float(bl)) for bk, pg, col, bl in re.findall(r'\[T13\] (全书|单册) 第 (\d+) 页：第 (\d+) 列（.*?右侧仍空约 (\d+)pt', rep, re.S)]
-    books = {'全书': ('build/B737机型理论知识笔记.pdf', 'build/B737机型理论知识笔记.docx', sorted(glob.glob(os.path.join(repo, 'notes_src/[1-5]*/[0-9]*.md')))),
-             '单册': ('build/B737机型理论知识速查.pdf', 'build/B737机型理论知识速查.docx', [os.path.join(repo, '速查/速查源.md')])}
+    books = {'全书': ('build/B737机型理论速查笔记.pdf', 'build/B737机型理论速查笔记.docx', sorted(glob.glob(os.path.join(repo, 'notes_src/[1-6]*/[0-9]*.md')))),
+             '单册': ('build/B737机型理论速查.pdf', 'build/B737机型理论速查.docx', [os.path.join(repo, '速查/速查源.md')])}
     meas, dx = {}, {}
     plan = {}   # (文件, 源表头) -> (表 grid, {列: 收窄 DXA})
     for bk, pg, col, bl in errs:
@@ -35,6 +35,11 @@ def main():
         x = min(xs, key=lambda x: abs(x.get('extra_strict', x['extra_pt']) - bl)) if xs else None   # 同页可能有几张表的同号列：按实测空白量最接近的那张
         if not x: print('  测不到', bk, pg); continue
         key = N(x['table'])[:30]
+        # 2026-10-22（SD-223）：压缩过的表（本次运行字号 < 9pt）不锁宽——压缩只在本次运行有效，按压缩后字宽锁的列宽下次会对不上；交给 fit_fix 每次运行内实测收窄
+        try:
+            _kf = io.open(os.path.join(repo, 'build', 'keep_force_%s.txt' % os.path.splitext(os.path.basename(pdf))[0]), encoding='utf-8').read()
+            if any(N(l.split(':', 1)[1])[:30] == key for l in _kf.splitlines() if re.match(r'Z?~\d:', l)): print('  压缩表不锁宽：%s 第 %d 页 %s' % (bk, pg, key[:16])); continue
+        except OSError: pass
         cand = [g for t, g in dx[bk] if t.startswith(key)]
         hits = []
         for f in srcs:

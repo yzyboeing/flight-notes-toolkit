@@ -401,7 +401,8 @@ def unmerge(h):
                 if (r, c) == o: x = cell[5]
                 elif not adapt or not vis(cell[5]): x = ''
                 elif cell[2] >= n: x = ''                                   # 夹在表中间的通栏分组行：其余格留空
-                elif r == o[0]: x = GREY % '同左'                            # 部分跨列：其余格「同左」
+                elif _os.environ.get('ONENOTE_FILL') != 'grey': x = ''     # 2026-10-23 用户：「如果没办法合并，也不需要用不同的字体重复标注出来，后续我人工去更改」——合并格拆开后其余格留空（OneNote 接口不支持合并单元格）
+                elif r == o[0]: x = GREY % '同左'                            # （旧做法 ONENOTE_FILL=grey）部分跨列：其余格「同左」
                 elif len(vis(cell[5])) <= 12: x = GREY % html.escape(html.unescape(re.sub(r'<[^>]+>', '', cell[5])).strip())   # 跨行的短标签：各行重复（浅灰）
                 else: x = GREY % '同上'                                      # 跨行的长文字：「同上」
                 tds.append('<td%s>%s</td>' % (a, x))

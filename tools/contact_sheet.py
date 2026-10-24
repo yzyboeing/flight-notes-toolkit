@@ -13,7 +13,7 @@ REPO = sys.argv[sys.argv.index('--repo') + 1] if '--repo' in sys.argv else os.ge
 B = os.path.join(REPO, 'build')
 OUT = os.path.join(B, '整本过目')
 REC = os.path.join(B, '整本过目.json')
-STEMS = ('B737机型理论知识笔记', 'B737机型理论知识速查')
+STEMS = ('B737机型理论速查笔记',)   # SD-234：只有一本
 COLS, ROWS, TW = 8, 5, 200   # 每张 8 × 5 页，缩略图宽 200px
 
 

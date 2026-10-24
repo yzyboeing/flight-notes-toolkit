@@ -17,6 +17,8 @@
 | `prompt/portable-instruction.md` | **规则总纲**——硬约束、结构、写法要点、工作方式、流程、新知识点入库、验证、出基线、工具清单 | 开工前通读 |
 | `prompt/layout-checklist.md` | **排版规则总表**——全部排版规则与检查器规则号（K-） | 排版判定以它为准 |
 | `prompt/content-core.md` | **内容校对核心规则** | 整理与核对内容时读取 |
+| `prompt/lessons.md` | **经验与教训** | 动手前按问题类别读取，避免同类问题反复 |
+| `prompt/decisions-index.md` | 长期决策索引（自动生成） | 按 SD 编号查来历 |
 | `prompt/standing-decisions.md` | 长期决策记录（SD-1…），来历流水 | 只查来历；已有结论不得重复提问，已放弃的方案不得重新提出 |
 | `prompt/archive/` | 已作废的旧版规则 | 不再使用 |
 | `prompt/AGENT.md` | 简短任务入口 | 引导读取规则并实测能力 |

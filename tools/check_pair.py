@@ -16,8 +16,8 @@ import sys, os, re, json
 
 REPO = os.path.expanduser(sys.argv[sys.argv.index('--repo') + 1]) if '--repo' in sys.argv else os.getcwd()
 B = os.path.join(REPO, 'build')
-FULL = os.path.join(B, 'tbl_dump_B737机型理论知识笔记.jsonl')
-QR = os.path.join(B, 'tbl_dump_B737机型理论知识速查.jsonl')
+FULL = os.path.join(B, 'tbl_dump_B737机型理论速查笔记.jsonl')
+QR = os.path.join(B, 'tbl_dump_B737机型理论速查.jsonl')
 OUT = os.path.join(B, '两本同表对照报告.md')
 
 def load(p):
@@ -63,7 +63,7 @@ def paras(lines):
 
 def full_blocks():
     blk = {}
-    for f in glob.glob(os.path.join(REPO, 'notes_src', '[1-5]*', '[0-9]*.md')):
+    for f in glob.glob(os.path.join(REPO, 'notes_src', '[1-6]*', '[0-9]*.md')):
         sec = os.path.basename(f).split(' ')[0]
         cur = None
         for l in io.open(f, encoding='utf-8').read().split('\n'):

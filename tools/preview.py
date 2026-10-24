@@ -59,11 +59,11 @@ if missing: sys.exit('找不到节：' + '、'.join(missing))
 MD = os.path.join(P, '预览.md'); open(MD, 'w', encoding='utf-8').write(''.join(out))
 
 # 2. 排版：起点用全书的记录
-BOOKKF = os.path.join(B, 'keep_force_B737机型理论知识笔记.txt')
+BOOKKF = os.path.join(B, 'keep_force_B737机型理论速查笔记.txt')
 DOCX = os.path.join(P, '预览.docx'); KF = os.path.join(P, 'keep_force_预览.txt')
 if os.path.exists(BOOKKF): shutil.copy2(BOOKKF, KF)
 env = dict(os.environ, DOC_FIGS=os.environ.get('DOC_FIGS', ''), NODE_PATH=os.path.join(ROOT, 'node_modules'), FITFIX_MAXPASS='4',
-           DOC_EDITION=git('config', '--get', 'notes.docEdition') or 'preview', DOC_HEADER='B737-NG / B737-8 机型理论知识笔记',
+           DOC_EDITION=git('config', '--get', 'notes.docEdition') or 'preview', DOC_HEADER='B737-NG / B737-8 机型理论速查笔记',
            DOC_AUTHOR=cfg('notes.docAuthor'), DOC_TOPICS='', DOC_PREFACE='/nonexistent', DOC_USAGE='/nonexistent')
 r = subprocess.run([sys.executable, os.path.join(T, 'fit_fix.py'), MD, DOCX], env=env, cwd=ROOT, capture_output=True, text=True)
 print('\n'.join(l for l in r.stdout.splitlines() if l.startswith('fit_fix')))

@@ -30,7 +30,7 @@ skey = lambda s: [int(v) for v in s.split('.')]
 # ---------- 1 读现有节 ----------
 SUBS = {}   # 节 → {在其后出现分组标记的条目号: 标记行}
 SEC = {}   # id → dict(path, dir, fm(str), fmd(dict-ish lines), title, pre, items[(n, title, star, body)])
-for f in glob.glob(os.path.join(SRC, '[1-5]*', '[0-9]*.md')):
+for f in glob.glob(os.path.join(SRC, '[1-6]*', '[0-9]*.md')):
     b = os.path.basename(f); m = re.match(r'(\d+\.\d+) ', b)
     if not m: continue
     t = io.open(f, encoding='utf-8').read()
@@ -196,7 +196,7 @@ final = {}   # id → (dir, title)
 for s, v in SEC.items():
     if v['path'] not in old_paths: final[s] = (v['dir'], v['title'])
 for ps in plan_secs: final[ps['id']] = (ps['dir'], ps['title'])
-for moc in glob.glob(os.path.join(SRC, '[1-5]*', '_*目录.md')):
+for moc in glob.glob(os.path.join(SRC, '[1-6]*', '_*目录.md')):
     d = os.path.basename(os.path.dirname(moc)); t = io.open(moc, encoding='utf-8').read()
     rows = ''.join('| %s | [[%s %s]] |\n' % (s, s, final[s][1]) for s in sorted([x for x in final if final[x][0] == d], key=skey))
     t2 = re.sub(r'(?ms)^(\| 编号 \| 知识点 \|\n\|---\|---\|\n)(?:\|.*\n)*', lambda m: m.group(1) + rows, t, 1)

@@ -267,10 +267,10 @@ def main():
     # S8 节粒度（N2：5～25 条）；T36 完整版标题；L6 插图文件与图注
     for f in files:
         b = os.path.basename(f)
-        if not re.match(r'[1-5]\.\d+ ', b): continue
+        if not re.match(r'[1-6]\.\d+ ', b): continue
         t = io.open(f, encoding='utf-8').read()
         n = len(re.findall(r'(?m)^### \d+\. ', t))
-        if n and (n < 5 or (n > 25 and not b.startswith('1.'))) and not b.startswith('4.'): warns.append('S8 %s 共 %d 条（N2：一节 5～25 条；第四章按 QRH 分节不计）' % (b[:-3], n))
+        if n and (n < 5 or (n > 25 and not b.startswith('1.'))) and not b.startswith(('4.', '5.', '6.')): warns.append('S8 %s 共 %d 条（N2：一节 5～25 条；第四章技术提示按通告分节、第五章按 QRH 分节，不计）' % (b[:-3], n))
         for m in re.finditer(r'(?m)^### \d+\. (.+?)(?:\s*\{★+\})?$', t):
             if re.search(r'\svs\s|——|？|\?|[。；，]$', m.group(1)): errors.append('T36 %s 标题「%s」含 vs / 破折号 / 问号 / 末尾标点（W05）' % (b[:-3], m.group(1)))
         for m in re.finditer(r'(?m)^%%FIG(?:SIDE|RIGHT)?%% ([^|\n]+?)\s*\|\s*([^|\n]*?)\s*(?:\||$)', t):
@@ -287,16 +287,12 @@ def main():
                 _p = re.sub(r'<[^>]+>', '', _ln)
                 for _b, _r in _ban:
                     if _b in _p: warns.append('W13 %s:%d 用了手册没有的说法「%s」——改用「%s」（手册用语表）' % (os.path.basename(f)[:-3], _i, _b, _r))
-    # S9 主题挂靠（2026-10-19 1019R4：批 5 新增 8 条没挂进按主题查，完整版主题页漏列）：完整版每个块至少在 按主题查索引.json 的一个主题里
-    topf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '按主题查索引.json')
-    if os.path.exists(topf):
-        _top = {it.partition('|')[0] for d in json.load(io.open(topf, encoding='utf-8')) for th in d['themes'] for it in th['items']}
-        _miss = []
-        for f in files:
-            b = os.path.basename(f); _m = re.match(r'([1-5]\.\d+) ', b)
-            if not _m: continue
-            _miss += ['%s %s' % (_m.group(1), n) for n in re.findall(r'(?m)^### (\d+)\. ', io.open(f, encoding='utf-8').read()) if '%s %s' % (_m.group(1), n) not in _top]
-        if _miss: errors.append('S9 %d 个块没挂进 按主题查索引.json 的任何主题：%s' % (len(_miss), '、'.join(_miss[:20])))
+    # S9 主题挂靠（2026-10-19 1019R4 起；2026-10-23 SD-233 改为「速查目录」）：完整版每条正文在速查目录里恰好作为直接项出现一次
+    #   ——由 qr_directory.py 自检（速查源绑定 + EXTRA / 第五章规则），漏挂即报错
+    import subprocess as _sp, tempfile as _tf
+    _r = _sp.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'qr_directory.py'), '--repo', os.path.dirname(os.path.abspath(SRC.rstrip('/'))),
+                  '--out', os.path.join(_tf.mkdtemp(), 'd.json')], capture_output=True, text=True)
+    if _r.returncode: errors.append('S9 ' + ((_r.stderr or _r.stdout).strip().splitlines() or ['速查目录生成失败'])[-1])
     # S10 引用的图都已入库（2026-10-21：figures/nd/ 10 张 ND 符号图被 .gitignore 的 *.png 挡掉，bundle 与 GitHub 备份缺图，换机 / 噜噜重建会失败；10-14 同类问题第二次出现）
     _root = os.path.dirname(os.path.abspath(SRC.rstrip('/')))
     try:
@@ -310,6 +306,20 @@ def main():
                 _refs |= {'notes_src/' + m for m in re.findall(r'figures/[^\s|)\]"\'<>]+\.(?:png|jpe?g|svg)', io.open(f, encoding='utf-8').read())}
         _un = sorted(r for r in _refs if r not in _trk)
         if _un: errors.append('S10 %d 张引用的图没有入库（git add -f，并检查 .gitignore 是否挡掉了子目录）：%s' % (len(_un), '、'.join(_un[:10])))
+    # S11 公司名不进成品（2026-10-22 用户：「整个笔记中不要出现××等信息，不同标准可用遵照公司实际要求」（××为公司简称；名单只放私有库《成品禁用词.json》，公开库不写））：
+    # 航空公司名称 / 简称、航班号、无线电呼号写成「公司」「合格证持有人」「（航班呼号）」或「遵照公司实际要求」。
+    # 2026-10-24：词表（正则）只放私有库根目录《成品禁用词.json》——公开工具链不写公司名（推送泄漏扫描）；词表缺失或读不了报错，不悄悄放过
+    _ban = []
+    _banf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '成品禁用词.json')
+    try: _ban = json.load(io.open(_banf, encoding='utf-8'))
+    except (OSError, ValueError) as _e: errors.append('S11 读不到私有库《成品禁用词.json》（%s）——公司名检查没做，不算通过' % _e)
+    _hit = []
+    for f in files + [os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '速查', '速查源.md')]:
+        if not os.path.exists(f): continue
+        for i, l in enumerate(io.open(f, encoding='utf-8'), 1):
+            for p in _ban:
+                if re.search(p, l): _hit.append('%s:%d「%s」' % (os.path.basename(f), i, re.search(p, l).group(0)))
+    if _hit: errors.append('S11 成品里出现公司名 / 航班号 %d 处（写「公司」「合格证持有人」「（航班呼号）」或「遵照公司实际要求」）：%s' % (len(_hit), '、'.join(_hit[:8])))
     # 约定保留（私有库根目录《两型混写保留.json》，2026-10-09）：按「文件 + 去标签前 24 字」匹配，只计数不列为待处理
     keepf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '两型混写保留.json')
     keep = set()

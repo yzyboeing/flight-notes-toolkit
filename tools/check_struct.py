@@ -55,7 +55,7 @@ def _docx_grid(path):
                 c0.append((ps, max(rowp)))
         out.append((grid, hdr0, c0, hdrall))
     return out
-for _bk0, _p0 in (('速查', 'B737机型理论知识速查.docx'), ('全书', 'B737机型理论知识笔记.docx')):
+for _bk0, _p0 in (('速查', 'B737机型理论速查.docx'), ('全书', 'B737机型理论速查笔记.docx')):
     for _g, _h0, _c0, _ha in _docx_grid(os.path.join(REPO, 'build', _p0)):
         _GRIDS.setdefault((_bk0, _ha, len(_g)), _g)
 
@@ -68,7 +68,7 @@ def tables(f):
         prev = t[:m.start()].rstrip().rsplit('\n', 1)[-1]
         yield cur, tb, prev
 
-FILES = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-5]*', '[0-9]*.md'))) + [os.path.join(REPO, '速查', '速查源.md')]
+FILES = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-6]*', '[0-9]*.md'))) + [os.path.join(REPO, '速查', '速查源.md')]
 for f in FILES:
     fn = '速查' if f.endswith('速查源.md') else os.path.basename(f).split(' ')[0]
     for title, tb, prev in tables(f):
@@ -187,7 +187,7 @@ def _docx_tables(path):
             rows.append(cells)
         out.append(rows)
     return out
-_DOCX = {'速查': _docx_tables(os.path.join(REPO, 'build', 'B737机型理论知识速查.docx')), '全书': _docx_tables(os.path.join(REPO, 'build', 'B737机型理论知识笔记.docx'))}
+_DOCX = {'速查': _docx_tables(os.path.join(REPO, 'build', 'B737机型理论速查.docx')), '全书': _docx_tables(os.path.join(REPO, 'build', 'B737机型理论速查笔记.docx'))}
 def _norm(s): return re.sub(r'[\s\u200b\u2060\u00ad●•–]', '', s)
 for f in FILES:
     fn = '速查' if f.endswith('速查源.md') else os.path.basename(f).split(' ')[0]
@@ -222,7 +222,7 @@ for f in FILES:
 # T30 首列被单个长格撑宽（SD-207，用户 2026-10-17 速查 405「第 1 列的空白空间为什么这么大？最新的规则为什么没有排查出来」）：
 #   读成品 docx 的实际列宽：首列宽 ≥ 版心 25%，只有一格撑满（最宽一段 ≥ 列宽 90%），其余格最宽也不到列宽 60% → 这一格折行 / 括注另行，首列收窄
 #   以前漏掉：T14 量的是「列宽比最长一行宽多少」，被一格撑满的列最长一行正好等于列宽，量出来空白为 0
-for _bk, _p in (('速查', 'B737机型理论知识速查.docx'), ('全书', 'B737机型理论知识笔记.docx')):
+for _bk, _p in (('速查', 'B737机型理论速查.docx'), ('全书', 'B737机型理论速查笔记.docx')):
     for grid, h0, c0, _ha in _docx_grid(os.path.join(REPO, 'build', _p)):
         if len(grid) < 2 or len(c0) < 3: continue
         W = grid[0]
@@ -244,13 +244,14 @@ for f in FILES:
 def _entries(f):
     t = io.open(f, encoding='utf-8').read()
     return [(m.group(1).strip(), m.group(2)) for m in re.finditer(r'(?ms)^### (.+?)\n(.*?)(?=^### |^## |^%%PART%%|\Z)', t)]
-_SRCS = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-5]*', '*.md'))) + [os.path.join(REPO, '速查', '速查源.md')]
+_SRCS = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-6]*', '*.md'))) + [os.path.join(REPO, '速查', '速查源.md')]
 for f in _SRCS:
     fn = os.path.basename(f).replace('.md', '') if 'notes_src' in f else '速查'
     for title, body in _entries(f):
         notes = [l for l in body.split('\n') if l.startswith('注：') and not re.match(r'注：(?:缩写[：——]+)?[A-Z][A-Za-z/\-]{1,12}：[A-Z]', l)]   # 缩写注不计（批 3；1019R6 写法「注：缩写——X：…」）
-        if (ONLY is None or 'T32' in ONLY) and len(notes) >= 4:
-            rep('T32', fn, title, '一条目 %d 条注（B37：≥ 4 条改「注表」或并回表格行）' % len(notes))
+        # 2026-10-23（用户，速查第 207 条：「改成注释放在表格下面」）：B37 改——注不再改「注 ｜ 说明」注表，一律「注：」行紧跟主表；T32 改查残留的注表
+        if (ONLY is None or 'T32' in ONLY) and re.search(r'<tr class="hdr"><th[^>]*>注</th>', body):
+            rep('T32', fn, title, '有「注 ｜ 说明」注表（B37：注一律写成「注：」行紧跟主表，能对应表格行的并回该行）')
         if ONLY is None or 'T33' in ONLY:
             for l in re.sub(r'<table.*?</table>', '', body, flags=re.S).split('\n'):
                 if l.startswith(('<', '注：', '公司差异', '%%', '#')) or not l.strip(): continue

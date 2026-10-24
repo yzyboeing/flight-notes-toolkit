@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 """release_name.py —— 版本名与基线标签互换（SD-142，2026-10-05 用户）
 
-用户原话：「以后新的文件名改为：B737 机型理论知识笔记1005R1。后面的 1005 是 10 月 5 号……R1 是 10 月 5 号的第一版，
+用户原话：「以后新的文件名改为：B737 机型理论速查笔记1005R1。后面的 1005 是 10 月 5 号……R1 是 10 月 5 号的第一版，
 如果是 10 月 5 号做的第二版就是 R2。以此类推。」
 
   版本名  MMDDRn      例：1005R1、1005R7、1006R1
   git 标签 baseline/YYYYMMDD（当天第 1 版）、baseline/YYYYMMDD-n（当天第 n 版，n ≥ 2）——标签保留年份，避免跨年重名
-  成品文件 B737机型理论知识笔记<版本名>.docx / .pdf
+  成品文件 B737机型理论速查笔记<版本名>.docx / .pdf
 
 用法：
   python3 release_name.py                 # 最新 baseline/* 标签对应的版本名
@@ -18,7 +18,7 @@
 import sys, re, subprocess, datetime, os
 
 REPO = os.path.expanduser('~/flight-repos/gh-private')
-STEM = 'B737机型理论知识笔记'
+STEM = 'B737机型理论速查笔记'
 
 def tags():
     out = subprocess.run(['git', '-C', REPO, 'tag', '--list', 'baseline/*'], capture_output=True, text=True).stdout.split()

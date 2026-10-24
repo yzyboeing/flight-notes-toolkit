@@ -23,7 +23,7 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--repo', default='.'); ap.add_argument('--apply', action='store_true'); a = ap.parse_args()
     repo = os.path.abspath(a.repo)
     hits = fixw_grow.scan(repo)
-    D = {'全书': docx_tables(os.path.join(repo, 'build/B737机型理论知识笔记.docx')), '单册': docx_tables(os.path.join(repo, 'build/B737机型理论知识速查.docx'))}
+    D = {'全书': docx_tables(os.path.join(repo, 'build/B737机型理论速查笔记.docx')), '单册': docx_tables(os.path.join(repo, 'build/B737机型理论速查.docx'))}
     done = 0
     for (f, pos), v in sorted(hits.items(), key=lambda kv: (kv[0][0], -kv[0][1])):
         t = io.open(f, encoding='utf-8').read()

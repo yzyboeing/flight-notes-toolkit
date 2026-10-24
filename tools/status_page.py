@@ -39,15 +39,18 @@ L = ['# 现状一页纸', '',
 tags = sh('git', 'tag', '-l', 'baseline/*', '--sort=-creatordate', cwd=G).splitlines()
 base = tags[0] if tags else '（无）'
 since = sh('git', 'rev-list', '--count', '%s..HEAD' % base, cwd=G) if tags else '?'
-eds = sorted({re.sub(r'\.(docx|pdf)$', '', os.path.basename(p)) for p in glob.glob(os.path.join(WS, 'B737机型理论知识*.pdf'))})
+eds = sorted({re.sub(r'\.(docx|pdf)$', '', os.path.basename(p)) for p in glob.glob(os.path.join(WS, 'B737机型理论*.pdf'))})
 L += ['## 基线与成品', '',
       '| 项目 | 现状 |', '|---|---|',
       '| 现行基线标签 | `%s`（%s）；之后私有库又有 %s 个提交 |' % (base, sh('git', 'rev-list', '-n1', '--abbrev-commit', base, cwd=G) if tags else '—', since),
       '| 桌面成品 | %s |' % ('、'.join(eds) or '（无）')]
-for nm in ('B737机型理论知识笔记', 'B737机型理论知识速查'):
+for nm in ('B737机型理论速查笔记',):   # SD-234
     p = os.path.join(G, 'build', nm + '.pdf')
     if os.path.exists(p):
         L.append('| build/%s.pdf | %s 页，生成于 %s |' % (nm, pages(p), datetime.datetime.fromtimestamp(os.path.getmtime(p)).strftime('%m-%d %H:%M')))
+try: _lag = int(open(os.path.join(G, 'build', '完整版落后轮数.txt')).read().strip() or 0)
+except Exception: _lag = 0
+L.append('| 完整版落后速查 | %d 轮速查构建%s |' % (_lag, '——**已满 5 轮，请提醒用户全量收口（SD-227）**' if _lag >= 5 else '（满 5 轮提醒全量收口，SD-227）'))
 L.append('')
 
 # 两本规模

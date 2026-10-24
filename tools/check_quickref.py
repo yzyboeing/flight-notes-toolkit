@@ -133,7 +133,7 @@ def main():
     q = io.open(qf, encoding='utf-8').read()
     items = [(str(k), re.sub(r'\s*\{★+\}\s*$', '', t), b) for k, (t, b) in enumerate(re.findall(r'(?ms)^### ([^\n]*)\n(.*?)(?=^### |^## |^%%PART%%|\Z)', q), 1)]
     secs, blocks = {}, {}
-    for f in glob.glob(os.path.join(SRC, '[1-5]*', '*.md')):
+    for f in glob.glob(os.path.join(SRC, '[1-6]*', '*.md')):
         t = io.open(f, encoding='utf-8').read(); sid = os.path.basename(f).split(' ')[0]
         secs[sid] = t
         for m in re.finditer(r'(?ms)^#{3,4} ([A-Z]-\d+)　[^\n]*\n(.*?)(?=^#{3,4} |\Z)', t):

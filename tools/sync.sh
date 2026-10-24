@@ -72,8 +72,9 @@ info "工具链 $TOOLKIT"
 mod_name() {
   case "$1" in
     0) echo "基础知识速查区" ;;   1) echo "第一章_系统描述" ;;
-    2) echo "第二章_机组训练手册" ;; 3) echo "第三章_运行手册" ;;
-    4) echo "第四章_模拟机训练" ;;  5) echo "第五章_技术提示" ;;
+    2) echo "第二章_操作程序" ;; 3) echo "第三章_运行手册" ;;
+    4) echo "第四章_飞行技术提示" ;;  5) echo "第五章_模拟机笔记" ;;
+    6) echo "附录_机型差异" ;;
     *) echo "mod$1" ;;
   esac
 }
@@ -113,6 +114,8 @@ CHANGED="$(
 )"
 CHANGED="$(echo "$CHANGED" | sed 's/ *$//')"
 
+# 2026-10-22 变化页对比：构建前留存上一版成品（page_diff.py 对比用）
+mkdir -p build/_上一版 && for _s in B737机型理论速查笔记 B737机型理论速查; do [ -f "build/$_s.pdf" ] && cp -p "build/$_s.pdf" "build/_上一版/$_s.pdf"; done
 echo
 if [ "$FULL" = 1 ]; then
   info "[2/5] 全书重建模式"
@@ -159,8 +162,10 @@ if [ "$BUILD" = 1 ]; then
   DOC_FIGS="${DOC_FIGS:-}"; export DOC_FIGS   # SD-185（2026-10-15 用户）：完整版放回第一章系统原理图；速查版用 DOC_QR_FIGS（quickref.py），仍只排目视参考图（SD-136 补充）
   # SD-118 速查「按主题查」索引（主题表按条目标题引用）
   DOC_QRTOPICS="${DOC_QRTOPICS:-$ROOT/速查主题索引.json}"; export DOC_QRTOPICS
-  # SD-139 目录后「按主题查」索引（主题 → 正文块「节号 块号」）
-  DOC_TOPICS="${DOC_TOPICS:-$ROOT/按主题查索引.json}"; export DOC_TOPICS
+  # SD-233（2026-10-23 两本整合第四步）：完整版「速查目录」——速查的 8 段主题、条目指向完整版（qr_directory.py 生成，排在总目录之后）；
+  #   取代 SD-139 / 149 的五维「按主题查」（按主题查索引.json 已撤）。DOC_TOPICS_KEY=1 时目录里加灰色「要点」行
+  python3 "$TOOLKIT/qr_directory.py" --repo "$ROOT" --out "$ROOT/build/速查目录.json" || die "速查目录生成失败（qr_directory.py）"
+  DOC_TOPICS="$ROOT/build/速查目录.json"; DOC_TOPICS_FRONT=1; DOC_TOPICS_TITLE="速查目录"; export DOC_TOPICS DOC_TOPICS_FRONT DOC_TOPICS_TITLE
   # SD-209 L3 附录「缩写与术语」1019R6 撤销（记录第 19 / 48 条，用户：去掉专门的缩写查询页）——缩写写在表下注；不再导出 DOC_ABBR
   unset DOC_ABBR
   # 2026-10-12 用户取消正文「相关」行（「太乱了」）：不再传 DOC_RELATED（相关节索引.json 停用备查）
@@ -181,12 +186,13 @@ if [ "$BUILD" = 1 ]; then
   echo; info "[4/5] 渲染 docx"
   if [ "$FULL" = 1 ]; then
     # 2026-09-30 用户：成品文件名「B737机型理论知识笔记」
-    out="build/B737机型理论知识笔记.docx"
-    DOC_HEADER="${DOC_HEADER:-B737-NG / B737-8 机型理论知识笔记}"; export DOC_HEADER
+    out="build/B737机型理论速查笔记.docx"
+    DOC_HEADER="${DOC_HEADER:-B737-NG / B737-8 机型理论速查笔记}"; export DOC_HEADER
     python3 "$TOOLKIT/make_book.py" || die "拼合订本失败"
     # E6（2026-10-21 规则重组方案）：速查版与完整版并行构建——速查用独立的 LibreOffice profile，在后台跑，总检查前等它结束
     QRPID=""
-    if [ -f "$TOOLKIT/quickref.py" ] && [ -z "${SYNC_SERIAL:-}" ]; then
+    # SD-234（2026-10-24 用户：「之前的两个版本都只做溯源，以后只维护这个最新版这一本」）：速查单册默认不再构建；要出溯源对照时 BUILD_QR=1
+    if [ -n "${BUILD_QR:-}" ] && [ -f "$TOOLKIT/quickref.py" ] && [ -z "${SYNC_SERIAL:-}" ]; then
       ( LO_PROFILE="${TMPDIR:-/tmp}/lo-sync-profile-qr" python3 "$TOOLKIT/quickref.py" --repo "$ROOT" > build/quickref_run.log 2>&1; echo "QREXIT $?" >> build/quickref_run.log ) &
       QRPID=$!
       trap 'if [ -n "${QRPID:-}" ]; then pkill -P "$QRPID" 2>/dev/null; kill "$QRPID" 2>/dev/null; fi; [ -n "${LOCK:-}" ] && rm -rf "$LOCK"' EXIT   # 完整版失败中止时不留后台进程
@@ -195,7 +201,7 @@ if [ "$BUILD" = 1 ]; then
     # SD-79（2026-09-30 用户）：一页放得下的表绝不拆开——fit_fix.py 两遍排版（出 PDF 实测断表 → 强制整表同页 → 重出）
     python3 "$TOOLKIT/fit_fix.py" build/book.md "$out" || die "全书渲染失败（横版）"
     # SD-71（2026-09-29 用户）：只出横版。竖版的表格在窄版面里文字堆叠严重、不利阅读，不再产出、也不再为竖版优化排版。
-    # 需要临时出竖版时手动运行：DOC_PORTRAIT=1 node "$TOOLKIT/build_docx.js" build/book.md build/737 机型理论知识笔记_竖版.docx
+    # 需要临时出竖版时手动运行：DOC_PORTRAIT=1 node "$TOOLKIT/build_docx.js" build/book.md build/737 机型理论速查笔记_竖版.docx
     # SD-139（2026-10-05 用户）：「以后的速查笔记也就不用再维护了，以后只维护这一本笔记」——速查单册停出（原生成步骤见 git 历史）
     BUILT="$out"
   else
@@ -261,6 +267,8 @@ for e in toc:
 if ch: d.set_toc(toc)
 d.save(p + '.tmp', garbage=3, deflate=True); d.close(); os.replace(p + '.tmp', p)
 PYEOF
+      # SD-236（2026-10-24 用户）：页脚页码跳回本页知识点所在的速查目录页（Word 页脚一章一个做不到，PDF 生成后逐页改链接，不重排）
+      python3 "$TOOLKIT/footer_toc_links.py" "$pdf" | sed 's/^/  /' || warn "页脚页码落点没改成（不影响排版）"
       rm -rf "$LOTMP" "$LOLOG"
       python3 "$TOOLKIT/verify.py" "$pdf" || exit 1
     done || die "排版校验未通过，已中止（未提交）"
@@ -269,16 +277,16 @@ PYEOF
     if [ "$FULL" = 1 ] && [ -n "${QRPID:-}" ]; then
       wait "$QRPID"
       grep -q '^QREXIT 0$' build/quickref_run.log && grep -v '^QREXIT' build/quickref_run.log | tail -1 | sed 's/^/  /' || { warn "速查版生成失败（不影响完整版）"; tail -5 build/quickref_run.log | sed 's/^/    /'; }
-    elif [ "$FULL" = 1 ] && [ -f "$TOOLKIT/quickref.py" ]; then
+    elif [ "$FULL" = 1 ] && [ -n "${BUILD_QR:-}" ] && [ -f "$TOOLKIT/quickref.py" ]; then
       python3 "$TOOLKIT/quickref.py" --repo "$ROOT" 2>/dev/null | tail -1 | sed 's/^/  /' || warn "速查版生成失败（不影响完整版）"
     fi
     # 2026-10-21：速查版也跑 verify.py（空白页 / 标签泄漏等）；原先只查完整版，速查 1021R1 第 15 页空白页漏报
-    QRPDF="build/B737机型理论知识速查.pdf"
-    if [ "$FULL" = 1 ] && [ -f "$QRPDF" ]; then
+    QRPDF="build/B737机型理论速查.pdf"
+    if [ "$FULL" = 1 ] && [ -n "${BUILD_QR:-}" ] && [ -f "$QRPDF" ]; then
       if QV="$(python3 "$TOOLKIT/verify.py" "$QRPDF" 2>&1)"; then ok "速查版校验通过"; else warn "速查版校验未通过（收工前须改到 0）："; printf '%s\n' "$QV" | sed 's/^/    /'; fi
     fi
     # 2026-10-16（待改清单第 6 / 16 条）：两本同表对比——同格排法不同、表头 / 列数不同报错误；收工前改到 0
-    if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/check_pair.py" ]; then
+    if [ "$FULL" = 1 ] && [ -n "${BUILD_QR:-}" ] && [ -f "$TOOLKIT/check_pair.py" ]; then
       if python3 "$TOOLKIT/check_pair.py" --repo "$ROOT" | sed 's/^/  /'; then :; else warn "两本同表有错误 → build/两本同表对照报告.md（收工前须改到 0）"; fi
     fi
     # SD-79 总检查器：规则见 pub/prompt/layout-checklist.md。报告写 build/排版检查报告.md；
@@ -291,7 +299,20 @@ PYEOF
         warn "总检查：$(sed -n '3p' build/排版检查报告.md) —— 错误必须改到 0，详见 build/排版检查报告.md"
         grep -q "^- \[T13\]" build/排版检查报告.md && info "有列宽空白收不掉（T13）：python3 $TOOLKIT/autow.py --from-report 按实测定宽，再用 preview.py 单节复查"
       fi
+      # 2026-10-23（SD-232）：速查摘录报告原来只有 qr_build.sh 写，全量后留着旧的——1023R8 自审误把 10-22 的旧 T13 当成本轮错误；全量也按主报告重写一份
+      [ -n "${BUILD_QR:-}" ] && python3 - <<'PY'
+t = open('build/排版检查报告.md', encoding='utf-8').read()
+keep = [l for l in t.splitlines() if not l.startswith('- [') or '单册' in l or '速查' in l]
+open('build/排版检查报告_速查.md', 'w', encoding='utf-8').write('\n'.join(keep) + '\n')
+PY
     fi
+    # 2026-10-22 变化页对比（用户：每轮只看变化过的页）：与上一版逐页对齐，旧 / 新并排拼图 → build/变化页对比/
+    for _s in B737机型理论速查 B737机型理论速查笔记; do
+      if [ -f "build/_上一版/$_s.pdf" ] && [ -f "build/$_s.pdf" ] && [ "build/$_s.pdf" -nt "build/_上一版/$_s.pdf" ]; then
+        _t=$([ "$_s" = B737机型理论速查 ] && echo 速查 || echo 详解)
+        python3 "$TOOLKIT/page_diff.py" "build/_上一版/$_s.pdf" "build/$_s.pdf" build/变化页对比 --tag "$_t" 2>/dev/null | sed "s/^/  /"
+      fi
+    done
     # SD-114 联动检查：改动有没有按逻辑同步到全笔记（引用完整性是错误；旧写法残留 / 同值异色 / 联动面是提醒）
     if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/check_struct.py" ]; then   # SD-203：源文件级结构检查（定宽空白、首列换行、表里混行、表内注行、句末标点 A）
       echo; info "[4d] 结构检查（check_struct.py）"
@@ -308,7 +329,7 @@ PYEOF
     fi
     # SD-111：每次全量重建同时更新《笔记结构索引》（给噜噜判断知识点放哪里），随新基线一起交给噜噜
     if [ "$FULL" = 1 ] && [ -f "$TOOLKIT/notes_index.py" ]; then
-      python3 "$TOOLKIT/notes_index.py" notes_src "build/B737机型理论知识笔记.pdf" build/笔记结构索引.md "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null)" >/dev/null 2>&1 \
+      python3 "$TOOLKIT/notes_index.py" notes_src "build/B737机型理论速查笔记.pdf" build/笔记结构索引.md "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null)" >/dev/null 2>&1 \
         && ok "笔记结构索引已更新：build/笔记结构索引.md" || warn "笔记结构索引生成失败（不影响成品）"
     fi
     # 私有库自带全部规则与交接资料（2026-10-02 用户：库交给任何新 AI 都能接手）：每次全量重建同步一次副本
@@ -317,6 +338,8 @@ PYEOF
       cp "$TOOLKIT/../prompt/portable-instruction.md" "$ROOT/规则/规则总纲.md" 2>/dev/null
       cp "$TOOLKIT/../prompt/layout-checklist.md"     "$ROOT/规则/排版规则总表.md" 2>/dev/null
       cp "$TOOLKIT/../prompt/content-core.md"         "$ROOT/规则/内容校对核心规则.md" 2>/dev/null
+      cp "$TOOLKIT/../prompt/lessons.md"              "$ROOT/规则/经验与教训.md" 2>/dev/null   # 2026-10-23 规则统一整理（方案 A）
+      cp "$TOOLKIT/../prompt/SKILL.md"                "$ROOT/规则/B737笔记总规范_单文件.md" 2>/dev/null   # 单文件版（export_prompt.py 生成），给网页端 AI 直接粘贴
       # 给噜噜的规则与台账（2026-10-05 单源）：正本在 pub/prompt（排版规则总表、内容校对核心规则）与私有库根目录（内容裁定台账.json），
       # 先拷进桌面交接包；下面的噜噜镜像再从交接包整体拷回（含 *.json），不要再直接写 协作/噜噜/（那里每次会被清空重建）
       HB="$HOME/Desktop/飞行理论笔记整理/Muse交接包"
@@ -324,6 +347,8 @@ PYEOF
         cp "$TOOLKIT/../prompt/layout-checklist.md" "$HB/排版规则总表.md" 2>/dev/null
         cp "$TOOLKIT/../prompt/content-core.md"     "$HB/内容校对核心规则.md" 2>/dev/null
         cp "$TOOLKIT/../prompt/portable-instruction.md" "$HB/规则总纲.md" 2>/dev/null   # SD-169：噜噜也读总纲
+        cp "$TOOLKIT/../prompt/lessons.md" "$HB/经验与教训.md" 2>/dev/null
+        cp "$TOOLKIT/../prompt/SKILL.md" "$HB/SKILL.md" 2>/dev/null   # 2026-10-23：交接包里叫 SKILL.md（噜噜第十一版通知按此名读；原名与 SKILL.md 并存成两份）
         [ -f "$ROOT/内容裁定台账.json" ] && cp "$ROOT/内容裁定台账.json" "$HB/" 2>/dev/null
       fi
       cp "$TOOLKIT/../prompt/standing-decisions.md"   "$ROOT/规则/长期决策.md" 2>/dev/null
@@ -352,6 +377,8 @@ else
 fi
 
 # ---------- 5. 提交推送 ----------
+# SD-227：全量构建把完整版落后轮数清零
+[ "$FULL" = 1 ] && echo 0 > build/完整版落后轮数.txt && git add -f build/完整版落后轮数.txt 2>/dev/null
 echo; info "[5/5] 提交"
 [ -n "$(git status --porcelain)" ] && DIRTY=1   # 全量重建同步的规则副本 / 索引也要提交
 if [ "$DIRTY" = 0 ]; then

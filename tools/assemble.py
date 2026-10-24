@@ -26,10 +26,11 @@ ONLY = _arg('--only', None)
 MOD = {
     '0': '第零章　基础知识速查区',
     '1': '第一章　系统描述',
-    '2': '第二章　机组训练手册',
+    '2': '第二章　操作程序',   # 2026-10-24（SD-234）：新书章名
     '3': '第三章　运行手册',
-    '4': '第四章　模拟机训练',
-    '5': '第五章　技术提示',
+    '4': '第四章　飞行技术提示',   # 2026-10-23 两本整合：技术提示归回独立一章（1019R3 前为第五章）
+    '5': '第五章　模拟机笔记',
+    '6': '附录　机型差异',   # SD-234：附录作第 6 章（节号 6.1～6.5；章首页不出大号数字）
 }
 
 FM = re.compile(r'\A---\n(.*?)\n---\n', re.S)
@@ -104,9 +105,9 @@ def main():
             '# %s\n\n%s\n' % (title, re.sub(r'\n{3,}', '\n\n', unwiki(body)).strip()))
         print('assembled 1 节 -> %s' % out)
         return
-    full = ['# 机型理论知识笔记\n']   # 2026-09-30 用户：参照速查单册，机型写在封面标签里，题名不再写机型
+    full = ['# 机型理论速查笔记\n']   # SD-234（2026-10-24）：书名《B737-NG / B737-8 机型理论速查笔记》   # 2026-09-30 用户：参照速查单册，机型写在封面标签里，题名不再写机型
     total = 0
-    for n in '012345':
+    for n in '0123456':
         ids = sorted([s for s in secs if s.split('.')[0] == n], key=key)
         if not ids:
             continue
@@ -116,8 +117,8 @@ def main():
                       (unwiki(secs[i][1]),) if '.' not in i else (secs[i][0], unwiki(secs[i][1])))).strip()
                   for i in ids]
         content = '\n\n---\n\n'.join(bodies)
-        if n == '5':                              # 每个技术提示单独起页
-            content = re.sub(r'(?m)^(## 5\.\d+　.*)$', r'%%PAGEBREAK%%\n\n\1', content)
+        if n == '4':                              # 每个技术提示单独起页（2026-10-23 起技术提示为第四章）
+            content = re.sub(r'(?m)^(## 4\.\d+　.*)$', r'%%PAGEBREAK%%\n\n\1', content)
             content = re.sub(r'\A%%PAGEBREAK%%\n\n', '', content)
         if n == '0':                              # 速查区：表格按内容收宽、逐格判定对齐
             content = '%%COMPACT%%\n\n' + content + '\n\n%%ENDCOMPACT%%'

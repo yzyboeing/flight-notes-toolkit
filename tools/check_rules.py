@@ -22,19 +22,28 @@ NO_COPIES, COPIES_ONLY = '--no-copies' in sys.argv, '--copies-only' in sys.argv
 HB = Path.home() / 'Desktop/飞行理论笔记整理/Muse交接包'
 
 CURRENT = ['SKILL.md', 'AGENTS.md', 'prompt/AGENT.md', 'prompt/portable-instruction.md',
-           'prompt/layout-checklist.md', 'prompt/content-core.md']
+           'prompt/layout-checklist.md', 'prompt/content-core.md', 'prompt/lessons.md']
 PRIVATE = ['START_HERE.md', 'AGENTS.md', '规则/示例.md']
 
 # 过时说法：(正则, 说明)
 STALE = [
     (r'prompt/rules\.md|整理规则（真源）', '旧整理规则 rules.md 已归档，现行规则是总纲 / 排版规则总表 / 内容校对核心规则'),
-    (r'第\s*1\s*～\s*5\s*章|第一～五章|正文第 1～5 章', '完整版现为 4 章（原第五章已并入前四章）'),
-    (r'技术通告\s*→\s*第\s*5\s*章|5 技术提示', '原第五章技术提示已并入前四章节末'),
+    (r'5 章 76 节|第二章\s*机组训练手册|2 机组训练手册|第五章\s*模拟机训练|5 模拟机训练', 'SD-234（2026-10-24）：新框架 5 章 + 附录 72 节，第二章「操作程序」、第五章「模拟机笔记」'),
+    (r'4 章 60 节|第四章\s*模拟机训练|4 模拟机训练|第五章\s*技术提示|5 技术提示', '2026-10-23 两本整合：完整版 5 章 76 节——第四章 飞行技术提示、第五章 模拟机训练'),
     (r'绝不推送|不远程 git push', '出基线时推送两库并打标签（总纲硬约束第 7 条）'),
     (r'[A-H]-\d+\s*表|C 块|块索引地址|「A-1」', '全书不设块，条目写「x.y 第 N 条」（SD-199 / 201）'),
     (r'0 基础知识速查区|速查区（第零章', '旧第零章速查区已删除，速查独立成册'),
     (r'规则/排版检查清单\.md', '私有库副本已改名 规则/排版规则总表.md'),
     (r'必背清单（★★）|限制数据总表」和', '必背清单、限制数据总表已删（SD-213）'),
+    # 2026-10-23 规则统一整理（SD-230）：已作废 / 已改的口径，现行规则里再出现就报
+    (r'注\s*≤\s*3|一条目注不超过 3', '注不再限 3 条、不建注表（B37 / Q06，SD-230）'),
+    (r'原地只差一点|原地收紧（≤\s*8pt）|方案 C）', '9pt 一页放得下的表不压缩、整表移页（G6，SD-229）'),
+    (r'4～5 级 7\.5pt|4 级＝7\.5pt', '4 级是 8pt 收行距（G6，SD-230）'),
+    (r'任何情况\s*≥\s*7\.5pt|表内字号\s*≥\s*8pt', '压缩底线 7pt（G6）'),
+    (r'约\s*17\s*分钟', '全量重建现在约 40 分钟'),
+    (r'B737机型理论知识\{?(笔记|速查)', '成品名已改为《B737机型理论速查笔记》（SD-234；SD-225 的《详解》《速查》两本只作溯源）'),
+    (r'SD-1～217', '长期决策已到 SD-230，索引见 decisions-index.md'),
+    (r'使用说明」一页|含学习路线：初学', '两本都不设使用说明（L05）'),
 ]
 EXEMPT = re.compile(r'作废|不再|已删|不设|已并入|原第|旧|删除|去掉|取消|改名|不收|无前言|不标|没有|已归档')
 
@@ -106,7 +115,7 @@ for f in CHECKERS:
 alltext = '\n'.join(src_text.values())
 
 # 只能在 sync 或别的脚本里实现的号：写明实现位置
-ELSEWHERE = {'RULES': 'check_rules.py', 'L7': 'check_figs.py'}
+ELSEWHERE = {'RULES': 'check_rules.py', 'L7': 'check_figs.py', 'B5': 'check_gaps.py', 'Z3': 'check_overshrink.py'}
 for code in sorted(registered) if not COPIES_ONLY else ():
     if code in ELSEWHERE:
         if not (TOOLS / ELSEWHERE[code]).is_file():
@@ -128,6 +137,8 @@ COPIES = [
     (PUB / 'prompt/layout-checklist.md', [NOTES / '规则/排版规则总表.md', HB / '排版规则总表.md']),
     (PUB / 'prompt/content-core.md', [NOTES / '规则/内容校对核心规则.md', HB / '内容校对核心规则.md']),
     (PUB / 'prompt/standing-decisions.md', [NOTES / '规则/长期决策.md']),
+    (PUB / 'prompt/lessons.md', [NOTES / '规则/经验与教训.md', HB / '经验与教训.md']),
+    (PUB / 'prompt/SKILL.md', [NOTES / '规则/B737笔记总规范_单文件.md', HB / 'SKILL.md']),
 ]
 for real, copies in (COPIES if not NO_COPIES else ()):
     body = real.read_bytes()

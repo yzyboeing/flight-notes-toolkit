@@ -22,7 +22,7 @@ BASE_DIR = os.path.join(WS, '用户改稿', '基线')
 TRASH = os.path.join(H, 'flight-repos', '_to_delete')
 STUDY = os.path.join(H, 'flight-repos', 'study')
 SNAP = os.path.join(H, 'Library', 'CloudStorage', 'GoogleDrive-yzyboeing@gmail.com', 'My Drive', '03_AI协作交接', 'B737笔记·Claude与噜噜交接', '学习系统', '笔记源快照')
-STEMS = ('B737机型理论知识笔记', 'B737机型理论知识速查')
+STEMS = ('B737机型理论速查笔记',)   # SD-234（2026-10-24）：只维护这一本；《详解》《速查》两本只作溯源
 GO = '--go' in sys.argv
 TODAY = datetime.date.today().strftime('%Y%m%d')
 
@@ -39,8 +39,8 @@ def run(cmd, cwd=None, check=True):
 
 def move_old(folder, ed, exts):
     """folder 里 STEMS + 别的版本名 + exts 的成品移到 _to_delete/成品旧版_<今天>/<旧版本>/"""
-    for p in sorted(glob.glob(os.path.join(folder, 'B737机型理论知识*'))):
-        m = re.match(r'(B737机型理论知识(?:笔记|速查))(\d{4}R\d+)\.(\w+)$', os.path.basename(p))
+    for p in sorted(glob.glob(os.path.join(folder, 'B737机型理论*'))):   # 2026-10-23：SD-225 改名后新旧书名都认（原来只认「知识笔记 / 知识速查」，新书名的旧版移不走）
+        m = re.match(r'(B737机型理论(?:知识笔记|知识速查|速查笔记|详解|速查))(\d{4}R\d+)\.(\w+)$', os.path.basename(p))
         if not m or m.group(2) == ed or m.group(3) not in exts: continue
         dst = os.path.join(TRASH, '成品旧版_%s' % TODAY, m.group(2))
         print('  移旧版 %s → %s' % (os.path.relpath(p, H), os.path.relpath(dst, H)))

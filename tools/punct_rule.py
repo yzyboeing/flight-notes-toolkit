@@ -44,7 +44,7 @@ def main():
     rep = {'改': [], '疑': []}
     global DEC
     dp = os.path.join(G, '句末标点裁定.json')
-    DEC = json.load(open(dp, encoding='utf-8')) if os.path.exists(dp) else {}; files = glob.glob(G + '/notes_src/[1-5]*/[0-9]*.md') + [G + '/速查/速查源.md']
+    DEC = json.load(open(dp, encoding='utf-8')) if os.path.exists(dp) else {}; files = glob.glob(G + '/notes_src/[1-6]*/[0-9]*.md') + [G + '/速查/速查源.md']
     for f in files:
         t = io.open(f, encoding='utf-8').read(); out = t
         def do_tr(mt):

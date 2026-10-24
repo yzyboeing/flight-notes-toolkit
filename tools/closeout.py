@@ -54,7 +54,7 @@ def t14_tables(repo):
     hits = re.findall(r'^- \[T14\] (全书|单册) 第 (\d+) 页：表格右侧有空位.*?fit_fix 未加宽', io.open(rp, encoding='utf-8').read(), re.M)
     out = set()
     for bk, pg in hits:
-        stem = 'B737机型理论知识笔记' if bk == '全书' else 'B737机型理论知识速查'
+        stem = 'B737机型理论速查笔记' if bk == '全书' else 'B737机型理论速查'
         pdf = os.path.join(repo, 'build', stem + '.pdf'); kf = os.path.join(repo, 'build', 'keep_force_%s.txt' % stem)
         if not (os.path.exists(pdf) and os.path.exists(kf)): continue
         txt = N(pymupdf.open(pdf)[int(pg) - 1].get_text())

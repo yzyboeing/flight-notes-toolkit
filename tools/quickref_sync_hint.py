@@ -23,7 +23,7 @@ def blocks(text, sid):
 norm = lambda s: re.sub(r'\s+', '', re.sub(r'[^\n]*详见[^\n]*', '', re.sub(r'<!--.*?-->', '', s, flags=re.S)))
 
 changed = set()
-for f in glob.glob('notes_src/[1-5]*/*.md'):
+for f in glob.glob('notes_src/[1-6]*/*.md'):
     sid = os.path.basename(f).split(' ')[0]
     old = subprocess.run(['git', 'show', '%s:%s' % (BASE, f)], capture_output=True, text=True).stdout
     bo, bn = blocks(old, sid), blocks(open(f, encoding='utf-8').read(), sid)
