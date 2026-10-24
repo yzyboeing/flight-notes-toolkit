@@ -13,8 +13,9 @@ OLD="$REPOS/_to_delete/源码包旧版_$(date +%Y%m%d)"; mkdir -p "$OLD"
 find "$PKG/" -maxdepth 1 -name '*.bundle' -exec mv {} "$OLD/" \;
 NB="$PKG/flight-theory-notes_${ED}.bundle"
 TB="$PKG/flight-notes-toolkit_$(git -C "$REPOS/pub" rev-parse --short HEAD).bundle"
-git -C "$REPOS/gh-private" bundle create "$NB" --all >/dev/null 2>&1
-git -C "$REPOS/pub"        bundle create "$TB" --all >/dev/null 2>&1
+git -C "$REPOS/gh-private" bundle create "$NB" --exclude='refs/heads/backup/*' --all >/dev/null 2>&1
+# 2026-10-24：本地 backup/ 分支（如压提交前的备份）不进交接包
+git -C "$REPOS/pub"        bundle create "$TB" --exclude='refs/heads/backup/*' --all >/dev/null 2>&1
 git -C "$REPOS/gh-private" bundle verify "$NB" >/dev/null 2>&1 && git -C "$REPOS/pub" bundle verify "$TB" >/dev/null 2>&1
 echo "✓ $(basename "$NB")（$(du -h "$NB" | cut -f1)）  ✓ $(basename "$TB")（$(du -h "$TB" | cut -f1)）"
 echo "  私有库 main：$(git -C "$REPOS/gh-private" log --oneline -1 | cut -c1-60)"
