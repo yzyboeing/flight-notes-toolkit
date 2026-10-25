@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-10-25（1.3.6）
+
+- SD-235 排版来回跳治理落地：A——check_gaps.room() / FIT 与 fit_fix 移页复查共用一个「放得下」；B——fit_fix 收尾「B5 归零」（只删留白页后那张表本次运行的 B: 行、重排比对、最多 2 轮）。沙盒验收：R6 源文件重建与手工补丁版逐页一致。
+- SD-237：章名改为 运行规范 / 技术提示 / 故障处置（assemble、sync.sh、qr_directory、OneNote 分区对照、K-S4、P2、STALE）；封面方案 A（原生文字 + 封面单独一节的双线页框，DOC_COVER=old 回旧封面）；目录两栏逐行连续排；qr_directory XREF 支持「名称=条目号」。
+- sandbox.sh 按 /usr/bin/python3 求 Python 用户库（沙盒里能找到 PyMuPDF）。
+
 ## 2026-10-24（1.3.5）
 
 - SD-236 页脚页码跳回本页知识点所在的速查目录页：新工具 `footer_toc_links.py`（PDF 生成后逐页改页码链接，不重排；LibreOffice 的页脚链接是同一个注释对象挂在每页上，只从本页 /Annots 摘掉再插本页独有链接）；`sync.sh` 书签清洗后调用；`check_layout` 新增错误级 K-L8（`--check` 落点复核）。

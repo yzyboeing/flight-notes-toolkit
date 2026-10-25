@@ -2945,7 +2945,53 @@ const coverFull = [
   ...(AUTHOR ? [coverTxt(AUTHOR, 22, { before: PORTRAIT ? 700 : 200, color: '404040' })] : []),
   ...coverNoticeCompact(AUTHOR ? 40 : (PORTRAIT ? 1200 : 40))
 ];
-const cover = SINGLE ? coverSingle : coverFull;
+/* 2026-10-25 封面方案 A「经典书刊」（用户在 A / B / C 三张样张中选定 A，样张在工作区「封面样张/」）：
+   双线页框（只在封面这一节，见 SECTIONS）→ 机型标签（黑体、深蓝、大字距）→ 上粗下细双线 → 书名（思源宋体 Heavy）→ 副标题 → 上细下粗双线
+   → 章节两栏（序号中蓝、章号灰、章名黑，行下浅色虚线）→ 特别提示 → 版本号。全部是原生文字（可搜索），章名随大纲自动变。DOC_COVER=old 用旧封面 */
+const COVER_A = !SINGLE && BOOK && process.env.DOC_COVER !== 'old';
+const fontOf = (n) => ({ ascii: n, hAnsi: n, eastAsia: n, cs: n });
+const SANS_F = fontOf('Source Han Sans CN'), HEAVY_F = fontOf('Source Han Serif CN Heavy');
+const aPara = (children, o = {}) => new ParagraphX({ alignment: AlignmentType.CENTER, spacing: { before: o.before || 0, after: o.after || 0, line: o.line },
+  indent: o.ind ? { left: o.ind, right: o.ind } : undefined, border: o.border, outlineLevel: o.outline ? 0 : undefined, children });
+const A_RULE_IND = Math.max(0, Math.round((TOTAL - 6800) / 2));   // 双线宽 120mm
+const aRule = (style, before) => aPara([new TextRun({ text: '', size: 2 })], { before, line: 20, ind: A_RULE_IND,
+  border: { bottom: { style, size: 18, color: INK, space: 1 } } });
+function coverAChapters() {
+  if (!BOOK || OUTLINE.length < 2) return [];
+  const half = Math.ceil(OUTLINE.length / 2), W = [760, 1050, 2900, 1100, 760, 1050, 2900];
+  const dot = { style: BorderStyle.DOTTED, size: 4, color: 'B8C4D0' };
+  const cell = (w, runs, line) => new TableCell({ width: { size: w, type: WidthType.DXA }, verticalAlign: VerticalAlign.BOTTOM,
+    borders: { top: NB, left: NB, right: NB, bottom: line ? dot : NB }, margins: { top: 70, bottom: 70, left: 0, right: 0 },
+    children: [new ParagraphX({ children: runs })] });
+  const part = (ch) => {
+    if (!ch) return [cell(W[0], [], false), cell(W[1], [], false), cell(W[2], [], false)];
+    const [cn, ct] = splitChap(ch.text);
+    return [cell(W[0], [new TextRun({ text: chapNo(cn) || '附', font: FF, size: 26, bold: true, color: INK2 })], true),
+            cell(W[1], [new TextRun({ text: cn === '附录' ? '附　录' : cn, font: FF, size: 18, color: '7A7A7A' })], true),
+            cell(W[2], [new TextRun({ text: ct, font: FF, size: 23, color: '1A1A1A' })], true)];
+  };
+  const rows = [];
+  for (let r = 0; r < half; r++) rows.push(new TableRow({ cantSplit: true, children: [...part(OUTLINE[r]), cell(W[3], [], false), ...part(OUTLINE[r + half])] }));
+  return [new Table({ rows, alignment: AlignmentType.CENTER, borders: TableBorders.NONE, layout: TableLayoutType.FIXED,
+                      width: { size: W.reduce((a, b) => a + b, 0), type: WidthType.DXA }, columnWidths: W })];
+}
+const coverA = [
+  aPara([new TextRun({ text: process.env.DOC_LABEL || 'B737-NG　/　B737-8', font: SANS_F, size: 22, bold: true, color: INK, characterSpacing: 120 })], { before: 1150 }),
+  aRule(BorderStyle.THICK_THIN_SMALL_GAP, 240),
+  aPara([new TextRun({ text: docTitle, font: HEAVY_F, size: 108, color: '111111', characterSpacing: 150 })], { before: 460, after: 220, outline: true }),
+  aPara([new TextRun({ text: process.env.DOC_SUBTITLE || '系统 · 运行 · 训练', font: FF, size: 28, color: GRAY, characterSpacing: 300 })]),
+  aRule(BorderStyle.THIN_THICK_SMALL_GAP, 340),
+  new ParagraphX({ spacing: { before: 0, after: 760 }, children: [] }),
+  ...coverAChapters(),
+  ...(process.env.DOC_NOTICE ? [aPara(noticeRuns(18, '555555'), { before: 1000 })] : []),
+  ...(editionLabel ? [aPara([new TextRun({ text: editionLabel, font: FF, size: 17, color: '888888' })], { before: 120 })] : [])
+];
+const cover = SINGLE ? coverSingle : (COVER_A ? coverA : coverFull);
+/* 方案 A 双线页框（外细内粗，深蓝）：单面印刷时全书一节、只显示在第一页；双面印刷时加在封面节 */
+const coverABorders = (display) => { const ln = (style) => ({ style, size: 18, color: INK, space: 28 });
+  return { pageBorders: { display, offsetFrom: 'page', zOrder: 'front' },
+           pageBorderTop: ln(BorderStyle.THICK_THIN_SMALL_GAP), pageBorderLeft: ln(BorderStyle.THICK_THIN_SMALL_GAP),
+           pageBorderBottom: ln(BorderStyle.THIN_THICK_SMALL_GAP), pageBorderRight: ln(BorderStyle.THIN_THICK_SMALL_GAP) }; };   // LibreOffice 实测：上 / 左用 thickThin 才是外细内粗
 /* 目录（2026-09-29 改版）：不用 Word TOC 域，按大纲自行生成——章为灰底粗体行（左粗竖条），节缩进、点线连页码；
    页码为 PAGEREF 域（Word 中全选 F9 刷新），标题可点击跳转。速查区只列章行，31 个主题清单在第零章首页。
    整章成栏：竖版每页一栏，横版每页两栏；一栏放不下的章换到下一栏。 */
@@ -2970,7 +3016,10 @@ function buildToc() {
   }
   const wt = ls => ls.reduce((a, l) => a + (l.chap ? 1.8 : 1), 0);
   const cols = []; let cur = [], cw = 0;
-  blocks.forEach(b => { const w = wt(b); if (cur.length && cw + w > CAP) { cols.push(cur); cur = []; cw = 0; } cur = cur.concat(b); cw += w; });
+  /* 2026-10-25（用户 1024R6 目录页批注：「直接接到后面，后面的四个章节也一样，不用留空白」）：两栏连续排——逐行装栏，栏满接下一栏，
+     不再整章换栏；章标题后至少跟 2 行才放在本栏，否则连标题一起移到下一栏（标题不落栏底） */
+  blocks.forEach(b => b.forEach(l => { const w = l.chap ? 1.8 : 1, need = l.chap ? w + Math.min(2, b.length - 1) : w;
+    if (cur.length && cw + need > CAP) { cols.push(cur); cur = []; cw = 0; } cur.push(l); cw += w; }));
   if (cur.length) cols.push(cur);
   const out = [];
   for (let pg = 0; pg * PER < cols.length; pg++) {
@@ -3189,12 +3238,14 @@ for (let t = 1; t < body.length; t++) {
   while (li >= 0 && PARA_OPTS.has(body[li]) && !(PARA_OPTS.get(body[li]).children || []).length && !PARA_OPTS.get(body[li]).pageBreakBefore) li--;
   if (li >= 0 && body[li] instanceof Table) { body.splice(li + 1); body.push(TINY()); } }
 if (!DUPLEX) {
-  SECTIONS = [{
-    properties: { page: PAGE, titlePage: true },
+  /* 2026-10-25 封面方案 A：双线页框是节属性，LibreOffice 不认「只在第一页」（firstPage 实测后面每页都有框）——封面单独一节带框，其余照旧一节 */
+  SECTIONS = [...(COVER_A ? [{ properties: { page: { ...PAGE, borders: coverABorders('allPages') } },
+                               headers: { default: emptyHF().header }, footers: { default: emptyHF().footer }, children: cover }] : []), {
+    properties: { page: PAGE, titlePage: !COVER_A },
     /* SD-97：顶端不放页眉；章名 / 节名与页码同在页脚一行（封面不显示） */
     headers: { first: emptyHF().header, default: emptyHF().header },
     footers: { first: emptyHF().footer, default: new Footer({ children: [footNav()] }) },
-    children: front.concat(body, TOPICS_AT_END ? bodyTopicPage() : [], abbrPage())   // SD-149：第五章之后的速查入口；SD-209：附录缩写表
+    children: (COVER_A ? front.slice(cover.length) : front).concat(body, TOPICS_AT_END ? bodyTopicPage() : [], abbrPage())   // SD-149：第五章之后的速查入口；SD-209：附录缩写表
   }].flatMap(expandCols);
 } else {
   const HF = {
@@ -3206,7 +3257,7 @@ if (!DUPLEX) {
   const starts = CHAP_IDX.length ? CHAP_IDX : [body.length];
   SECTIONS = [
     /* 封面：单独一节，无页眉页脚（背面空白页同样无页眉页脚） */
-    { properties: { page: PAGE, titlePage: true },
+    { properties: { page: COVER_A ? { ...PAGE, borders: coverABorders('allPages') } : PAGE, titlePage: true },
       headers: { first: e.header, default: e.header, even: e2.header },
       footers: { first: e.footer, default: e.footer, even: e2.footer },
       children: cover },

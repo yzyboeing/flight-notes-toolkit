@@ -580,39 +580,31 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     pull = 0
     try:
         _H0 = _d[0].rect.height; _TOP0, _BOT0 = 36, _H0 - 50
+        # 2026-10-24（SD-235 排版来回跳治理 A）：留白与「开头那块」的高度改用 check_gaps.room()——与 K-B5 同一个量法、同一个余量 FIT，
+        #   原来本段从页顶 36pt 量、要 3% 余量，check_gaps 从首块顶量、5% 余量，1024R6 第 459 页差 0.03pt：这里不拉回、那边报留白页
+        from check_gaps import room as _room, FIT as _FIT
         for _i in range(1, len(_d) - 1):
-            _ys = [b[3] for b in _d[_i].get_text('blocks') if b[4].strip() and not re.search(r'第\s*\d+\s*页\s*$', b[4].strip())]
-            _ys += [x['bbox'][3] for x in _d[_i].get_image_info() if (x['bbox'][2] - x['bbox'][0]) * (x['bbox'][3] - x['bbox'][1]) > 4000]
-            _gap = _BOT0 - 8 - (max(_ys) if _ys else _TOP0)
-            if _gap < 0.12 * (_BOT0 - _TOP0): continue
-            try: _t2 = [t for t in _d[_i + 1].find_tables().tables if t.bbox[3] - t.bbox[1] > 10]
-            except Exception: _t2 = []
-            if not _t2: continue
-            _need = _t2[0].bbox[3] - _TOP0
-            # 2026-10-22（用户截图速查第 23 页：上面空大半页、表连注都放得下却在下一页）：拉回要连表后紧跟的注 / 公司差异一起量——
-            #   原来只量表，拉回后注掉页→注跟表走又移走→拉回两次后不再管，表就一直留在下一页
-            _end = _t2[0].bbox[3]
-            for _b in sorted(_d[_i + 1].get_text('blocks'), key=lambda b: b[1]):
-                if _b[4].strip() and _b[1] >= _end - 1 and _b[1] - _end < 14 and re.match(r'^\s*(注|公司差异)', _b[4]): _end = _b[3]
-            _needn = _end - _TOP0 + 6
+            _rm = _room(_d, _i, 0.12)
+            if not _rm: continue
+            _gap, _needn, _tb = _rm
             # 2026-10-22：PDF 上表连表后注认成一块、文字带「●」，签名覆盖率不到 0.5 匹配不上（速查第 23 页等四处一直没拉回）——去圆点、截掉注再匹配
-            _tx = re.sub(r'[●•]', '', re.sub(r'\s+', '', _d[_i + 1].get_text(clip=_t2[0].bbox)))
+            _tx = re.sub(r'[●•]', '', re.sub(r'\s+', '', _d[_i + 1].get_text(clip=_tb)))
             _tx = re.split(r'注[:：]|公司差异[:：]', _tx)[0]
             # 下一页以条目标题开头、标题有「另起一页」记录（P:）而上一页放得下：撤销（记录过时，速查第 425 条）
             _hl = [b for b in _d[_i + 1].get_text('blocks') if b[4].strip() and b[1] >= _TOP0 - 4]
             _hd = re.sub(r'\s+', '', min(_hl, key=lambda b: b[1])[4].split('\n')[0]) if _hl else ''
-            if _hd and _needn <= 0.97 * _gap:
+            if _hd and _needn <= _FIT * _gap:
                 for _h in [h for h in pbreak if _hd.startswith(h) or h.startswith(_hd)]:
                     pbreak.discard(_h); pbfree.add(_h); pull += 1
             for _sg in match(_tx, tbls) & brk:
                 _roomy = _needn <= 0.9 * _gap and not clv.get(_sg, 0)   # 正文字号连注都宽裕放得下：不受「只拉回一两次」限制
                 if _sg in pulled and not _roomy and (_gap < 0.5 * (_BOT0 - _TOP0) or _sg in repulled): continue   # 2026-10-22：上一页空过半时可再拉回（移页记录过时，速查第 355 条整页只剩三行）
                 _r = _gap / max(1, _needn) * SHRINK_F[clv.get(_sg, 0)]
-                _L = 0 if _r >= 1 / 0.97 else lvl_for(_r)
+                _L = 0 if _r >= 1 / _FIT else lvl_for(_r)
                 _cur = clv.get(_sg, 0)
                 # SD-229：9pt 的表只在正文字号就放得下时拉回。2026-10-23（SD-232 ⑧，1023R11 第 543 页留白 406pt：4 级的表在下一页页顶、按现有级别放得进）：
                 #   压缩过的表（级别由「一整页放得下」定）按现有级别实测放得进上一页空位就拉回，级别不变——不为填空白加压，也不按估算减压；与 K-B5 check_gaps 同一个「放得下」
-                if (_cur == 0 and _L == 0) or (_cur > 0 and _needn <= 0.97 * _gap):
+                if (_cur == 0 and _L == 0) or (_cur > 0 and _needn <= _FIT * _gap):
                     if _sg in pulled: repulled.add(_sg)   # 2026-10-22：再拉回只给一次（防移页 / 拉回来回拉锯，1021R4 重建十三小表拆开）
                     brk.discard(_sg); pulled.add(_sg); pull += 1
                     if _roomy: roomy.add(_sg)   # 宽裕拉回的表本次运行不再因注掉页整表移走（真拆开了仍照 SD-229 整表移页）
@@ -885,6 +877,39 @@ try:
             if r['result'] == 'fail': print('  · 第 %d 页「%s」%d→%d 级：%s' % (r['page'], r['head'], r['from'], r['to'], r['reason']))
 except Exception as _e:
     print('fit_fix：定稿退级跳过（%s）' % _e)
+# 2026-10-24（SD-235 排版来回跳治理 B，用户：「咨询一下顾问怎么解决排版来回跳的问题」）：收尾「B5 归零」——
+#   成品里仍有留白页（check_gaps.room，与 K-B5 同一判据）时，撤掉下一页那张表本次运行的整表移页（keep_force 的 B: 行，只删不加），
+#   重排一次；断表问题与页数不变多、留白页变少才收，否则退回基准。最多 2 轮（1024R6 第 459 页曾靠手工撤这一处分页）
+try:
+    import fitz as _fz5
+    from check_gaps import room as _room5, FIT as _FIT5
+    for _round in range(2):
+        if not (last_pdf and os.path.exists(last_pdf) and _BASE): break
+        _dd = _fz5.open(last_pdf); _sigs, _pgs = set(), []
+        for _i in range(len(_dd) - 1):
+            _rm = _room5(_dd, _i)
+            if not (_rm and _rm[1] <= _FIT5 * _rm[0]): continue
+            _tx = re.sub(r'[●•]', '', re.sub(r'\s+', '', _dd[_i + 1].get_text(clip=_rm[2])))
+            _hit = match(re.split(r'注[:：]|公司差异[:：]', _tx)[0], tbls)
+            if _hit: _sigs |= _hit; _pgs.append(_i + 1)
+        if not _sigs: break
+        _kf0 = open(KF, encoding='utf-8').read()
+        _ls = [l for l in _kf0.split('\n') if not (l.startswith('B:') and l[2:] in _sigs)]
+        _nd = len(_kf0.split('\n')) - len(_ls)
+        if not _nd: print('fit_fix：B5 归零——留白页 %s 的表没有整表移页记录，不动' % _pgs); break
+        _docx0 = shutil.copy2(OUT, OUT + '.b5')
+        open(KF, 'w', encoding='utf-8').write('\n'.join(_ls))
+        build(dump); _p5 = to_pdf(); _g5 = _gate(_p5)
+        if _g5[0] <= _BASE[4][0] and _g5[2] <= _BASE[4][2] and _g5[1] < _BASE[4][1]:
+            _gb = _BASE[4][1]; shutil.copy2(_p5, last_pdf); _BASE = _keep_base('B5 归零第 %d 轮后的成品' % (_round + 1))
+            print('fit_fix：B5 归零——撤整表移页 %d 处（第 %s 页留白），留白页 %d → %d' % (_nd, '、'.join(map(str, _pgs)), _gb, _g5[1]))
+        else:
+            open(KF, 'w', encoding='utf-8').write(_kf0); shutil.copy2(_docx0, OUT)
+            print('fit_fix：B5 归零——撤 %d 处后断表问题 / 留白页 / 页数为 %d / %d / %d（基准 %d / %d / %d），不收，保留留白页' % ((_nd,) + _g5 + _BASE[4]))
+            os.remove(OUT + '.b5'); shutil.rmtree(os.path.dirname(_p5), ignore_errors=True); break
+        os.remove(OUT + '.b5'); shutil.rmtree(os.path.dirname(_p5), ignore_errors=True)
+except Exception as _e:
+    print('fit_fix：B5 归零跳过（%s）' % _e)
 # 2026-10-22 定稿后收窄（t13_post）：按成品实测把不折行、右侧仍空 ≥ 10pt 的列直接在 docx 里收到刚好够宽——列内行数不变、分页不动
 try:
     import t13_post

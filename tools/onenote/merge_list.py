@@ -7,7 +7,7 @@ from html.parser import HTMLParser
 sys.path.insert(0, __import__('os').path.dirname(__file__))
 from onenote_build import split
 
-CHN = {1: '第一章 系统描述', 2: '第二章 操作程序', 3: '第三章 运行手册', 4: '第四章 飞行技术提示', 5: '第五章 模拟机笔记', 6: '附录 机型差异'}
+CHN = {1: '第一章 系统描述', 2: '第二章 操作程序', 3: '第三章 运行规范', 4: '第四章 技术提示', 5: '第五章 故障处置', 6: '附录 机型差异'}
 
 class P(HTMLParser):
     def __init__(s):

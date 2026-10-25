@@ -66,8 +66,8 @@ if '--no-src' not in sys.argv:
         if r.returncode:
             tail = [l for l in (r.stdout + r.stderr).strip().splitlines() if l.strip()][-6:]
             err(rule, '%s 未通过：\n      ' % tool + '\n      '.join(tail))
-    if not os.path.isdir(os.path.join(REPO, 'notes_src', '3 运行手册')):
-        err('S4', '第三章文件夹应为 notes_src/3 运行手册/（SD-73）')
+    if not os.path.isdir(os.path.join(REPO, 'notes_src', '3 运行规范')):
+        err('S4', '第三章文件夹应为 notes_src/3 运行规范/（2026-10-25 用户改名，取代 SD-73）')
 
 # S5 速查区与正文同一张表的表头标注要一致（2026-09-30 用户：「以上的所有更新都同步更新到其它章节了吗」）
 #   按速查每条下的「详见 x.y A-n」找到正文条目，列数相同、表头至多差一格的表视为同一张表，col-center / col-bullet / col-plain / col-left 必须相同
@@ -844,8 +844,8 @@ else:
     t = book[pre].get_text()
     if SIGN and SIGN not in t: err('P1', '前言缺署名 %s（SD-74）' % SIGN)
     if re.search(r'以\s*(SOP|FCOM)[^。]{0,6}为准', t): err('P1', '前言不应再有「以 SOP / FCOM 为准」一句（SD-73）')
-toc = '主题目录' if SECTION else ''.join(book[i].get_text() for i in range(1, min(6, len(book))))
-if '运行规范' in re.sub(r'运行规范\s*C\d+', '', toc): err('P2', '总目录仍出现「运行规范」，第三章名应为「运行手册」（SD-73）')
+toc = '主题目录' if SECTION else ''.join(book[i].get_text() for i in range(1, min(6, len(book))) if book[i].get_text().lstrip().startswith('目录'))   # 只看目录页（前言来源里的公司《运行手册》不算）
+if re.search(r'运行手册|飞行技术提示|模拟机笔记', toc): err('P2', '目录仍出现旧章名（运行手册 / 飞行技术提示 / 模拟机笔记）——2026-10-25 起为 运行规范 / 技术提示 / 故障处置')
 if '速查目录' not in toc and '主题目录' not in toc: err('P2', '目录里缺「速查目录」（SD-233；原 SD-139 / 149「主题目录」）')
 # SD-233（2026-10-23 两本整合）：「速查目录」放在总目录之后、第一章之前（取代 SD-149「主题目录放在最后一章之后」）
 _tp = [i for i in range(1, len(book)) if re.match(r'(速查目录|主题目录)', nosp(book[i].get_text())[:12]) or nosp(book[i].get_text()).startswith(('速查目录', '主题目录'))]

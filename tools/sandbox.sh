@@ -37,7 +37,8 @@ PY
   run)
     shift 2
     cd "$D/gh-private"
-    PYUB="$(python3 -m site --user-base)"
+    # 2026-10-24：PyMuPDF 装在系统 /usr/bin/python3 的用户库（Homebrew python3 没有，见 reference-python-path-fitz），优先按它求用户库
+    PYUB="$( (/usr/bin/python3 -m site --user-base || python3 -m site --user-base) 2>/dev/null)"
     HOME="$D/home" TMPDIR="$D/tmp" PYTHONUSERBASE="$PYUB" "$@"
     ;;
   drop)

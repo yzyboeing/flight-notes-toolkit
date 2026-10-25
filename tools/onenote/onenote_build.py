@@ -13,10 +13,12 @@ from onenote_api import req, content, list_pages, create_page, patch_with_image,
 from onenote_conv import convert, page, strip_index, FONT, TABW
 NS = os.path.expanduser('~/flight-repos/gh-private/notes_src/')
 WORK = os.path.expanduser('~/flight-repos/_work/onenote')
-CHN = {'第一章': '第一章 系统描述', '第二章': '第二章 操作程序', '第三章': '第三章 运行手册', '第四章': '第四章 飞行技术提示', '第五章': '第五章 模拟机笔记', '附录': '附录 机型差异'}   # 2026-10-24 SD-234
+CHN = {'第一章': '第一章 系统描述', '第二章': '第二章 操作程序', '第三章': '第三章 运行规范', '第四章': '第四章 技术提示', '第五章': '第五章 故障处置', '附录': '附录 机型差异'}   # 2026-10-24 SD-234
 # 2026-10-15 SD-185 第一章改名「系统描述」；接口不能改分区名——OneNote 里还叫旧名时沿用旧分区写入，页眉照新名（用户在 OneNote 里右键改名即可）
-ALIAS = {'第一章 系统描述': '第一章 系统理论', '第二章 操作程序': '第二章 机组训练手册', '第四章 飞行技术提示': '第五章 技术提示', '第五章 模拟机笔记': '第四章 模拟机训练'}   # SD-234（2026-10-24）：沿用旧分区写入，用户在 OneNote 里右键改名
-def sec_name(name, secs): return name if name in secs or ALIAS.get(name) not in secs else ALIAS[name]
+ALIAS = {'第一章 系统描述': ['第一章 系统理论'], '第二章 操作程序': ['第二章 机组训练手册'],
+         '第三章 运行规范': ['第三章 运行手册'], '第四章 技术提示': ['第四章 飞行技术提示', '第五章 技术提示'], '第五章 故障处置': ['第五章 模拟机笔记', '第四章 模拟机训练']}
+# SD-234（2026-10-24）沿用旧分区写入；2026-10-25 三 / 四 / 五章再改名：OneNote 里可能是最早的旧名、也可能已按 R2 建议改过名——按列出顺序找第一个存在的分区
+def sec_name(name, secs): return name if name in secs else next((a for a in ALIAS.get(name, []) if a in secs), name)
 NB_ID = '0-A7EF8B8B1AAC2778!s8966e7df85744afd957d97c2f66eb275'   # 用户自己的「飞行」笔记本（2026-10-05 用户：「以后更新就在这里更新」）
 def locate(nb_id, group=''):
     """返回 ({分区名: id}, 新建分区用的父路径)。group 为空时分区直接在笔记本下。"""
