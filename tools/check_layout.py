@@ -635,7 +635,12 @@ try:
                 _gid += 1; _grp[_k] = _gid
         _byg = collections.defaultdict(list)
         for _k in _keys: _byg[_grp[_k]].append(_k)
+        _tocp = set()   # 2026-10-25（SD-237 目录两栏连续排）：目录页是两栏排版用的表、各行靠点线填满，不量列宽
+        try:
+            _dt = pymupdf.open(_pdf); _tocp = {i + 1 for i in range(min(10, len(_dt))) if _dt[i].get_text().lstrip().startswith('目录')}
+        except Exception: pass
         for _g, _ks in _byg.items():
+            if _ks[0][0] in _tocp: continue
             for _c in range(_segs[_ks[0]][0]['nc']):
                 _vals = [next((e for e in _segs[_k] if e['col'] == _c), None) for _k in _ks]
                 if any(v is None for v in _vals): continue

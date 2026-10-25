@@ -2950,7 +2950,7 @@ const coverFull = [
    → 章节两栏（序号中蓝、章号灰、章名黑，行下浅色虚线）→ 特别提示 → 版本号。全部是原生文字（可搜索），章名随大纲自动变。DOC_COVER=old 用旧封面 */
 const COVER_A = !SINGLE && BOOK && process.env.DOC_COVER !== 'old';
 const fontOf = (n) => ({ ascii: n, hAnsi: n, eastAsia: n, cs: n });
-const SANS_F = fontOf('Source Han Sans CN'), HEAVY_F = fontOf('Source Han Serif CN Heavy');
+const HEAVY_F = fontOf('Source Han Serif CN Heavy');
 const aPara = (children, o = {}) => new ParagraphX({ alignment: AlignmentType.CENTER, spacing: { before: o.before || 0, after: o.after || 0, line: o.line },
   indent: o.ind ? { left: o.ind, right: o.ind } : undefined, border: o.border, outlineLevel: o.outline ? 0 : undefined, children });
 const A_RULE_IND = Math.max(0, Math.round((TOTAL - 6800) / 2));   // 双线宽 120mm
@@ -2976,7 +2976,7 @@ function coverAChapters() {
                       width: { size: W.reduce((a, b) => a + b, 0), type: WidthType.DXA }, columnWidths: W })];
 }
 const coverA = [
-  aPara([new TextRun({ text: process.env.DOC_LABEL || 'B737-NG　/　B737-8', font: SANS_F, size: 22, bold: true, color: INK, characterSpacing: 120 })], { before: 1150 }),
+  aPara([new TextRun({ text: process.env.DOC_LABEL || 'B737-NG　/　B737-8', font: FF, size: 22, bold: true, color: INK, characterSpacing: 120 })], { before: 1150 }),
   aRule(BorderStyle.THICK_THIN_SMALL_GAP, 240),
   aPara([new TextRun({ text: docTitle, font: HEAVY_F, size: 108, color: '111111', characterSpacing: 150 })], { before: 460, after: 220, outline: true }),
   aPara([new TextRun({ text: process.env.DOC_SUBTITLE || '系统 · 运行 · 训练', font: FF, size: 28, color: GRAY, characterSpacing: 300 })]),
