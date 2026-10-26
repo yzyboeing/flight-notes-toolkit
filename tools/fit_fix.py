@@ -55,6 +55,8 @@ nlbase = {}   # (表, 列) → 收窄前的总行数
 nwlock = set()   # 收窄后又折行的 (表, 列)：本次运行不再收窄（2026-10-06 防拉锯）
 ncond = {}   # SD-130 表外「注：」段落末行孤字：ncond[注文前 12 字] = 1（-0.3pt）/ 2（-0.5pt）
 condense = {}   # 2026-10-03 末行孤字兜底：加宽无效的格收紧字距，condense[(sig, 首行前 10 字)] = 1（-0.3pt）/ 2（-0.5pt）   # pbreak＝另起一页的条目标题（P:，SD-97 孤行兜底）   # splitok＝标题被留下的块索引表：允许按块分页（S:）     # wfix[(sig, 列)] = 加宽 DXA；wblock＝加宽也没用的格，不再试
+_kf_in = open(KF, encoding='utf-8').read() if os.path.exists(KF) else ''   # SD-238：读进来的 keep_force 原文（不动点短路时原样写回）
+_warm = []   # SD-238：上次成品的分页 / 压缩决定（B: / SB: / P: / Z~ / ~），下面各集合建好后放进去；FITFIX_COLD=1 照旧从零开始
 for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
     l = l.strip()
     if not l: continue
@@ -62,10 +64,8 @@ for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
         _, k, dd, sg = l.split(':', 3); wfix[(sg, int(k))] = int(dd)
     elif l.startswith('S:'):
         splitok.add(l[2:])
-    elif l.startswith('P:'):
-        pass   # 2026-10-22（SD-223）：条目标题另起一页只在本次运行内有效——旧记录在内容 / 分页变了以后成了多余分页、留白
-    elif l.startswith('B:') or l.startswith('SB:'):
-        pass   # SD-218：整表下移 / 大表拆开只在本次运行内有效（分页位置随内容变）
+    elif l.startswith('P:') or l.startswith('B:') or l.startswith('SB:'):
+        _warm.append(l)   # SD-238（治理 C）：上次成品的分页决定接着用（原来只在本次运行内有效——每次从零重算，同样的源文件排出不同版面）；过时的由空白页自愈 / 移页复查拉回 / B5 归零撤掉
     elif l.startswith('WB:'):
         pass   # 1020R1（用户 2026-10-20 第 290 页「右侧有很大空间，为什么不增加表格宽度以减少行数」）：WB（加宽放弃）不再跨运行保留——旧记录让 56 张窄表永远不加宽；本次运行内仍防拉锯
     elif l.startswith('NW:'):
@@ -86,8 +86,8 @@ for l in (open(KF, encoding='utf-8') if os.path.exists(KF) else []):
         _, mm, fn = l.split(':', 2); figw[fn] = float(mm)
     elif l.startswith('!'): pass   # 2026-10-22（SD-223）：「已放弃整页」只在本次运行内有效——旧记录让表在新规则下被跳过、卡在拆开状态（1021R4 六张）
     elif l.startswith('WZ:'): pass   # 2026-10-23（SD-232 ⑨）：列宽冻结只在本次运行内有效
-    elif l.startswith('Z~'): pass   # 2026-10-21：一页放得下的表的收紧级只在本次运行内有效
-    elif l.startswith('~'): lv[l[3:]] = 0   # 2026-10-22（SD-229）：点名整页表的压缩级也只在本次运行内有效（旧 ~5 让 1.2 自动增压表一开始就压到 7.5pt、和新插图同页拆开）
+    elif l.startswith('Z~'): _warm.append(l)   # SD-238：收紧级同样接着用（过重的由每遍试退一级、定稿退级收回）
+    elif l.startswith('~'): lv[l[3:]] = 0; _warm.append(l)   # SD-238：点名整页表的压缩级接着用（2026-10-22 SD-229 曾改为只在本次运行内有效）
     else: lv[l] = 0
 MINR = int(os.environ.get('SPLIT_MINROWS', '3'))   # 2026-10-22：大表续排每截至少 3 行（取代 SD-218 的 1 行）
 BIGT = float(os.environ.get('SPLIT_BIG', '0.5'))
@@ -112,6 +112,14 @@ roomy = set()   # 2026-10-22：正文字号连注宽裕拉回的表（注掉页�
 notepull = set()   # 2026-10-22：为把表后一两行拉回本页而收紧的表（2026-10-23 起同样参加每遍试退一级）
 nobrk = set()   # 2026-10-22：撤销过整表移页的表（空白页自愈），本次运行不再强制移页
 sbfree = set()   # 2026-10-21：本次运行里撤销过强制拆开的表——不再对它强制拆开（防来回）
+if os.environ.get('FITFIX_COLD') != '1':
+    for l in _warm:
+        if l.startswith('B:'): brk.add(l[2:])
+        elif l.startswith('SB:'): _, k, sg = l.split(':', 2); sbk.setdefault(sg, set()).add(int(k))
+        elif l.startswith('P:'): pbreak.add(l[2:])
+        elif l.startswith('Z~'): clv[l[4:]] = int(l[2])
+        else: lv[l[3:]] = int(l[1])
+    if _warm: print('fit_fix：接着用上次成品的分页 / 压缩记录 %d 条（SD-238）' % len(_warm))
 def save():
     with open(KF, 'w', encoding='utf-8') as f:
         for sg in sorted(brk): f.write('B:' + sg + '\n')
@@ -189,7 +197,17 @@ def _wimpose(sg, k, sn):
     wblock.add((sg, k)); nwlock.add((sg, k)); bwblock.add((sg, k))
 _wprev = _wnet()   # 起点＝读进来的记录（不是 0：否则第一次清掉过时记录也算一次换方向）
 _wsigs = None   # 上一遍实际排出的表（只跟踪这些表的列）
+_fixed = False   # SD-238：第一遍不动点短路
 kfmap, shipped = {}, None   # 2026-10-23（SD-232）：每遍开工时的 keep_force 副本（＝排出这一遍成品的记录）；shipped＝成品取的是哪一遍
+def _gate(pdfp):
+    """成品质量：断表问题数、留白页数、页数（越小越好，逐项不许变多）"""
+    import fitz as _fzg
+    _np = len(_fzg.open(pdfp))
+    try: _sp = len(json.loads(subprocess.run([sys.executable, os.path.join(T, 'check_splits.py'), pdfp, '--json'], capture_output=True, text=True, timeout=600).stdout)['problems'])
+    except Exception: _sp = 0
+    try: _gp = sum(1 for l in subprocess.run([sys.executable, os.path.join(T, 'check_gaps.py'), pdfp], capture_output=True, text=True, timeout=600).stdout.splitlines() if l.startswith('第 '))
+    except Exception: _gp = 0
+    return (_sp, _gp, _np)
 for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多了，收敛要多几遍）
     # 2026-10-23（SD-232，用户：「不要让排版来回跳」）：试退过的表上一遍又被压回（拆表 / 注掉页 / 别处版面变了），锁定在新级别——
     #   每张表的压缩级在一次运行里最多转一次向，迭代必然收敛；锁定后版面变了能否再退，由收尾定稿退级逐张实测
@@ -243,6 +261,16 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     nwlock = {k2 for k2 in nwlock if k2[0] in sigs}
     wblock = {k2 for k2 in wblock if k2[0] in sigs}
     pdf = to_pdf(); last_pdf = os.path.splitext(OUT)[0] + '.fitfix.pdf'; shutil.copy2(pdf, last_pdf); shipped = n   # 测量后临时目录会删，先留一份
+    # SD-238（治理 C）：接着用上次记录排出的第一遍若实测干净（断表问题 0、留白页 0），就是不动点——直接交这一遍，
+    #   不再重做上次已试过、放弃的退级与列宽调整（这些「试过」只在运行内记着，重做就把版面又推走：沙盒 1025R3 源文件重建 492 页漂移）
+    if n == 1 and _warm and os.environ.get('FITFIX_COLD') != '1':
+        _g1 = _gate(pdf)
+        if _g1[0] == 0 and _g1[1] == 0:
+            print('fit_fix：上次版面放进本次源文件后实测干净（断表问题 0、留白页 0、%d 页），接着用，不再重排（SD-238）' % _g1[2])
+            # 记录原样写回：第一遍开工前的 save() 只写内存状态，运行内的 NWL / WZ / WB / BWB（实测「再收就多行」「已冻结」）会丢，检查器就当这些列没试过
+            open(KF, 'w', encoding='utf-8').write(_kf_in); shutil.copy2(KF, kfmap[n])
+            _fixed = True; split_pending = False; shutil.rmtree(os.path.dirname(pdf), ignore_errors=True); break
+        print('fit_fix：上次版面实测断表问题 %d、留白页 %d，照常迭代' % _g1[:2])
     # 2026-10-14 提速：断表检查与下面的实测并行跑，到下面删临时目录前再收
     _cs = subprocess.Popen([sys.executable, os.path.join(T, 'check_splits.py'), pdf, '--json'],
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -735,17 +763,8 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
 # 2026-10-23（SD-232，1023R10：迭代第 10 遍实测 552 页 / 断表问题 0，交出去的却是 553 页 / 问题 2——收尾重排用的是内存里最后一遍新做、没实测过的状态）：
 #   收尾只从「实测过的那一遍」出发：先把它的 docx / PDF / keep_force 留作基准；补排、定稿退级的结果都要对照基准，断表问题、留白页、页数不能变多，变多就退回基准
 _BASE = None
-json.dump([{'table': sg[:40], 'col': k + 1, 'seq': wseq.get((sg, k)), 'frozen': {kk: (v if kk != 'BW' else {'%d←%d' % (a[1], a[2]): dd for a, dd in v.items()}) for kk, v in sn.items()}} for (sg, k), sn in sorted(wfrozen.items())],
+if not _fixed: json.dump([{'table': sg[:40], 'col': k + 1, 'seq': wseq.get((sg, k)), 'frozen': {kk: (v if kk != 'BW' else {'%d←%d' % (a[1], a[2]): dd for a, dd in v.items()}) for kk, v in sn.items()}} for (sg, k), sn in sorted(wfrozen.items())],
           open(os.path.join(os.path.dirname(OUT) or '.', '列宽冻结记录_%s.json' % name), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-def _gate(pdfp):
-    """成品质量：断表问题数、留白页数、页数（越小越好，逐项不许变多）"""
-    import fitz as _fzg
-    _np = len(_fzg.open(pdfp))
-    try: _sp = len(json.loads(subprocess.run([sys.executable, os.path.join(T, 'check_splits.py'), pdfp, '--json'], capture_output=True, text=True, timeout=600).stdout)['problems'])
-    except Exception: _sp = 0
-    try: _gp = sum(1 for l in subprocess.run([sys.executable, os.path.join(T, 'check_gaps.py'), pdfp], capture_output=True, text=True, timeout=600).stdout.splitlines() if l.startswith('第 '))
-    except Exception: _gp = 0
-    return (_sp, _gp, _np)
 def _keep_base(tag):
     _d = tempfile.mkdtemp()
     return (tag, shutil.copy2(OUT, os.path.join(_d, 'o.docx')), shutil.copy2(last_pdf, os.path.join(_d, 'o.pdf')), shutil.copy2(KF, os.path.join(_d, 'kf.txt')), _gate(last_pdf))

@@ -780,6 +780,18 @@ if not SECTION:
             except Exception as _e:
                 sug(_code, '%s %s 未能运行：%s' % (_nm, _tool, _e))
 
+# K-B6 排版漂移（SD-238，2026-10-26 1026R1：只删 6.5 第 5 条，前面 240 页正文版面却跟基线不同）：源文件没改的部分与最近的基线逐页比对
+if not SECTION and os.path.exists(BOOK):
+    try:
+        _o = subprocess.run([sys.executable, os.path.join(T, 'check_drift.py'), '--repo', REPO, '--pdf', BOOK], capture_output=True, text=True, timeout=600).stdout
+        _dl = [l for l in _o.splitlines() if l.startswith('第 ')]
+        for _l in _dl[:10]: err('B6', '全书 ' + _l)
+        if len(_dl) > 10: err('B6', '全书 另有 %d 页漂移（python3 check_drift.py 看全部）' % (len(_dl) - 10))
+        for _l in _o.splitlines():
+            if _l.startswith('提示 '): sug('B6', '全书 ' + _l[3:])
+    except Exception as _e:
+        sug('B6', '全书 check_drift.py 未能运行：%s' % _e)
+
 # K-L8 页脚页码落点（SD-236，2026-10-24 用户：「点击右下角页码……返回到页码对应知识点的主题目录那一页」）：footer_toc_links.py --check 的不符 / 缺链接并进错误级
 if not SECTION and os.path.exists(BOOK):
     try:
