@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""check_consistency.py —— 全书数值一致性扫描（SD-241 B3，2026-10-28；按需跑，不进 sync）
+"""check_consistency.py —— 全书数值一致性扫描（SD-241 B3，2026-10-27；按需跑，不进 sync）
 用法：python3 check_consistency.py [--repo ~/flight-repos/gh-private] [--out build/数值一致性报告.md] [--min 2]
 做法：把每条正文拆成句 / 表格单元，取「数值 + 单位」和它前面紧挨着的关键词（去掉标点、HTML、机型标注后最后 4～10 个字）作为键；
 同一个键在 ≥ 2 个不同条目里出现不同数值，就列为候选。两型不同（同句带【737-NG】/【737-8】或在两型对比表的不同列）不算冲突，单独标出。
