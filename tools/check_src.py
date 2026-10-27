@@ -270,7 +270,7 @@ def main():
         if not re.match(r'[1-6]\.\d+ ', b): continue
         t = io.open(f, encoding='utf-8').read()
         n = len(re.findall(r'(?m)^### \d+\. ', t))
-        if n and (n < 5 or (n > 25 and not b.startswith('1.'))) and not b.startswith(('4.', '5.', '6.')): warns.append('S8 %s 共 %d 条（N2：一节 5～25 条；第四章技术提示按通告分节、第五章按 QRH 分节，不计）' % (b[:-3], n))
+        if n and (n < 5 or (n > 25 and not b.startswith('1.'))) and not b.startswith(('4.', '5.', '6.')): warns.append('S8 %s 共 %d 条（N2：一节 5～25 条；第四、五章按专题分节，不计）' % (b[:-3], n))
         for m in re.finditer(r'(?m)^### \d+\. (.+?)(?:\s*\{★+\})?$', t):
             if re.search(r'\svs\s|——|？|\?|[。；，]$', m.group(1)): errors.append('T36 %s 标题「%s」含 vs / 破折号 / 问号 / 末尾标点（W05）' % (b[:-3], m.group(1)))
         for m in re.finditer(r'(?m)^%%FIG(?:SIDE|RIGHT)?%% ([^|\n]+?)\s*\|\s*([^|\n]*?)\s*(?:\||$)', t):

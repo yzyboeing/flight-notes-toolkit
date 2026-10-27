@@ -863,7 +863,7 @@ else:
     if SIGN and SIGN not in t: err('P1', '前言缺署名 %s（SD-74）' % SIGN)
     if re.search(r'以\s*(SOP|FCOM)[^。]{0,6}为准', t): err('P1', '前言不应再有「以 SOP / FCOM 为准」一句（SD-73）')
 toc = '主题目录' if SECTION else ''.join(book[i].get_text() for i in range(1, min(6, len(book))) if book[i].get_text().lstrip().startswith('目录'))   # 只看目录页（前言来源里的公司《运行手册》不算）
-if re.search(r'运行手册|飞行技术提示|模拟机笔记', toc): err('P2', '目录仍出现旧章名（运行手册 / 飞行技术提示 / 模拟机笔记）——2026-10-25 起为 运行规范 / 技术提示 / 故障处置')
+if re.search(r'运行手册|飞行技术提示|模拟机笔记|第四章\s*技术提示|06\s*技术提示', toc): err('P2', '目录仍出现旧章名（运行手册 / 飞行技术提示 / 模拟机笔记 / 技术提示）——2026-10-25 起为 运行规范 / 故障处置，SD-241 起第四章为「特殊情况与风险」')
 if '速查目录' not in toc and '主题目录' not in toc: err('P2', '目录里缺「速查目录」（SD-233；原 SD-139 / 149「主题目录」）')
 # SD-233（2026-10-23 两本整合）：「速查目录」放在总目录之后、第一章之前（取代 SD-149「主题目录放在最后一章之后」）
 _tp = [i for i in range(1, len(book)) if re.match(r'(速查目录|主题目录)', nosp(book[i].get_text())[:12]) or nosp(book[i].get_text()).startswith(('速查目录', '主题目录'))]
