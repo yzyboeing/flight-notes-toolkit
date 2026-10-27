@@ -11,7 +11,8 @@
                  "retitle": {"5.9 8": "人工增压常见问题与操作提示"},                    # 改标题（星级保留）
                  "append": {"5.10 1": "注：依据——…"}}],                              # 条目末尾追加一段（并入节的节首说明）
    "rename": {"3.7": "3.9"},          # 整节改号（条目不变）
-   "remove": ["5.9", "5.10"]}         # 条目已全部并走的旧节：文件移到 --trash
+   "remove": ["5.9", "5.10"],         # 条目已全部并走的旧节：文件移到 --trash
+   "merge": {"1.14 2": "1.14 1"}}      # 并掉的条目：内容已手工并进目标条目，本条不再写出；指向它的引用改指目标条目的新号
 用法：python3 move_items.py --repo <gh-private> --plan plan.json [--study <study 库>] [--prompt <pub/prompt>] [--trash <目录>] [--map-out 对照表.json --from 旧版名 --to 新版名] [--apply]
   --map-out：把改了号的条目写成对照表 JSON（{from, to, 说明, map}，学习系统 remap 与噜噜用；同名 .md 是人读版）。
 不加 --apply 只出对照表与检查结果。"""
@@ -60,6 +61,7 @@ for old, new in PLAN.get('rename', {}).items():
     plan_secs.append({'id': new, 'dir': s['dir'], 'title': s['title'], 'fm': old, 'items': its})
 IMAP, SMAP, NEWT = {}, collections.defaultdict(list), {}
 errs = []; used = set()
+MERGE = {tuple([k.split(' ')[0], int(k.split(' ')[1])]): tuple([v.split(' ')[0], int(v.split(' ')[1])]) for k, v in PLAN.get('merge', {}).items()}
 for ps in plan_secs:
     NEWT[ps['id']] = ps['title']; n = 0
     for k in ps['items']:
@@ -74,6 +76,7 @@ for ps in plan_secs:   # 节级引用的主去向：fm 指向的节排第一
 src_secs = {k.split(' ')[0] for ps in plan_secs for k in ps['items'] if not k.startswith('%%')}
 for s in src_secs:
     for it in SEC[s]['items']:
+        if (s, it[0]) in MERGE: continue
         if (s, it[0]) not in IMAP: errs.append('漏列：%s %d %s（会丢条目）' % (s, it[0], it[1]))
 removed = set(PLAN.get('remove', []))
 for s in src_secs:
@@ -83,6 +86,10 @@ for s, v in SEC.items():   # 未动的节：恒等映射（标题可能因改号
     if s in src_secs: continue
     for it in v['items']: IMAP[(s, it[0])] = (s, it[0])
     SMAP[s] = [s]; NEWT.setdefault(s, v['title'])
+for k, v in MERGE.items():   # 并掉的条目：引用改指目标条目
+    if v not in IMAP: errs.append('merge 目标 %s %d 不在新结构里' % v); continue
+    if k in used: errs.append('merge 的条目 %s %d 又被列进了 items' % k)
+    IMAP[k] = IMAP[v]
 if errs:
     print('\n'.join('✗ ' + e for e in errs)); sys.exit(1)
 
@@ -256,7 +263,7 @@ MAPOUT = arg('--map-out')
 if MAPOUT:
     chg = {'%s %d' % k: '%s %d' % v for k, v in sorted(IMAP.items(), key=lambda kv: (skey(kv[0][0]), kv[0][1])) if k != v}
     old_t = {('%s %d' % (s, it[0])): it[1] for s, v in SEC.items() for it in v['items']}
-    json.dump({'from': arg('--from', '?'), 'to': arg('--to', '?'), '说明': '键 = %s「x.y N」，值 = %s「x.y N」；未列出的条号不变；本次没有删除条目' % (arg('--from', '?'), arg('--to', '?')), 'map': chg},
+    json.dump({'from': arg('--from', '?'), 'to': arg('--to', '?'), '说明': '键 = %s「x.y N」，值 = %s「x.y N」；未列出的条号不变；%s' % (arg('--from', '?'), arg('--to', '?'), ('并掉的 %d 条（merged 列出）指向并入后的条目' % len(MERGE)) if MERGE else '本次没有删除条目'), 'map': chg, 'merged': {'%s %d' % k: '%s %d' % IMAP[k] for k in MERGE}},
               io.open(MAPOUT, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     md = ['# 旧号新号对照表（%s → %s）' % (arg('--from', '?'), arg('--to', '?')), '',
           '> 只列号码变了的 %d 条，未列出的条号不变；机读版是同名 .json。' % len(chg), '', '## 节级变化', '', '| 旧节 | 新节 |', '|---|---|']

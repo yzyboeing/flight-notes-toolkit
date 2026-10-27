@@ -2999,7 +2999,7 @@ function buildToc() {
   if (process.env.DOC_NOTOC === '1') return [];   /* 单章成册：章首页自带本章目录，不再出总目录页 */
   if (!BOOK) return [new TableOfContents('目录', { hyperlink: true, headingStyleRange: '1-2' })];
   if (SINGLE && process.env.DOC_QRDIMS) return [];   /* SD-146 速查版：主题目录与按主题查都由 singleToc 出，不再出通用目录页 */
-  const PER = PORTRAIT ? 1 : 2, CAP = PORTRAIT ? 44 : 26, GAP = 800;   // 2026-10-19 批 3：27 时第一栏（第一、二章 26.6 行）连标题放不下一页、目录标题成孤页（B4），改 26
+  const PER = PORTRAIT ? 1 : 2, CAP = PORTRAIT ? 44 : 25, GAP = 800;   // 2026-10-19 批 3：27 时第一栏（第一、二章 26.6 行）连标题放不下一页、目录标题成孤页（B4），改 26；2026-10-28 SD-241 后两栏都排到 25.6 行（一栏两个章行）又成孤页，改 25
   const colW = PORTRAIT ? Math.min(TOTAL, 9000) : Math.floor((TOTAL - GAP) / 2);
   const blocks = OUTLINE.map(ch => {
     const [cn, ct] = splitChap(ch.text);
