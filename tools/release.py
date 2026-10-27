@@ -64,6 +64,9 @@ def step(n, title):
 step(1, '版本名')
 nx = subprocess.run([sys.executable, os.path.join(T, 'release_name.py'), '--next'], capture_output=True, text=True).stdout.split()
 ED, TAG = nx[0], nx[1]
+if os.environ.get('RELEASE_ED'):   # 2026-10-27：当天中间几次构建没出基线时，按成品实际版本名出（标签跳号，如 1027R5 → baseline/20261027-5）
+    ED = os.environ['RELEASE_ED']
+    TAG = subprocess.run([sys.executable, os.path.join(T, 'release_name.py'), ED], capture_output=True, text=True).stdout.split()[-1]
 print('  本次：%s（标签 %s）' % (ED, TAG))
 
 # ② 前置检查
