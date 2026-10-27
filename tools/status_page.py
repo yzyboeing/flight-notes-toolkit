@@ -60,8 +60,8 @@ chs = sorted({os.path.basename(os.path.dirname(f)) for f in secs})
 q = open(os.path.join(G, '速查', '速查源.md'), encoding='utf-8').read()
 L += ['## 两本规模', '',
       '| 本 | 结构 | 条目 |', '|---|---|---|',
-      '| 完整版 | %d 章 %d 节（%s） | %d 条 |' % (len(chs), len(secs), '、'.join(chs), ents),
-      '| 速查 | %d 段 %d 个主题 | %d 条 |' % (len(re.findall(r'(?m)^%%PART%%', q)), len(re.findall(r'(?m)^## ', q)), len(re.findall(r'(?m)^### ', q))), '']
+      '| 完整版 | %d 章%s %d 节（%s） | %d 条 |' % (len([c for c in chs if '附录' not in c]), ' + 附录' if any('附录' in c for c in chs) else '', len(secs), '、'.join(chs), ents),
+      '| 旧速查源（SD-234 起只作溯源） | %d 段 %d 个主题 | %d 条 |' % (len(re.findall(r'(?m)^%%PART%%', q)), len(re.findall(r'(?m)^## ', q)), len(re.findall(r'(?m)^### ', q))), '']
 
 # 检查
 rep = os.path.join(G, 'build', '排版检查报告.md')
