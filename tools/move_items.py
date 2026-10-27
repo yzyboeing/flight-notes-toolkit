@@ -12,7 +12,8 @@
                  "append": {"5.10 1": "注：依据——…"}}],                              # 条目末尾追加一段（并入节的节首说明）
    "rename": {"3.7": "3.9"},          # 整节改号（条目不变）
    "remove": ["5.9", "5.10"]}         # 条目已全部并走的旧节：文件移到 --trash
-用法：python3 move_items.py --repo <gh-private> --plan plan.json [--study <study 库>] [--prompt <pub/prompt>] [--trash <目录>] [--apply]
+用法：python3 move_items.py --repo <gh-private> --plan plan.json [--study <study 库>] [--prompt <pub/prompt>] [--trash <目录>] [--map-out 对照表.json --from 旧版名 --to 新版名] [--apply]
+  --map-out：把改了号的条目写成对照表 JSON（{from, to, 说明, map}，学习系统 remap 与噜噜用；同名 .md 是人读版）。
 不加 --apply 只出对照表与检查结果。"""
 import re, io, os, sys, json, glob, shutil, datetime, collections
 
@@ -251,6 +252,19 @@ if changed:
                 tail = s[m.end():m.end() + 3]
                 if re.match(r'\s*(m|ft|kt|psi|%|°|s\b|km|kg|NM|hPa|<|）)', tail) or re.match(r'[\d<]', s[max(0, m.start() - 2):m.start()][-1:] or ' '): continue
                 print('  纯文字节号？ %s：%s' % (os.path.basename(p)[:14], ln[:110])); break
+MAPOUT = arg('--map-out')
+if MAPOUT:
+    chg = {'%s %d' % k: '%s %d' % v for k, v in sorted(IMAP.items(), key=lambda kv: (skey(kv[0][0]), kv[0][1])) if k != v}
+    old_t = {('%s %d' % (s, it[0])): it[1] for s, v in SEC.items() for it in v['items']}
+    json.dump({'from': arg('--from', '?'), 'to': arg('--to', '?'), '说明': '键 = %s「x.y N」，值 = %s「x.y N」；未列出的条号不变；本次没有删除条目' % (arg('--from', '?'), arg('--to', '?')), 'map': chg},
+              io.open(MAPOUT, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    md = ['# 旧号新号对照表（%s → %s）' % (arg('--from', '?'), arg('--to', '?')), '',
+          '> 只列号码变了的 %d 条，未列出的条号不变；机读版是同名 .json。' % len(chg), '', '## 节级变化', '', '| 旧节 | 新节 |', '|---|---|']
+    for s in sorted(SEC, key=skey):
+        if SMAP.get(s) != [s]: md.append('| %s %s | %s |' % (s, SEC[s]['title'], '、'.join('%s %s' % (x, NEWT.get(x, '')) for x in sorted(SMAP.get(s, []), key=skey))))
+    md += ['', '## 逐条对照', '', '| 旧号 | 新号 | 条目 |', '|---|---|---|'] + ['| %s 第 %s 条 | %s 第 %s 条 | %s |' % tuple(k.split(' ') + v.split(' ') + [old_t.get(k, '')]) for k, v in chg.items()]
+    io.open(os.path.splitext(MAPOUT)[0] + '.md', 'w', encoding='utf-8').write('\n'.join(md) + '\n')
+    print('对照表：%d 条 → %s（及 .md）' % (len(chg), MAPOUT))
 if not APPLY:
     print('（未写入；加 --apply 执行）'); sys.exit(0)
 os.makedirs(TRASH, exist_ok=True)
