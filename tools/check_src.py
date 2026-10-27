@@ -314,12 +314,16 @@ def main():
     try: _ban = json.load(io.open(_banf, encoding='utf-8'))
     except (OSError, ValueError) as _e: errors.append('S11 读不到私有库《成品禁用词.json》（%s）——公司名检查没做，不算通过' % _e)
     _hit = []
-    for f in files + [os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '速查', '速查源.md')]:
+    for f in files + ([os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '速查', '速查源.md')] if os.environ.get('BUILD_QR') else []):   # 旧速查源只在出速查版时查（SD-240）
         if not os.path.exists(f): continue
+        _fm = False
         for i, l in enumerate(io.open(f, encoding='utf-8'), 1):
+            if i == 1 and l.strip() == '---': _fm = True; continue
+            if _fm:   # 文件头（source 等字段）不进成品，不查
+                _fm = l.strip() != '---'; continue
             for p in _ban:
                 if re.search(p, l): _hit.append('%s:%d「%s」' % (os.path.basename(f), i, re.search(p, l).group(0)))
-    if _hit: errors.append('S11 成品里出现公司名 / 航班号 %d 处（写「公司」「合格证持有人」「（航班呼号）」或「遵照公司实际要求」）：%s' % (len(_hit), '、'.join(_hit[:8])))
+    if _hit: errors.append('S11 成品里出现公司名 / 公司化描述 / 内部机构文号 %d 处（SD-240：公司规定写「个别航空公司规定」，各家不同写「按航空公司规定」，规章责任主体写「合格证持有人」，通话写「（航班呼号）」）：%s' % (len(_hit), '、'.join(_hit[:8])))
     # 约定保留（私有库根目录《两型混写保留.json》，2026-10-09）：按「文件 + 去标签前 24 字」匹配，只计数不列为待处理
     keepf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '两型混写保留.json')
     keep = set()

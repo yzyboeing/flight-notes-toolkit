@@ -856,7 +856,8 @@ for _nm, _dd in (('全书', book), ('单册', pymupdf.open(QREF) if os.path.exis
 # P 前言（SD-73 / SD-74）与总目录（单节预览不查）
 pre = 0 if SECTION else next((i for i in range(1, 5) if nosp(book[i].get_text()).find('前言') >= 0), None)
 if SECTION: pass
-elif pre is None: err('P1', '全书第 2～5 页找不到前言')
+elif pre is None:   # SD-240（2026-10-26 版权处理）：前言.md 已删、不设前言页；只有前言文件还在时才报缺
+    if os.environ.get('DOC_PREFACE') and os.path.exists(os.environ['DOC_PREFACE']): err('P1', '全书第 2～5 页找不到前言')
 else:
     t = book[pre].get_text()
     if SIGN and SIGN not in t: err('P1', '前言缺署名 %s（SD-74）' % SIGN)
