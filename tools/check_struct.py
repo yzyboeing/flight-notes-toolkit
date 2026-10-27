@@ -259,8 +259,12 @@ for f in _SRCS:
                     rep('T33', fn, title, '段落「%s…」有 %d 个并列分句——条款改表格（B14）' % (plain(l)[:20], plain(l).count('；') + 1))
         if ONLY is None or 'T34' in ONLY:
             for c in re.findall(r'<td[^>]*>(.*?)</td>', body, re.S):
-                if len(re.findall(r'<em>', c)) >= 2:
-                    rep('T34', fn, title, '一格 %d 处红「%s…」（W02：一格通常不超过一处红）' % (len(re.findall(r'<em>', c)), plain(c)[:20]))
+                # 2026-10-26（1026R2，优化意见第 5 条）：W02 原文「几个数值界限可并存；文字红与数值红并存时文字红降为黑粗」——
+                # 只报 ≥ 2 处文字红，或文字红与数值红并存；几处数值红并存合规（原口径一格 ≥ 2 处红一律报，327 处多为合规的并列数值）
+                ems = [plain(e) for e in re.findall(r'<em>(.*?)</em>', c, re.S)]
+                txt = [e for e in ems if not re.search(r'\d', e)]; num = len(ems) - len(txt)
+                if len(txt) >= 2 or (txt and num):
+                    rep('T34', fn, title, '一格文字红 %d 处%s「%s…」（W02：文字红一格一处；与数值红并存时文字红降为黑粗）' % (len(txt), '、数值红 %d 处' % num if num else '', '／'.join(txt)[:24]))
         if ONLY is None or 'T35' in ONLY:
             for l in [l for l in body.split('\n') if l.startswith('注：')]:   # 1019R6：缩写注不计入 T32，但 T35 照查
                 for seg in re.split(r'[；。]', plain(l)):
