@@ -31,9 +31,9 @@ _JUNK_EXTRA = [l.strip() for l in io.open(os.path.expanduser('~/.config/flight-n
 JUNK = re.compile('|'.join([r'章节：', 'OCR', r'页面引用键', r'File Highlight', r'\?\?\?', '目录', '修订', '有效页', '版权所有', '印刷页', 'Copyright', '参见', '见第', r'^\s*\d+\s*$'] + [re.escape(x) for x in _JUNK_EXTRA]))
 SIG = re.compile(r'\d|必须|不得|禁止|不能|只有|除非|不可|切勿|警告|注意|限制|最大|最小|不超过|超过|低于|高于|以上|以下|自动|失效|故障|不工作')
 
-# 两本笔记全文（含第四章；别处收了就不算漏）
+# 笔记全文（含第四章；别处收了就不算漏；SD-242 起只算 notes_src）
 notes = ''.join(strip(io.open(f, encoding='utf-8').read()) for f in glob.glob(os.path.join(REPO, 'notes_src', '*', '*.md')))
-notes += strip(io.open(os.path.join(REPO, '速查', '速查源.md'), encoding='utf-8').read())
+if os.environ.get('BUILD_QR'): notes += strip(io.open(os.path.join(REPO, '速查', '速查源.md'), encoding='utf-8').read())   # SD-242：速查源只读溯源，平时不算覆盖（速查有、正文没有的不能算已收）
 NZ = re.sub(r'[\s,，]', '', notes); NZU = NZ.upper()
 nn = N(notes); NS = set(nn[i:i + 4] for i in range(len(nn) - 3))
 def cov(s):

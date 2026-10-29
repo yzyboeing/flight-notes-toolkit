@@ -103,7 +103,8 @@ fi
 # ---------- 1b. 速查区改动的连带检查（SD-92，2026-09-30 用户：速查区改了，后续章节对应内容要一并改） ----------
 # SD-139（2026-10-05 用户）：第零章速查区已删除，速查连带检查停用
 # SD-146（2026-10-06）：速查版独立成册、以正文为准——反过来提示「正文改了哪些块，绑定它们的速查条目要同步」
-if [ -f "$TOOLKIT/quickref_sync_hint.py" ]; then python3 "$TOOLKIT/quickref_sync_hint.py" || true; fi
+# SD-242（2026-10-29）：唯一真源 notes_src，速查源只读溯源——只在 BUILD_QR=1 出溯源对照时提示
+if [ -n "${BUILD_QR:-}" ] && [ -f "$TOOLKIT/quickref_sync_hint.py" ]; then python3 "$TOOLKIT/quickref_sync_hint.py" || true; fi
 
 # ---------- 2. 找出改了哪些模块 ----------
 # core.quotepath=false：否则中文路径会被转义成 \346\250\241，匹配不到模块号

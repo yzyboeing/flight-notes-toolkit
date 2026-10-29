@@ -418,7 +418,8 @@ def main():
     ap.add_argument('docx'); ap.add_argument('--base'); ap.add_argument('--repo', default=os.path.join(HOME, 'flight-repos/gh-private'))
     ap.add_argument('--out'); ap.add_argument('--apply', action='store_true'); ap.add_argument('--force', action='store_true')
     a = ap.parse_args()
-    quick = '速查' in os.path.basename(a.docx)
+    quick = '速查' in os.path.basename(a.docx) and '速查笔记' not in os.path.basename(a.docx)   # 现行全书名含「速查笔记」，不是旧单册
+    if quick and not os.environ.get('BUILD_QR'): sys.exit('SD-242：旧速查单册的 Word 改动不再对回速查源（只读溯源），请对回 notes_src')
     B, comments, ver = read_docx(a.docx, quick)
     has_rev = any(u['rev'] for u in B)
     base = a.base or find_base(a.docx, ver)

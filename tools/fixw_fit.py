@@ -125,7 +125,7 @@ def propose(tb, before, pct0=None):
     return dict(kind=kind, pct=list(comb), fig=None, info='%s：列 %s（合计 %d%%）→ %s（合计 %d%%），估算 %d → %d 行，独字 %d → %d' % (kind, '/'.join(map(str, pct)), cur_sum, '/'.join(map(str, comb)), tot, L0, L, o0, o))
 
 def main():
-    FILES = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-6]*', '[0-9]*.md'))) + [os.path.join(REPO, '速查', '速查源.md')]
+    FILES = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-6]*', '[0-9]*.md'))) + ([os.path.join(REPO, '速查', '速查源.md')] if os.environ.get('BUILD_QR') else [])   # SD-242：平时不写只读的速查源
     changes = 0
     for f in FILES:
         t = io.open(f, encoding='utf-8').read(); out = t; fn = '速查' if f.endswith('速查源.md') else os.path.basename(f).split(' ')[0]

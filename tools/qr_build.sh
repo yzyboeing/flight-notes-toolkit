@@ -6,6 +6,7 @@
 set -uo pipefail
 TOOLKIT="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(pwd)"
 MSG="${1:-速查构建}"
+export BUILD_QR=1   # SD-242：本脚本只出旧速查单册（溯源对照），检查链要带上速查源
 c() { printf '\033[%sm%s\033[0m\n' "$1" "$2"; }
 [ -d notes_src ] && [ -f 速查/速查源.md ] || { c 31 "请在 gh-private 里运行"; exit 1; }
 pgrep -f 'sync.sh|qr_build.sh' | grep -v $$ >/dev/null && { c 31 "已有构建在跑（sync / qr_build），先等它结束"; exit 1; }

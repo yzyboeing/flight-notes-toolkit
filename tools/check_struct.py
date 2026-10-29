@@ -68,7 +68,7 @@ def tables(f):
         prev = t[:m.start()].rstrip().rsplit('\n', 1)[-1]
         yield cur, tb, prev
 
-FILES = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-6]*', '[0-9]*.md'))) + [os.path.join(REPO, '速查', '速查源.md')]
+FILES = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-6]*', '[0-9]*.md'))) + ([os.path.join(REPO, '速查', '速查源.md')] if os.environ.get('BUILD_QR') else [])   # SD-242：速查源只读溯源，只在 BUILD_QR=1 对照时查
 for f in FILES:
     fn = '速查' if f.endswith('速查源.md') else os.path.basename(f).split(' ')[0]
     for title, tb, prev in tables(f):
@@ -244,7 +244,7 @@ for f in FILES:
 def _entries(f):
     t = io.open(f, encoding='utf-8').read()
     return [(m.group(1).strip(), m.group(2)) for m in re.finditer(r'(?ms)^### (.+?)\n(.*?)(?=^### |^## |^%%PART%%|\Z)', t)]
-_SRCS = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-6]*', '*.md'))) + [os.path.join(REPO, '速查', '速查源.md')]
+_SRCS = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-6]*', '*.md'))) + ([os.path.join(REPO, '速查', '速查源.md')] if os.environ.get('BUILD_QR') else [])   # SD-242
 for f in _SRCS:
     fn = os.path.basename(f).replace('.md', '') if 'notes_src' in f else '速查'
     for title, body in _entries(f):
