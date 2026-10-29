@@ -6,6 +6,14 @@
 
 ## 未发布
 
+## 1.4.2（2026-10-29）
+
+- SD-243：W02「一格一处文字红」含注行，`check_struct.py` T34 把「注：」行当一格查；W04 第六章两型列全章一律蓝。
+- SD-244：排版规则总表新增「A　APP」组 A1～A6；检查号 K-AC1～AC10 由学习系统 `tools/test_layout.js` 执行，`check_rules.py` 加 EXTERNAL 登记。
+- SD-244：`punct_rule.py` 故障 / 状态名称（「X 断开 / 故障 / 失效」）与「《…》检查单」按短语判，不加句号。
+- `fixw_lock.py` 只认合并后的《B737机型理论速查笔记.docx》（旧单册成品只在 BUILD_QR=1 时读），修复 `closeout.py` 的 FileNotFoundError。
+- 经验与教训：换图 / 回退图须清 keep_force 的 FW 记录；不带 `--src` 的过度压缩与显式定级；名称短语句号。
+
 - SD-242 补漏（2026-10-29）：`sync.sh`（quickref_sync_hint）、`check_layout.py`（S3）、`check_struct.py`、`check_coverage.py`、`fixw_fit.py` 统一 `BUILD_QR` 门控，平时不读、不写只读的速查源；`qr_build.sh` 自设 `BUILD_QR=1`；`check_rules.py` 加「两本同改 / 以速查为准」类过时说法；总纲第七 / 八 / 八A / 九 / 三节、排版规则总表 Q00 残留旧口径改正；`qr_directory.py` 注释更正（改号由 move_items 自动处理）。
 - `qr_directory.py` 小项规则（N3，评估会话定）：「—」续行格跳过；首列比较式（> 13000ft、< 10s）或整句（显示宽度 > 14 字，英文喊话不算）占一半以上的表整表不取小项。1029R1 对比：18 条小项变化，空小项 256 → 270。
 - `qr_directory.py` 新增条目级「相关知识点」导出（N4，评估会话定）：读私有库《相关知识点源.json》，校验（键 / 目标存在、每条 ≤ 5、why ≤ 12 字、同节相邻不列）后在速查目录旁写 `相关知识点.json`（带 baseline 与有向说明），学习系统快照随 build/ 带上；校验不过即报错退出。

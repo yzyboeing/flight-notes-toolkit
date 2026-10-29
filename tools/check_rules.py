@@ -120,7 +120,13 @@ alltext = '\n'.join(src_text.values())
 
 # 只能在 sync 或别的脚本里实现的号：写明实现位置
 ELSEWHERE = {'RULES': 'check_rules.py', 'L7': 'check_figs.py', 'B5': 'check_gaps.py', 'Z3': 'check_overshrink.py'}
+# 外部检查（实现在别的仓库，SD-244）：学习系统网页排版检查 AC1～AC10 = study/tools/test_layout.js 的 C1～C10；本机没有 study 库（如噜噜虚拟机）时只提示不报错
+EXTERNAL = {'AC%d' % n: PUB.parent / 'study' / 'tools' / 'test_layout.js' for n in range(1, 11)}
 for code in sorted(registered) if not COPIES_ONLY else ():
+    if code in EXTERNAL:
+        if not EXTERNAL[code].is_file() and code == 'AC1':
+            print('RULES 提示 外部检查 %s 不在本机（K-AC1～AC10 由学习系统侧执行）' % EXTERNAL[code])
+        continue
     if code in ELSEWHERE:
         if not (TOOLS / ELSEWHERE[code]).is_file():
             errs.append('K-%s 登记的实现 %s 不存在' % (code, ELSEWHERE[code]))

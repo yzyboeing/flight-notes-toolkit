@@ -23,13 +23,16 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--repo', default='.'); ap.add_argument('--apply', action='store_true'); a = ap.parse_args()
     repo = os.path.abspath(a.repo)
     hits = fixw_grow.scan(repo)
-    D = {'全书': docx_tables(os.path.join(repo, 'build/B737机型理论速查笔记.docx')), '单册': docx_tables(os.path.join(repo, 'build/B737机型理论速查.docx'))}
+    D = {'全书': docx_tables(os.path.join(repo, 'build/B737机型理论速查笔记.docx'))}   # 2026-10-29：只认合并后的一本（SD-234）；旧单册只在 BUILD_QR=1 溯源对照时存在
+    _qr = os.path.join(repo, 'build/B737机型理论速查.docx')
+    if os.path.exists(_qr): D['单册'] = docx_tables(_qr)
     done = 0
     for (f, pos), v in sorted(hits.items(), key=lambda kv: (kv[0][0], -kv[0][1])):
         t = io.open(f, encoding='utf-8').read()
         if t[pos:pos + len(v['hdr'])] != v['hdr']: print('  对不上，跳过', f); continue
         end = t.index('</table>', pos)
         key = fixw_grow.N(re.sub(r'<tr class="hdr">', '', t[pos:end]))[:40]
+        if v['book'] not in D: print('  没有 %s 成品，跳过' % v['book'], os.path.basename(f)); continue
         cand = [g for txt, g in D[v['book']] if key and key[:30] in txt]
         ths = re.findall(r'<th\b[^>]*>', v['hdr'])
         if len(cand) != 1 or len(cand[0]) != len(ths): print('  docx 对不上，跳过', os.path.basename(f), v['page'], len(cand)); continue

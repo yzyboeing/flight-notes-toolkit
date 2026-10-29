@@ -7,7 +7,7 @@
 | 项目 | 类型 / 权限 | 执行入口 | 版本包 |
 |---|---|---|---|
 | [flight-doc-translate](https://github.com/yzyboeing/flight-doc-translate) | Skill / 公开 | 根 SKILL.md | flight-doc-translate |
-| [flight-notes-toolkit](https://github.com/yzyboeing/flight-notes-toolkit) | Skill / 公开 | 根 SKILL.md | flight-theory-notes v1.4.1 |
+| [flight-notes-toolkit](https://github.com/yzyboeing/flight-notes-toolkit) | Skill / 公开 | 根 SKILL.md | flight-theory-notes v1.4.2 |
 | [flight-theory-notes](https://github.com/yzyboeing/flight-theory-notes) | 笔记内容 / 私有 | 项目 AGENTS.md；配合上一行工具 | 不分发内容包 |
 | [feixun-ppt](https://github.com/yzyboeing/feixun-ppt) | Skill / 私有 | 根 SKILL.md；母版单独本地配置 | feixun-ppt |
 | [jimmyloon](https://github.com/yzyboeing/jimmyloon) | Skill / 私有 | 根 SKILL.md；脱敏配置另行提供 | jimmyloon |
