@@ -129,3 +129,29 @@ os.makedirs(os.path.dirname(OUT), exist_ok=True)
 json.dump(dims, open(OUT, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 nx = sum(1 for d in dims for t in d['themes'] for x in t['items'] if x.split('|')[2] == 'x')
 print('速查目录：%d 段 %d 主题；直接项 %d 条（= 全书 %d 条）、↗ %d 项 → %s' % (len(dims), sum(len(d['themes']) for d in dims), len(direct), len(order), nx, OUT))
+
+# 条目级「相关知识点」（2026-10-29 N4，评估会话定）：真源是私有库根目录《相关知识点源.json》（人工判定），
+#   校验后与速查目录同目录输出 相关知识点.json（学习系统快照随 build/ 带上）。有向：A 列 B = 读 A 时该去看 B，消费方不得对称化；
+#   同节相邻不列、每条 ≤ 5、why ≤ 12 字；改条号后键 / 目标找不到即报错退出（改号清单要带上这份源文件）。
+RSRC = os.path.join(REPO, '相关知识点源.json')
+if os.path.exists(RSRC):
+    import subprocess
+    rel, bad = json.load(open(RSRC, encoding='utf-8'))['rel'], []
+    for a, lst in rel.items():
+        if a not in full: bad.append('键不存在 ' + a)
+        if len(lst) > 5: bad.append('%s 超过 5 条' % a)
+        for x in lst:
+            k = x['k']
+            if k not in full: bad.append('%s → 目标不存在 %s' % (a, k))
+            elif a in full and k.split()[0] == a.split()[0] and abs(int(k.split()[1]) - int(a.split()[1])) <= 1: bad.append('%s → 同节相邻 %s' % (a, k))
+            if len(x.get('why', '')) > 12: bad.append('%s → %s why 超 12 字' % (a, k))
+    if bad: raise SystemExit('相关知识点自检失败：%s' % '；'.join(bad[:10]))
+    tag = subprocess.run(['git', '-C', REPO, 'tag', '--points-at', 'HEAD', '--list', 'baseline/*'], capture_output=True, text=True).stdout.split()
+    if not tag:
+        last = subprocess.run(['git', '-C', REPO, 'describe', '--tags', '--abbrev=0', '--match', 'baseline/*'], capture_output=True, text=True).stdout.strip()
+        tag = [last + '+'] if last else ['']
+    ROUT = os.path.join(os.path.dirname(OUT), '相关知识点.json')
+    json.dump({'baseline': os.environ.get('NOTES_BASELINE') or tag[-1].replace('baseline/', ''),
+               '_说明': '有向：A 列 B = 读 A 时该去看 B；消费方不得对称化（不把 B → A 自动补上）。键与 k 为全书条目号「x.y N」；why ≤ 12 字；只列真相关，每条 ≤ 5；同节相邻不列。baseline 带「+」表示在该基线之后、尚未出新基线。',
+               'rel': {a: lst for a, lst in rel.items() if lst}}, open(ROUT, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    print('相关知识点：%d 条有列表、%d 个关系 → %s' % (sum(1 for v in rel.values() if v), sum(len(v) for v in rel.values()), ROUT))
