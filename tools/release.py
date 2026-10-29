@@ -21,7 +21,8 @@ HB = os.path.join(WS, 'Muse交接包')
 BASE_DIR = os.path.join(WS, '用户改稿', '基线')
 TRASH = os.path.join(H, 'flight-repos', '_to_delete')
 STUDY = os.path.join(H, 'flight-repos', 'study')
-SNAP = os.path.join(H, 'Library', 'CloudStorage', 'GoogleDrive-yzyboeing@gmail.com', 'My Drive', '03_AI协作交接', 'B737笔记·Claude与噜噜交接', '学习系统', '笔记源快照')
+SNAP = os.path.join(H, 'Library', 'Mobile Documents', 'com~apple~CloudDocs', 'yzyboeing云盘', '03_AI协作交接',   # 2026-10-28 起交接走 iCloud 云盘（谷歌账号被封）
+                     'B737笔记·Claude与噜噜交接', '学习系统', '笔记源快照')
 STEMS = ('B737机型理论速查笔记',)   # SD-234（2026-10-24）：只维护这一本；《详解》《速查》两本只作溯源
 GO = '--go' in sys.argv
 TODAY = datetime.date.today().strftime('%Y%m%d')
