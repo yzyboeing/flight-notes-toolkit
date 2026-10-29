@@ -258,7 +258,8 @@ for f in _SRCS:
                 if plain(l).count('；') >= 3 and re.search(r'任一|同时满足|以下|包括|分为', plain(l)):
                     rep('T33', fn, title, '段落「%s…」有 %d 个并列分句——条款改表格（B14）' % (plain(l)[:20], plain(l).count('；') + 1))
         if ONLY is None or 'T34' in ONLY:
-            for c in re.findall(r'<td[^>]*>(.*?)</td>', body, re.S):
+            # 2026-10-29（SD-243，评估会话裁定）：W02「一格」也管注行——每个「注：」行当一格查
+            for c in re.findall(r'<td[^>]*>(.*?)</td>', body, re.S) + [l for l in body.split('\n') if l.startswith('注：')]:
                 # 2026-10-26（1026R2，优化意见第 5 条）：W02 原文「几个数值界限可并存；文字红与数值红并存时文字红降为黑粗」——
                 # 只报 ≥ 2 处文字红，或文字红与数值红并存；几处数值红并存合规（原口径一格 ≥ 2 处红一律报，327 处多为合规的并列数值）
                 ems = [plain(e) for e in re.findall(r'<em>(.*?)</em>', c, re.S)]
