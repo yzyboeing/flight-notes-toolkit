@@ -26,6 +26,10 @@ skey = lambda k: [int(x) for x in k.split()[0].split('.')] + [int(k.split()[1])]
 order.sort(key=skey)
 clean = lambda t: re.sub(r'（单位：[^）]*）|【[^】]*】', '', t).strip()
 ORD = re.compile(r'^[①-⑳\d]')
+CMP = re.compile(r'^[<>≤≥＜＞]')
+CALL = re.compile(r"^[A-Z][A-Z0-9 ,.'’!/-]*$")   # 英文喊话（TCAS 音响等）
+DASH = {'—', '–', '-', '——'}
+wid = lambda t: sum(0.5 if ord(c) < 128 else 1 for c in t)   # 显示宽度：英文数字算半字
 
 
 def subs_of(k):
@@ -40,10 +44,13 @@ def subs_of(k):
         return re.sub(r'\s*【737[^】]*】\s*', '', t).strip()
     firsts = [cell(r, 0) for r in rows]
     col = 1 if firsts and sum(1 for x in firsts if ORD.match(x)) * 2 >= len(firsts) else 0   # 首列是序号 → 取第二列
+    # 2026-10-29 N3（评估会话定）：「—」续行格跳过；比较式（> 13000ft、< 10s）或整句（> 14 字）占一半以上的表整表不取；英文喊话不算长
+    cand = [t for t in (cell(r, col) for r in rows) if t and t not in DASH and not ORD.match(t)]
+    if cand and sum(1 for t in cand if CMP.match(t)) * 2 >= len(cand): return []
+    if cand and sum(1 for t in cand if wid(t) > 14 and not CALL.match(t)) * 2 >= len(cand): return []
     out = []
-    for r in rows:
-        t = cell(r, col)
-        if not t or ORD.match(t) or len(t) > 16 or t in out: continue
+    for t in cand:
+        if CMP.match(t) or len(t) > 16 or t in out: continue
         out.append(t)
     return out if len(out) >= 3 else []
 
