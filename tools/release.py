@@ -8,7 +8,7 @@
 
 自动做：①版本名 ②前置检查（排版报告错误 0、规则自检、两库无未提交改动、成品版本号对得上、两本 verify、整本缩略图过目登记 SD-221）③推送两库（push_all.sh）
 ④推送成功后打标签并推标签 ⑤分发成品到桌面 / 用户改稿基线 / 交接包（旧版移 _to_delete）⑥对照表 ⑦源码包
-⑧学习系统 check + snapshot（SD-220：默认跳过，用户指令时加 --study）⑨更新《基线信息》表格各行 ⑩重新生成《现状一页纸》⑪云盘复查（未确认的过几分钟再跑 drive_verify.py）。
+⑧学习系统 check + snapshot（SD-220：默认跳过，用户指令时加 --study）⑨更新《基线信息》表格各行 ⑩重新生成《现状一页纸》⑪云盘复查（iCloud；未确认的过几分钟再跑 icloud_verify.swift）。
 不自动做（脚本最后提醒）：变动说明正文、《基线信息》「本基线新增」叙述、《00_先读我》本轮记录、OneNote（只在用户指令时）。"""
 import datetime, glob, hashlib, json, os, re, shutil, subprocess, sys
 
@@ -190,8 +190,8 @@ run([sys.executable, os.path.join(T, 'status_page.py')])
 # ⑪ 云盘复查
 step(11, '云盘复查')
 targets = [os.path.join(HB, '%s%s.%s' % (s, ED, e)) for s in STEMS for e in ('docx', 'pdf')] + [bi, os.path.join(HB, '两本标题与主题对照表_%s.md' % ED), os.path.join(HB, '源码包')]
-run([sys.executable, os.path.join(T, 'drive_verify.py')] + targets, check=False)
+run(['swift', os.path.join(T, 'icloud_verify.swift')] + [x for x in targets if os.path.exists(x)], check=False)   # 2026-10-29：谷歌云盘停用，改查 iCloud 上传状态
 
 print('\n还要手工做：① 变动说明（噜噜收件箱_核对意见/Claude_%s变动说明_….md，上一版移走）；② 《基线信息》「与上一基线的差别」与「本基线新增」；'
-      '③ 《00_先读我》本轮记录；④ 云盘未确认的过几分钟再跑 drive_verify.py；⑤ OneNote 只在用户指令时更新，写了就记《OneNote待同步记录》。' % ED)
+      '③ 《00_先读我》本轮记录；④ 云盘未确认的过几分钟再跑 swift icloud_verify.swift；⑤ OneNote 只在用户指令时更新，写了就记《OneNote待同步记录》。' % ED)
 if not GO: print('\n（只做了检查与列单；确认无误后加 --go 执行）')
