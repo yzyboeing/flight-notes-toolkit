@@ -296,7 +296,7 @@ updated: "2026-10-21"
 8. **用户说过的排版要求变成永久检查**：登记《用户点名排版台账.json》，每次重建自动实测；执行完每条意见要验收（第八节第 9 步）。
 9. **排版问题调两轮不收敛就停**：个别孤字、略多一行接受并记一句；影响阅读的给 2～3 个做法与代价、标出推荐，用户定了再动。
 10. **交付按需**：全书 PDF / Word、OneNote 只在用户要求时给；用户说「最新文件」只给速查 PDF；完整版和 Word 点名才给。
-11. **交接走谷歌云盘**（`~/Library/CloudStorage/GoogleDrive-yzyboeing@gmail.com/My Drive/03_AI协作交接/`，桌面 `Muse交接包`、`噜噜收件箱*` 是它的链接）：写完等上传确认再通知；复制后 md5 对不算数，上传后按 DriveFS 数据库逐个比对大小（第十节）。
+11. **交接走 iCloud 云盘**（2026-10-28 起，谷歌云盘两个账号已被封停用；根目录 `~/Library/Mobile Documents/com~apple~CloudDocs/yzyboeing云盘/03_AI协作交接/`，桌面 `Muse交接包`、`噜噜收件箱*` 是它的链接）：写完等上传确认再通知；复制后 md5 对不算数，上传后用 icloud_verify 逐个查上传状态（第十节）。
 12. **测试别在正用的仓库**：会真跑构建的测试放临时副本——用 `pub/tools/sandbox.sh new <目录>` 一键建沙盒、`sandbox.sh run <目录> ./sync.sh --full "…"` 构建（隔离 HOME，不写桌面 / 云盘）、`sandbox.sh drop` 拆；先查 `ps` 有没有别的构建在跑。合并提交前查是否已推送；标签在主线推送成功后再打。
 13. **OneNote 只在用户指令时更新**：OneNote 接口不能合并单元格，合并格拆开后其余格**留空**、不用灰字重复（SD-230，2026-10-23 用户：「如果没办法合并，也不需要用不同的字体重复标注出来，后续我人工去更改」）；每次写入都记进桌面《OneNote待同步记录.md》；一轮定稿后整本重写（字体 FangSong），旧分区接口删不掉的请用户手删。
 14. **每轮结束写交接**：本轮全部工作写进《00_先读我_AI交接.md》顶部（用户原话、决定、改了什么、提交号、验证结果、遗留；只留最近三轮，更早的移进 `历史记录/`），并跑 `python3 ~/flight-repos/pub/tools/status_page.py` 重新生成《现状一页纸》。
@@ -399,7 +399,7 @@ updated: "2026-10-21"
 | 8 | 学习系统（SD-220：**默认不做**，只在用户指令更新学习系统时做；release.py 加 `--study`） | `cd ~/flight-repos/study && python3 tools/study.py check && python3 tools/study.py snapshot "<云盘>/…/学习系统/笔记源快照"` | 引文错误 0 |
 | 9 | 基线信息与规则副本 | 更新 `Muse交接包/基线信息.md`（标签、提交号、页数、sha256、差别）；复制 `SKILL.md`、`排版规则总表.md`、`内容校对核心规则.md`、`规则总纲.md` | 与真本一致（K-RULES） |
 | 10 | 变动说明 | `噜噜收件箱_核对意见/Claude_<版本名>变动说明_….md`；上一版移走 | — |
-| 11 | 云盘复查 | `python3 ~/flight-repos/pub/tools/drive_verify.py <文件或文件夹…>`（读 DriveFS 元数据库副本，逐个比对已上传条目的大小） | 未确认 0；不同步先 `pgrep -fl "Google Drive"`，计数长时间不动就退出重开 |
+| 11 | 云盘复查 | `swift ~/flight-repos/pub/tools/icloud_verify.swift <文件或文件夹…>`（读系统的 iCloud 上传状态；谷歌云盘停用后取代 drive_verify.py） | 未确认 0；一直不动看 `brctl status com.apple.CloudDocs` 的上传队列 |
 | 12 | 交接记录 | 《00_先读我》顶部一轮记录；`status_page.py` 重新生成《现状一页纸》；OneNote待同步记录追加一行 | — |
 
 ---
