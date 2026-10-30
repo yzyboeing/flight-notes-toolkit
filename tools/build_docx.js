@@ -2064,7 +2064,7 @@ function htmlTableCore(html) {
       const hc = hr0 ? hr0.cells.find((h, i, arr) => { let x = 0; for (let j = 0; j < i; j++) x += arr[j].colspan; return x === k; }) : null;
       cols.push({ align: dc.length ? (ctr * 2 >= al.length ? 'center' : 'left') : null, bullet: dc.some(c => c.items.some(it => it.bullet === '•')), label: k === 0 && !!firstIsLabel && !parallel, src: hc ? String(hc.cls || '').trim() : '' }); }
     require('fs').appendFileSync(CELL_DUMP_F, JSON.stringify({ k: kk, ti: Math.max(0, (BLK_TI.get(kk) || 1) - 1), part, src: TBL_IDX, cls: tcls, parallel: !!parallel, seqTable: !!SERIAL_T, compare, nCols,
-      w: W.map(x => Math.round(x * 1000 / TOTAL) / 10), wSrc, cols, before: (TBL_META && !part) ? TBL_META.before : [], after: (TBL_META && !part) ? TBL_META.after : [], splitAt: (TBL_META && !part) ? TBL_META.splitAt : [], mid: (TBL_META && !part) ? (TBL_META.mid || []) : [], cells: CELLS_T }) + '\n'); }
+      w: W.map(x => Math.round(x * 1000 / TOTAL) / 10), tw: Math.round(W.reduce((a, b) => a + b, 0) * 1000 / TOTAL) / 10, wSrc, cols, before: (TBL_META && !part) ? TBL_META.before : [], after: (TBL_META && !part) ? TBL_META.after : [], splitAt: (TBL_META && !part) ? TBL_META.splitAt : [], mid: (TBL_META && !part) ? (TBL_META.mid || []) : [], cells: CELLS_T }) + '\n'); }
   if (DUMP) { const sw = W.reduce((a, b) => a + b, 0); require('fs').appendFileSync(TBL_DUMP_F, JSON.stringify({ t: TBL_IDX, w: W.map(x => Math.round(x * 1000 / TOTAL) / 10), tw: Math.round(sw * 1000 / TOTAL) / 10, cells: DUMP }) + '\n'); }
   /* 第 109 条（用户 2026-10-20，速查 287 页）：图表并排时右（左）栏里的表占满所在栏——多出的宽度按各列现宽比例分给非首列 */
   if (SIDE_FILL) { const sumW = W.reduce((a, b) => a + b, 0);
