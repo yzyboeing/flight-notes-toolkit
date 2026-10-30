@@ -25,6 +25,13 @@ const CELL_DUMP_F = process.env.DOC_DUMP_CELLS || '';
 const BLK_TI = new Map(); let TBL_META = null;   // DOC_DUMP_CELLS：每条目内表序；表外前提 / 注（before / after）与表中拆点（splitAt），由 htmlTable 设、htmlTableCore 写出
 if (CELL_DUMP_F) require('fs').writeFileSync(CELL_DUMP_F, '');
 let CUR_BLK = null;
+/* DOC_DUMP_CELLS 表外块（2026-10-30 晚，App 直渲表外正文沿用生成器）：条目内表格以外的每个段落各写一行 {blk: 1, k, seq, type, html, lead?, label?}，
+   type = note / exp / diff / warn / src / xref / quote / bullet / numbered / sub / para；html 是生成器排版用的那一行（注已按第 2810 行去重）；
+   lead = 表外独立引导语（LONE_LEAD：深蓝加粗）；label = 注 / 解释 / 公司差异 / 警告的加粗标签。速查区（COMPACT）与条目外（节首说明等）不写。 */
+let BLK_OPEN = false; const BLK_SEQ = new Map();
+const dumpBlk = (type, html, o = {}) => { if (!CELL_DUMP_F || COMPACT || !BLK_OPEN || !CUR_BLK) return;
+  const bm = String(CUR_BLK).match(/^BLK_(\d+)_(\d+)_N(\d+)$/), kk = bm ? bm[1] + '.' + bm[2] + ' ' + bm[3] : CUR_BLK, seq = BLK_SEQ.get(kk) || 0; BLK_SEQ.set(kk, seq + 1);
+  require('fs').appendFileSync(CELL_DUMP_F, JSON.stringify(Object.assign({ blk: 1, k: kk, seq, type, html: String(html).trim() }, o)) + '\n'); };
 
 // 字体：LibreOffice 导出 PDF 时，苹方 / Helvetica Neue 的粗体和数学符号会被拆成多种替代字体。
 // SD-107（2026-10-01 用户看样张选第三种）：正文思源宋体 Medium，粗体用同字族 Bold（见 BOLDF）；覆盖中英文、数学符号与 ①～⑳。
@@ -2669,6 +2676,7 @@ while (i < src.length) {
       border: { left: { style: BorderStyle.SINGLE, size: 18, color: INK, space: 6 } } }));
     i++; continue; }
   if (/^%%SUB%%/.test(ln)) {   // SD-209 批 3 N1 / N3：节内分组小标题（如系统节末的「技术提示」）——不编号、不进目录，与下面的条目同页
+    dumpBlk('sub', ln.replace(/^%%SUB%%\s*/, ''));
     body.push(new ParagraphX({ children: [new TextRun({ text: ln.replace(/^%%SUB%%\s*/, ''), font: FF_HEAD, size: 22, bold: true, color: INK })], spacing: { before: 280, after: 100 }, keepNext: true,
       border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: INK, space: 3 } } }));
     i++; continue; }
@@ -2741,6 +2749,7 @@ while (i < src.length) {
   }
   if (/^#\s+/.test(ln)) { docTitle = ln.replace(/^#\s+/, ''); i++; continue; }
   if (/^##\s+/.test(ln)) {
+    BLK_OPEN = false;   // DOC_DUMP_CELLS 表外块：章标题后不再属于上一条目
     const t = ln.replace(/^##\s+/, '');
     const cid = 'CHAP_' + modules.length;
     modules.push({ id: cid, text: t });
@@ -2756,8 +2765,10 @@ while (i < src.length) {
   if (/^####\s+/.test(ln)) { const t4 = ln.replace(/^####\s+/, ''), qn = COMPACT && t4.match(/^(\d+)\.\s/);   // SD-118：速查条目加书签 QRI_n，供「按主题查」跳转
     const bid = !COMPACT && CUR_SEC ? blkId(CUR_SEC, t4) : null;                                          // SD-139：正文块加书签 BLK_节_块，供目录后的「按主题查」跳转
     CUR_BLK = bid;   // DOC_DUMP_CELLS：表格归属的条目
+    BLK_OPEN = !!bid;   // DOC_DUMP_CELLS 表外块：进入条目
     body.push(H(t4, 3, pendingBreak || HEAD_BREAK.has(i), qn ? 'QRI_' + qn[1] : (bid || undefined))); pendingBreak = false; i++; continue; }
   if (/^###\s+/.test(ln)) {
+    BLK_OPEN = false;   // DOC_DUMP_CELLS 表外块：节标题后不再属于上一条目
     const t3 = ln.replace(/^###\s+/, '').trim();
     { const sm = t3.match(/^(\d+\.\d+)[\s\u3000]/); CUR_SEC = sm ? sm[1] : ''; }
     body.push(H(t3, 2, pendingBreak || HEAD_BREAK.has(i), COMPACT ? 'QRB_' + (QRB_N++) : undefined));
@@ -2774,6 +2785,7 @@ while (i < src.length) {
   if (/^>\s?/.test(ln)) {
     const buf = [];
     while (i < src.length && /^>\s?/.test(src[i])) buf.push(src[i++].replace(/^>\s?/, ''));
+    dumpBlk('quote', buf.join(' '));
     body.push(new ParagraphX({
       children: runs(buf.join(' '), { size: 19 }),
       spacing: { before: 80, after: 120, line: 290 },
@@ -2784,8 +2796,10 @@ while (i < src.length) {
   }
   {
     const mb = ln.match(/^(\s*)-\s+(.*)$/);
+    if (mb) dumpBlk('bullet', mb[2], { level: Math.min(2, Math.floor(mb[1].length / 2)) });
     if (mb) { body.push(bullet(mb[2], Math.min(2, Math.floor(mb[1].length / 2)))); i++; continue; }
     const mn = ln.match(/^(\s*)\d+\.\s+(.*)$/);
+    if (mn) dumpBlk('numbered', mn[2], { level: Math.min(2, Math.floor(mn[1].length / 3)) });
     if (mn) { body.push(numbered(mn[2], Math.min(2, Math.floor(mn[1].length / 3)))); i++; continue; }
   }
   if (!ln.trim()) { i++; continue; }
@@ -2795,6 +2809,7 @@ while (i < src.length) {
      只有「警告：」两字标红，正文照常（<em> 仍标红）。 */
   { const wm = ln.trim().match(/^(?:<strong>)?警告：(?:<\/strong>)?/);
     if (wm) {
+      dumpBlk('warn', ln.trim().slice(wm[0].length), { label: '警告：' });
       body.push(new ParagraphX({
         children: [new TextRun({ text: '警告：', font: FF, size: 19, bold: true, color: BW ? '000000' : RED }),
                    ...runs(ln.trim().slice(wm[0].length), { size: 19 })],
@@ -2809,6 +2824,7 @@ while (i < src.length) {
     const exp = /^解释：/.test(t);
     { const m = t.match(/^(解释：|公司差异：|注：)([^——]{1,30})——\s*(?:<[^>]+>)*\2[：:]/); if (m) t = t.replace(m[2] + '——', ''); }
     const lab = t.match(/^(注：|公司差异：)/);
+    { const lb = t.match(/^(注：|解释：|公司差异：)/)[1]; dumpBlk(exp ? 'exp' : lb === '注：' ? 'note' : 'diff', t.slice(lb.length), { label: lb, ...(exp ? { gray: true } : {}) }); }
     /* SD-130（用户 2026-10-04 选 B）：表后「注：」不再塞进表格末行（窄表会把说明压成窄条），
        改为表格后面的整句段落：淡蓝底 + 左侧蓝色竖条，占满版心宽度；连续几条注连成一块。DOC_NOTES_INROW=1 恢复旧排法 */
     if (!process.env.DOC_NOTES_INROW && /^注：/.test(t)) {
@@ -2830,6 +2846,7 @@ while (i < src.length) {
     i++; continue;
   }
   if (/^出处：/.test(ln.trim())) {                 // 表后出处（手册佐证）：灰色小字，紧跟表格
+    dumpBlk('src', ln.trim(), { gray: true });
     const t = unesc(ln.trim().replace(/<[^>]+>/g, ''));   // 实体（&lt; &gt;）还原
     body.push(new ParagraphX({
       children: [new TextRun({ text: t, font: FF, size: 16, color: GRAY })],
@@ -2838,6 +2855,7 @@ while (i < src.length) {
     i++; continue;
   }
   if (/^(详见\s|来源：)/.test(ln.trim())) {     // 回查入口行 / 速查区标题下的出处行：小号灰字
+    dumpBlk('xref', ln.trim(), { gray: true });
     const under = /^来源：/.test(ln.trim()) || (COMPACT && /^详见\s/.test(ln.trim()));
     body.push(new ParagraphX({
       children: runs((() => {
@@ -2864,6 +2882,7 @@ while (i < src.length) {
     let k = i - 1; while (k >= 0 && !src[k].trim()) k--;
     const beforeHead = j < src.length && /^#{2,6}\s+/.test(src[j]) && k >= 0 && /^#{2,6}\s+/.test(src[k]);   // 夹在节标题与条目标题之间的节首短说明：与条目同页，不让节标题孤悬页底
     const len = ln.replace(/<[^>]+>/g, '').length;
+    dumpBlk('para', ln, LONE_LEAD(ln) ? { lead: true } : {});
     body.push(P(ln, { keepNext: (beforeTable && len <= 120) || (beforeHead && len <= 200), ...(LONE_LEAD(ln) ? { bold: true, color: LEAD_C, keepNext: true } : {}) }));
   }
   i++;
