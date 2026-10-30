@@ -19,6 +19,12 @@ const OUT = process.argv[3] || 'prompt.docx';
 /* 表格排版导出（2026-10-16）：TBL_DUMP=1 → 写到输出文件旁 tbl_dump_<名>.jsonl（每次运行覆盖，fit_fix 多遍时留下最后一遍） */
 const TBL_DUMP_F = process.env.TBL_DUMP ? require('path').join(require('path').dirname(OUT), 'tbl_dump_' + require('path').basename(OUT).replace(/\.docx$/, '') + '.jsonl') : '';
 if (TBL_DUMP_F) require('fs').writeFileSync(TBL_DUMP_F, '');
+/* App 直渲导出（2026-10-30，学习笔记 App）：DOC_DUMP_CELLS=<jsonl> → 每张表一行，逐格、逐段写出生成器已算好的排版决定
+   （条目号 k、对齐、前缀「•」/「–」、加粗、引导语、缩进类型、段文字 HTML），供 study.py 直渲照着排；该模式不打包 Word。不改其它任何行为。 */
+const CELL_DUMP_F = process.env.DOC_DUMP_CELLS || '';
+const BLK_TI = new Map(); let TBL_META = null;   // DOC_DUMP_CELLS：每条目内表序；表外前提 / 注（before / after）与表中拆点（splitAt），由 htmlTable 设、htmlTableCore 写出
+if (CELL_DUMP_F) require('fs').writeFileSync(CELL_DUMP_F, '');
+let CUR_BLK = null;
 
 // 字体：LibreOffice 导出 PDF 时，苹方 / Helvetica Neue 的粗体和数学符号会被拆成多种替代字体。
 // SD-107（2026-10-01 用户看样张选第三种）：正文思源宋体 Medium，粗体用同字族 Bold（见 BOLDF）；覆盖中英文、数学符号与 ①～⑳。
@@ -556,6 +562,7 @@ function htmlTable(html) {
       ci += c.colspan; }); }); }
   const mids = parsed.map((r, k) => k).filter(k => isFull(parsed[k]) && /note|warn|premise/.test(parsed[k].cls) && k > fd && k < lastD
     && !spans.some(([a0, b0]) => a0 < k && b0 > k));
+  if (CELL_DUMP_F) TBL_META = { before: [], after: [], splitAt: [] };
   if (!out.length && !mids.length) return coreSplit(html);   // SD-218：大表按实测拆开（此前这条最常见的路径漏了）
   const firstData = parsed.findIndex(r => !/hdr|premise/.test(r.cls));
   const pre = [], post = [];
@@ -598,6 +605,9 @@ function htmlTable(html) {
     keepNext: kn || pre.includes(r)
   })); });
   /* SD-71：表末通栏注解行（移出表格成段落）与表格末行同页 */
+  if (CELL_DUMP_F) { const segOf = (r) => { const sg = balanceBr(rowText(r)).split(/<br\s*\/?>/).filter(x => x.trim()), ro = pcRoles(sg);
+      return { kind: /warn/.test(r.cls) ? 'warn' : r.cls.includes('premise') ? 'premise' : 'note', items: sg.map((x, k) => ({ role: ro[k] === 'p' ? 'parent' : ro[k] === 'c' ? 'sub' : ro[k] === 'n' ? 'num' : 'plain', level: (ro[k] === 'c' || ro[k] === 'n') ? 1 : 0, bullet: (ro[k] === 'c' || DASH0.test(pcPlain(x))) ? '–' : '', html: x.trim().replace(/^[-–—]\s+/, '') })) }; };
+    TBL_META = { before: pre.map(segOf), after: post.map(segOf), splitAt: mids.map(k => k - firstData), mid: mids.map(k => segOf(parsed[k])) }; }
   if (!mids.length) { const kl = KEEP_LAST; if (post.length) KEEP_LAST = true; const core = coreSplit(kept); KEEP_LAST = kl; return [...paras(pre), ...core, ...paras(post)]; }
   const rowsHtml = []; html.replace(trRe, (all) => { rowsHtml.push(all); return all; });
   const hdrIdx = parsed.map((r, k) => k).filter(k => k < firstData && parsed[k].cls.includes('hdr'));
@@ -1847,6 +1857,7 @@ function htmlTableCore(html) {
   if (process.env.FC_LOG && nCols > 1 && (!firstIsLabel || parallel)) console.error('FCLEFT', parallel ? 'parallel' : 'nolabel', fcS + '/' + fcN, String(hdrRow ? hdrRow.cells.map(c => c.text).join(' / ') : '').replace(/<[^>]+>/g, '').slice(0, 50), '||', unesc(String((parsed.find(r => !/hdr|note|premise|warn/.test(r.cls)) || {cells:[{text:''}]}).cells[0].text)).replace(/<[^>]+>/g, '').slice(0, 30));
   /* 2026-10-16（待改清单第 6 / 16 条）：TBL_DUMP=文件 时逐表写出排版结果（每格对齐、各段前缀、列宽占比），供两本同表对比（check_pair.py） */
   const DUMP = (process.env.TBL_DUMP && !PROBE) ? [] : null;
+  const CELLS_T = (CELL_DUMP_F && !PROBE) ? [] : null;
   const trs = parsed.map((r, ri) => {
     const isHdr = r.cls.includes('hdr');
     const isNote = r.cls.includes('note');
@@ -1863,6 +1874,7 @@ function htmlTableCore(html) {
     const cells = r.cells.map((c, ck) => {
       const ci = startCol[ri][ck];
       const dumpP = DUMP ? [] : null;
+      const cellItems = (CELL_DUMP_F && !PROBE) ? [] : null;
       let w = 0;
       for (let k = 0; k < c.colspan; k++) w += W[Math.min(ci + k, nCols - 1)];
       const isFirstCol = (ci === 0) && !isPre && !isNote && !isWarn;
@@ -1990,6 +2002,13 @@ function htmlTableCore(html) {
         const CHW = FS * 10;   // 一个汉字宽（twip）
         const childInd = LEAD_OLD ? null : prefix === '– ' ? (prefix2 ? { left: Math.round(CHW * 1.75), hanging: Math.round(CHW * 0.85) } : { left: Math.round(CHW * 0.9) }) : null;
         if (dumpP) dumpP.push(((/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? 'C' : (hierarchy || semMarked) ? 'L' : (center ? 'C' : 'L')) + (prefix2 || '').trim());
+        if (cellItems) cellItems.push({
+          role: (leadSeg || parentSeg) ? 'parent' : numUnderLead ? 'num' : (mk.startsWith('\uE002') || (hierarchy && !parentFlags[pi] && hasParent)) ? 'sub' : mk === '\uE001' ? 'item' : 'plain',
+          level: (prefix === '– ' || numUnderLead) ? 1 : 0, bullet: (prefix2 || '').trim(),
+          align: ((/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? 'center' : (hierarchy || semMarked) ? 'left' : (center ? 'center' : 'left')),
+          bold: !!(isHdr || c.head || labelCol || boldFirst || parentSeg), lead: !!leadSeg,
+          hang: prefix2 === '• ' ? 'bullet' : prefix2 === '– ' ? 'child' : prefix === '– ' ? 'child' : numUnderLead ? 'num' : 'none',
+          html: seg.trim() });
         return new ParagraphX({
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
           children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS, ...(leadSeg && !BW ? { color: LEAD_C } : {}) }),
@@ -2013,6 +2032,10 @@ function htmlTableCore(html) {
       const brSeg = String(c.text).split(/<br\s*\/?>/).map(x => unesc(x.replace(/<[^>]+>/g, '').replace(/[\uE001-\uE006]/g, '')).trim()).filter(Boolean);
       const brFit = DUMP && brSeg.length === 2 && !isHdr && !isNote && !isPre && !isWarn && (() => { let n = 0; for (const ch of brSeg.join(' ')) n += /[\u2E80-\u9FFF\uFF00-\uFFEF\u2190-\u21FF\u2200-\u22FF\u00B1\u00D7]/.test(ch) ? 2 : /[A-Z]/.test(ch) ? 1.35 : /[a-z0-9]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.6 : 1.1;
         return n * 96 * FS / 18 * 0.93 + 260 <= w; })();
+      if (cellItems) CELLS_T.push({ r: ri, c: ci, cs: c.colspan, rs: c.rowspan || 1, h: isHdr ? 1 : 0, kind: isHdr ? 'hdr' : isNote ? 'note' : isPre ? 'premise' : isWarn ? 'warn' : isPriority ? 'priority' : (r.cells.length === 1 && c.colspan >= nCols) ? 'group' : 'data',
+        ghost: r.cls.includes('ghost'), zebra: !!(ri % 2) && !isHdr && !isNote && !isPre && !isWarn && !isPriority,
+        shared: !!c.cmpShared, hl: /(^|\s)hl(\s|$)/.test(c.cls || ''), hlb: /(^|\s)hlb(\s|$)/.test(c.cls || ''), hierarchy: !!hierarchy,
+        t: unesc(String(c.text).replace(/<[^>]+>/g, '').replace(/[\uE001-\uE006]/g, '')).replace(/\s+/g, ' ').trim(), items: cellItems });
       if (DUMP) DUMP.push({ r: ri, c: ci, cs: c.colspan, h: isHdr ? 1 : 0, ...(brFit ? { br: brSeg } : {}), t: unesc(String(c.text).replace(/<[^>]+>/g, '').replace(/[\uE001-\uE006]/g, '')).replace(/\s+/g, ' ').trim().slice(0, 60), p: dumpP });
       return new TableCell({
         width: { size: w, type: WidthType.DXA },
@@ -2029,6 +2052,19 @@ function htmlTableCore(html) {
     return new TableRow({ tableHeader: ri < lead && parsed.slice(0, lead).some(r2 => r2.cls.includes('hdr')) && !parsed[ri].cls.includes('ghost'), cantSplit: true, children: cells });   // SD-218（2026-10-21 用户）：续页重复表头   // 不重复表头（用户要求，2026-09-28）
   });
   /* 固定列宽：Word 默认「根据内容自动调整」会改写按内容算好的列宽，导致首列等短列被拉宽 */
+  if (CELLS_T) { const bm = String(CUR_BLK || '').match(/^BLK_(\d+)_(\d+)_N(\d+)$/), kk = bm ? bm[1] + '.' + bm[2] + ' ' + bm[3] : (CUR_BLK || null);
+    const hr0 = parsed.find(r => r.cls.includes('hdr')), part = FORCE_BRK || !!(hr0 && hr0.cls.includes('ghost')) ? 1 : 0;   // 拆成几截 / 注行拆段的后几段：part > 0，与第一段同一 ti
+    if (!part) BLK_TI.set(kk, (BLK_TI.get(kk) || 0) + 1);
+    const tcls = (String(html).match(/^\s*<table[^>]*class="([^"]*)"/) || [])[1] || '';
+    const wSrc = []; if (hr0) { let c0 = 0; hr0.cells.forEach(hc => { const m = String(hc.cls || '').match(/(^|\s)w-(\d+)(?=\s|$)/); for (let q = 0; q < hc.colspan; q++) wSrc[c0 + q] = m && hc.colspan === 1 ? +m[2] : null; c0 += hc.colspan; }); }
+    const hdrTxt = hr0 ? hr0.cells.map(hc => unesc(String(hc.text).replace(/<[^>]+>/g, ''))) : [];
+    const compare = hdrTxt.filter(t => /737\s*-?\s*(NG|8|MAX)/i.test(t)).length >= 2 || parsed.some(r => r.cells.some(c => c.cmpShared));
+    const cols = []; for (let k = 0; k < nCols; k++) { const dc = CELLS_T.filter(c => c.c === k && c.cs === 1 && c.kind === 'data' && !c.ghost && c.items.length);
+      const al = dc.map(c => c.items[0].align), ctr = al.filter(a => a === 'center').length;
+      const hc = hr0 ? hr0.cells.find((h, i, arr) => { let x = 0; for (let j = 0; j < i; j++) x += arr[j].colspan; return x === k; }) : null;
+      cols.push({ align: dc.length ? (ctr * 2 >= al.length ? 'center' : 'left') : null, bullet: dc.some(c => c.items.some(it => it.bullet === '•')), label: k === 0 && !!firstIsLabel && !parallel, src: hc ? String(hc.cls || '').trim() : '' }); }
+    require('fs').appendFileSync(CELL_DUMP_F, JSON.stringify({ k: kk, ti: Math.max(0, (BLK_TI.get(kk) || 1) - 1), part, src: TBL_IDX, cls: tcls, parallel: !!parallel, seqTable: !!SERIAL_T, compare, nCols,
+      w: W.map(x => Math.round(x * 1000 / TOTAL) / 10), wSrc, cols, before: (TBL_META && !part) ? TBL_META.before : [], after: (TBL_META && !part) ? TBL_META.after : [], splitAt: (TBL_META && !part) ? TBL_META.splitAt : [], mid: (TBL_META && !part) ? (TBL_META.mid || []) : [], cells: CELLS_T }) + '\n'); }
   if (DUMP) { const sw = W.reduce((a, b) => a + b, 0); require('fs').appendFileSync(TBL_DUMP_F, JSON.stringify({ t: TBL_IDX, w: W.map(x => Math.round(x * 1000 / TOTAL) / 10), tw: Math.round(sw * 1000 / TOTAL) / 10, cells: DUMP }) + '\n'); }
   /* 第 109 条（用户 2026-10-20，速查 287 页）：图表并排时右（左）栏里的表占满所在栏——多出的宽度按各列现宽比例分给非首列 */
   if (SIDE_FILL) { const sumW = W.reduce((a, b) => a + b, 0);
@@ -2719,6 +2755,7 @@ while (i < src.length) {
   if (/^#####\s+/.test(ln)) { body.push(H(ln.replace(/^#####\s+/, ''), 4, pendingBreak || HEAD_BREAK.has(i))); pendingBreak = false; i++; continue; }
   if (/^####\s+/.test(ln)) { const t4 = ln.replace(/^####\s+/, ''), qn = COMPACT && t4.match(/^(\d+)\.\s/);   // SD-118：速查条目加书签 QRI_n，供「按主题查」跳转
     const bid = !COMPACT && CUR_SEC ? blkId(CUR_SEC, t4) : null;                                          // SD-139：正文块加书签 BLK_节_块，供目录后的「按主题查」跳转
+    CUR_BLK = bid;   // DOC_DUMP_CELLS：表格归属的条目
     body.push(H(t4, 3, pendingBreak || HEAD_BREAK.has(i), qn ? 'QRI_' + qn[1] : (bid || undefined))); pendingBreak = false; i++; continue; }
   if (/^###\s+/.test(ln)) {
     const t3 = ln.replace(/^###\s+/, '').trim();
@@ -3319,6 +3356,7 @@ const doc = new Document({
 });
 
 if (process.env.TBL_DUMP) fs.writeFileSync(process.env.TBL_DUMP, TBL_DUMPS.map(x => JSON.stringify(x)).join('\n') + '\n');
+if (CELL_DUMP_F) { console.log('DOC_DUMP_CELLS 写出 ' + CELL_DUMP_F + '（未打包 Word）'); process.exit(0); }
 Packer.toBuffer(doc).then(async b => {
   {
     /* SD-71：rowSpan 生成的合并延续格是空段落 <w:p/>，不带「与下段同页」；LibreOffice 要求表内段落全都设了才整表不拆。
