@@ -220,6 +220,8 @@ def _measure_pages(pdf, srcmd, pages):
                         sl = 0 if (wr or not ls0) else max(0, (c0[2] - c0[0]) - PAD - mx0 - 6)
                         for q in cv: capk[q] = min(capk[q], sl / len(cv))
                 rows_sl = []; f0 = len(found)
+                _szs = sorted(sp['size'] for b in p.get_text('dict', clip=t.bbox)['blocks'] for l in b.get('lines', []) for sp in l['spans'] if sp['text'].strip())   # 2026-10-30（B26）：表内正文字号中位数，供检查器把压缩表的空白换算回 9pt
+                _tfs = round(_szs[len(_szs) // 2], 1) if _szs else 9.0
                 _imgx = [((b['bbox'][0] + b['bbox'][2]) / 2) for b in p.get_text('dict', clip=t.bbox)['blocks'] if b.get('type') == 1]   # SD-218：图标列（格里是图片）文字测不到宽度，不算空白
                 for k0 in range(ncol_t):
                     cw0 = xs[k0 + 1] - xs[k0]
@@ -232,7 +234,7 @@ def _measure_pages(pdf, srcmd, pages):
                     # 本列每格按严格口径（本格行数不增、不制造末行不足 6 字）能让出的宽度；有折行的列也算（收窄 NW 才需要防拉锯，借宽是一次性让给别列）
                     lend = 0 if not nlk[k0] else min(capk[k0], max(0, cw0 - PAD - mxs[k0] - 6))
                     found.append({'page': i + 1, 'col': k0, 'extra_pt': round(slack, 1), 'extra_strict': round(slack_s, 1), 'lend': round(lend, 1), 'wrapped': wrk[k0],
-                                  'anywrap': anyw[k0], 'nl': nlk[k0], 'tb': round(t.bbox[1], 1), 'bb': round(t.bbox[3], 1), 'ph': round(p.rect.height, 1), 'nc': ncol_t, 'head': (t.extract()[0][k0] or '')[:10] if t.extract() and k0 < len(t.extract()[0]) else '',
+                                  'anywrap': anyw[k0], 'nl': nlk[k0], 'fs': _tfs, 'mxs': round(mxs[k0], 1), 'tb': round(t.bbox[1], 1), 'bb': round(t.bbox[3], 1), 'ph': round(p.rect.height, 1), 'nc': ncol_t, 'head': (t.extract()[0][k0] or '')[:10] if t.extract() and k0 < len(t.extract()[0]) else '',
                                   'cell': '', 'first': '', 'prev': '',
                                   'orphan': False, 'nw': True,
                                   'cx': round((xs[k0] + xs[k0 + 1]) / 2 - t.bbox[0], 1),

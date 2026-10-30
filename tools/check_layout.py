@@ -644,7 +644,7 @@ try:
             for _c in range(_segs[_ks[0]][0]['nc']):
                 _vals = [next((e for e in _segs[_k] if e['col'] == _c), None) for _k in _ks]
                 if any(v is None for v in _vals): continue
-                _sl = min(v.get('extra_strict', v['extra_pt']) for v in _vals)
+                _sl = min(v.get('extra_strict', v['extra_pt']) - (v.get('mxs', 0) * (9.0 / v['fs'] - 1) if 0 < v.get('fs', 9.0) < 8.95 else 0) for v in _vals)   # 2026-10-30（B26）：压缩表（字号 < 9pt）的空白换算回 9pt 再判——按压缩字号量的空白收窄，字号一恢复就折行（1030R1 第 470 页 5.3「阶段 / 角色」8pt 量出 22pt、9pt 下只剩约 6pt）
                 _thr = max([th for sg, th in FIXW_SIGS if sg and re.sub(r'[^\w]', '', nosp(_vals[0].get('table', ''))).startswith(re.sub(r'[^\w]', '', sg)[:24])] or [10])   # 1020R2：多条签名命中取最宽松（图表并排的 10**6 优先于 w-NN 的 24）   # 锁宽 30pt、起始比例 24pt、自动宽度 10pt
                 if _sl < 30 and any(nosp(_vals[0].get('table', '')).startswith(sg) and kk == _c for sg, kk in NWL): continue   # 已证明收到极限（再收就多行）；1020R1：余量 ≥ 30pt 的不认（收 24pt 不可能多行，旧记录误锁）
                 _wz = any(re.sub(r'[^\w]', '', nosp(_vals[0].get('table', ''))).startswith(sg) and kk == _c for sg, kk in WZ)   # SD-232 ⑨：列宽实测调整来回跳、fit_fix 已冻结
@@ -874,7 +874,7 @@ elif _tp[0] > _c1: err('P2', '「速查目录」在第 %d 页，应放在总目�
 
 # R5（SD-154，2026-10-06 用户）：同一条目下同表头的几张表、中间只隔着注——应合成一张（标 one-page）。
 # 例外：压到最小仍放不下一页、用户定为照常跨页的几处（范围 A）
-R5_EXEMPT = {('*', '电气故障处置'), ('*', '各类液压故障处置'), ('*', 'GPS 干扰对各系统的影响'), ('*', '起飞程序职责交接与推力管理矩阵')}   # 2026-10-23（SD-233 改结构后 4.8 / 4.14 / 1.11 / 2.7 改了号，节号写死的豁免落空）：只按条目标题片段认，不看节号   # 2026-10-19 批 5：改用标题片段，条目改号后不失效   # 2026-10-19 SD-209 批 3：GNSS 干扰 5.12 第 3 条 → 1.11 第 29 条   # 2026-10-15 SD-187：液压相关由 4.9 改为 4.14；SD-189：GNSS 干扰由 5.6 改为 5.12
+R5_EXEMPT = {('*', '电气故障处置'), ('*', '各类液压故障处置'), ('*', '备用液压故障的处置'), ('*', 'GPS 干扰对各系统的影响'), ('*', '起飞程序职责交接与推力管理矩阵')}   # 2026-10-23（SD-233 改结构后 4.8 / 4.14 / 1.11 / 2.7 改了号，节号写死的豁免落空）：只按条目标题片段认，不看节号   # 2026-10-19 批 5：改用标题片段，条目改号后不失效   # 2026-10-19 SD-209 批 3：GNSS 干扰 5.12 第 3 条 → 1.11 第 29 条   # 2026-10-15 SD-187：液压相关由 4.9 改为 4.14；SD-189：GNSS 干扰由 5.6 改为 5.12
 import glob as _g
 for _f in sorted(_g.glob(os.path.join(REPO, 'notes_src/[1-6]*/*.md'))):
     _sec = os.path.basename(_f).split(' ')[0]; _s = open(_f, encoding='utf-8').read()
