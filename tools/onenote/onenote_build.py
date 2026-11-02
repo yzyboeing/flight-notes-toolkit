@@ -13,10 +13,10 @@ from onenote_api import req, content, list_pages, create_page, patch_with_image,
 from onenote_conv import convert, page, strip_index, FONT, TABW
 NS = os.path.expanduser('~/flight-repos/gh-private/notes_src/')
 WORK = os.path.expanduser('~/flight-repos/_work/onenote')
-CHN = {'第一章': '第一章 系统描述', '第二章': '第二章 操作程序', '第三章': '第三章 运行规范', '第四章': '第四章 技术提示', '第五章': '第五章 故障处置', '附录': '附录 机型差异'}   # 2026-10-24 SD-234
+CHN = {'第一章': '第一章 系统描述', '第二章': '第二章 操作程序', '第三章': '第三章 运行规范', '第四章': '第四章 特殊情况与风险', '第五章': '第五章 故障处置', '附录': '附录 机型差异'}   # 2026-10-24 SD-234；2026-11-02 第四章按 SD-241 改「特殊情况与风险」
 # 2026-10-15 SD-185 第一章改名「系统描述」；接口不能改分区名——OneNote 里还叫旧名时沿用旧分区写入，页眉照新名（用户在 OneNote 里右键改名即可）
 ALIAS = {'第一章 系统描述': ['第一章 系统理论'], '第二章 操作程序': ['第二章 机组训练手册'],
-         '第三章 运行规范': ['第三章 运行手册'], '第四章 技术提示': ['第四章 飞行技术提示', '第五章 技术提示'], '第五章 故障处置': ['第五章 模拟机笔记', '第四章 模拟机训练']}
+         '第三章 运行规范': ['第三章 运行手册'], '第四章 特殊情况与风险': ['第四章 技术提示', '第四章 飞行技术提示', '第五章 技术提示'], '第五章 故障处置': ['第五章 模拟机笔记', '第四章 模拟机训练']}
 # SD-234（2026-10-24）沿用旧分区写入；2026-10-25 三 / 四 / 五章再改名：OneNote 里可能是最早的旧名、也可能已按 R2 建议改过名——按列出顺序找第一个存在的分区
 def sec_name(name, secs): return name if name in secs else next((a for a in ALIAS.get(name, []) if a in secs), name)
 NB_ID = '0-A7EF8B8B1AAC2778!s8966e7df85744afd957d97c2f66eb275'   # 用户自己的「飞行」笔记本（2026-10-05 用户：「以后更新就在这里更新」）
@@ -107,6 +107,10 @@ def add_figs(pid, title):
         except RuntimeError as e:
             L('   !! 补图出错（可能已插入，重跑会自动跳过）', fg['cap'][:16], str(e)[:40]); time.sleep(20)
         time.sleep(2)
+PH = '<p style="margin-top:0;margin-bottom:0"><span style="font-size:4pt">&#160;</span></p>'
+def cell_img_page(title):
+    f = glob.glob(NS + '*/' + title + '.md')
+    return bool(f) and bool(re.search(r'<td>\s*<img\s', open(f[0], encoding='utf-8').read()))
 def add_cell_imgs(pid, title, src=None):
     """1019R6（记录第 16 条 ND 符号表）：源文件表格格内 <img src="figures/…" w="mm">——成品里是格内小图；
     OneNote 转换时图丢失、格子留空。按表头文字找到该表，逐行在第一格的空段落前插入对应小图（一次 PATCH 带全部图）。"""
@@ -130,11 +134,14 @@ def add_cell_imgs(pid, title, src=None):
         cmds, files = [], []
         for tr, im in zip(trs, imgs):
             if not im: continue
-            pm = re.search(r'<td\b[^>]*>\s*<p\b[^>]*\bid="([^"]+)"', tr)
-            if not pm: continue
+            td1 = re.search(r'(?s)<td\b[^>]*>(.*?)</td>', tr)   # 2026-11-02：只看第一格——原式会越过空首格匹配到第 2 列，图插进名称列
+            pm = td1 and re.search(r'<p\b[^>]*\bid="([^"]+)"', td1.group(1))
+            if not pm: L('   !! 格内图首格没有段落', hdr, im.group(1)[-20:]); continue
             data = open(NS + im.group(1), 'rb').read(); pw, ph = struct.unpack('>II', data[16:24])
             w = round(float(im.group(2) or 15) / 270 * TABW); name = 'cimg' + uuid.uuid4().hex[:8]
-            cmds.append({'target': pm.group(1), 'action': 'insert', 'position': 'before', 'content': '<img src="name:%s" width="%d" height="%d"/>' % (name, w, round(w * ph / pw))})
+            ih = '<img src="name:%s" width="%d" height="%d"/>' % (name, w, round(w * ph / pw))
+            empty = not plain(re.sub(r'<[^>]+>', '', re.search(r'(?s)<p\b[^>]*\bid="%s"[^>]*>(.*?)</p>' % re.escape(pm.group(1)), td1.group(1)).group(1)))
+            cmds.append({'target': pm.group(1), 'action': 'replace', 'content': ih} if empty else {'target': pm.group(1), 'action': 'insert', 'position': 'before', 'content': ih})
             files.append((name, data))
         if cmds:
             try: patch_with_images(pid, cmds, files); L('   格内图', hdr, len(cmds))
@@ -178,7 +185,9 @@ def main():
         for q in list_pages(sid):
             if q['title'] == p['title']: delete_page(q['id'])
         src, _ = strip_index(p['html'])
-        pid = create_page(sid, p['title'], page(p['title'], convert(src), '%s ｜ %s' % (CHN[p['chap']], p['title'])))
+        body = convert(src)
+        if cell_img_page(p['title']): body = re.sub(r'<td\b([^>]*)>\s*</td>', r'<td\1>' + PH * 2 + '</td>', body)   # 2026-11-02：空格读回只剩 <br/>、无段落 id，td 又不支持 append；单段格读回也不带 <p>——留两段 4pt 占位段，格内图替换第一段
+        pid = create_page(sid, p['title'], page(p['title'], body, '%s ｜ %s' % (CHN[p['chap']], p['title'])))
         # 2026-10-19（1018R2 写 4.6 返回成功但页面没留下）：每节写完立即读回核查，读不到就当场重写一次
         if pid:
             time.sleep(8)
@@ -187,7 +196,7 @@ def main():
                 try: delete_page(pid)
                 except Exception: pass
                 time.sleep(6)
-                pid = create_page(sid, p['title'], page(p['title'], convert(src), '%s ｜ %s' % (CHN[p['chap']], p['title'])))
+                pid = create_page(sid, p['title'], page(p['title'], body, '%s ｜ %s' % (CHN[p['chap']], p['title'])))
         L('写', p['title'], 'OK' if pid else '!! 失败')
         if pid: add_figs(pid, p['title']); add_cell_imgs(pid, p['title'])
         time.sleep(6)                     # 2026-10-06：1.5 秒会触发 429 限流
