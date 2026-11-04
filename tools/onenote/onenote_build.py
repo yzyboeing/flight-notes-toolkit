@@ -70,6 +70,7 @@ def figs_for(title):
         # OneNote 版删了「详见」行，不能当锚点（1.14-2）
         prev = ([x for x in Ls[:i] if x.strip() and not re.match(r'\s*详见', x)] or [''])[-1].strip(); nxt = ([x for x in Ls[i + 1:] if x.strip()] or [''])[0].strip()   # 2026-10-19：图在文件末行（1.6）时没有下一行
         anchor = (re.sub(r'^#+\s*', '', nxt), 'before') if prev.startswith('<') else (re.sub(r'^#+\s*', '', prev), 'after')
+        if re.match(r'#\s', prev): anchor = (cap, 'before')   # 2026-11-03：上一行是节标题（1.9-1）时，节名会匹配到页眉框里的「章名 ｜ 节名」，图被插进页眉框、绝对定位盖住正文——改为插在正文里成品图注之前（与其他页同排法）
         if prev.startswith('</table') and nxt.startswith('<'):   # 2026-10-16：图夹在两张表之间（1.13-1）——用上一张表的表头文字找到该表，插在表后
             k = max(j for j in range(i) if Ls[j].lstrip().startswith('<table'))
             hdr = next((x for x in Ls[k:i] if ('<th' in x or '<td' in x) and 'premise' not in x), '')   # 2026-10-19：前提通栏行在 OneNote 里移到表外（unmerge），用真正的表头找表
