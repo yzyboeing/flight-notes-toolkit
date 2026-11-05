@@ -47,7 +47,7 @@ class C(HTMLParser):
             bg=a.get('bgcolor') or (re.search(r'background:\s*(#\w+)',sty) or [None,None])[1]
             if bg and bg.lower() not in('#ffffff','transparent'): st.append('background-color:%s'%bg)
             if a.get('width'): st.append('width:%dpx'%px(a['width']))
-            span=''.join(' %s="%s"'%(k,a[k]) for k in('rowspan','colspan') if k in a)
+            span=''.join(' %s="%s"'%(k,a[k]) for k in('rowspan','colspan','data-aircraft') if k in a)
             s.out.append('<td style="%s"%s>'%(';'.join(st),span)); return
         if t=='br': s.out.append('<br/>'); return
     def handle_endtag(s,t):
@@ -382,6 +382,15 @@ def unmerge(h):
         adapt = _os.environ.get('ONENOTE_MERGE', 'adapt') != 'manual'
         GREY = '<span style="color:#808080">%s</span>'
         vis = lambda x: re.sub(r'[\s\u200b\u2060\u00ad]+', '', html.unescape(re.sub(r'<[^>]+>', '', x)))
+        # SD-246: infer model columns from the short table headings.
+        model_cols = {}
+        for rr, cc, cs, rs, attrs, body, width in cells:
+            text = re.sub(r'\s+', '', html.unescape(re.sub(r'<[^>]+>', '', body))).upper()
+            if rr >= 3 or len(text) > 50: continue
+            ng = bool(re.search(r'737[-‐‑]?NG|737[-‐‑]?800', text))
+            mx = bool(re.search(r'737[-‐‑]?8(?!00)|737MAX|MAX[-‐‑]?8', text))
+            if ng != mx:
+                for col in range(cc, cc + cs): model_cols[col] = 'NG' if ng else 'MAX'
         before, after, out = [], [], []
         for r in range(len(rows)):
             full = [z for z in cells if z[0] == r and z[1] == 0 and z[2] >= n and z[3] == 1]
@@ -399,6 +408,8 @@ def unmerge(h):
                 a = re.sub(r'\s(rowspan|colspan)="\d+"', '', cell[4])
                 a = re.sub(r'width:\d+px', 'width:%dpx' % W[c], a)
                 if (r, c) == o: x = cell[5]
+                elif (adapt and cell[1] == 0 and cell[3] > 1 and c == 0 and r > cell[0]): x = cell[5]  # SD-246: repeat row label with identical style
+                elif (adapt and cell[2] > 1 and c in model_cols and ({'NG','MAX'} <= {model_cols.get(k) for k in range(cell[1],cell[1]+cell[2])} or ('data-aircraft="both"' in cell[4] and len({model_cols.get(k) for k in range(cell[1],cell[1]+cell[2])} - {None}) > 1))): x = cell[5]  # SD-246: type-spanning content, identical inline font/color
                 elif not adapt or not vis(cell[5]): x = ''
                 elif cell[2] >= n: x = ''                                   # 夹在表中间的通栏分组行：其余格留空
                 elif _os.environ.get('ONENOTE_FILL') != 'grey': x = ''     # 2026-10-23 用户：「如果没办法合并，也不需要用不同的字体重复标注出来，后续我人工去更改」——合并格拆开后其余格留空（OneNote 接口不支持合并单元格）
@@ -431,9 +442,9 @@ def unwrap_figside(h):
                     else:
                         depth -= 1; k = b + 8
                         if depth == 0: break
-                rest = re.match(r'(?:\s|<p\b[^>]*>(?:(?!</p>).)*</p>)*</td><td[^>]*>((?:(?!<td|<table).)*?)</td></tr></table>', h[k:], re.S)
+                rest = re.match(r'((?:\s|<p\b[^>]*>(?:(?!</p>).)*</p>)*)</td><td[^>]*>((?:(?!<td|<table).)*?)</td></tr></table>', h[k:], re.S)
                 if rest:
-                    out.append(h[i:s]); out.append(h[inner_s:k]); i = k + rest.end(); continue
+                    out.append(h[i:s]); out.append(h[inner_s:k] + rest.group(1)); i = k + rest.end(); continue
             out.append(h[i:s + 1]); i = s + 1; continue
         inner_s = s + m.start(2); depth, k = 0, inner_s
         while True:
@@ -444,7 +455,10 @@ def unwrap_figside(h):
                 if depth == 0: break
         inner = h[inner_s:k]
         end = h.find('</table>', k) + 8          # 外框的 </td></tr></table>
-        out.append(h[i:s]); out.append(inner); i = end
+        # The body cell may contain warning paragraphs after its inner table.
+        # Remove only the layout wrapper, never those trailing paragraphs.
+        tail = re.sub(r'</td>\s*</tr>\s*</table>\s*$', '', h[k:end])
+        out.append(h[i:s]); out.append(inner + tail); i = end
     return ''.join(out)
 def convert(src):
     p=C(); p.feed(src); h=''.join(p.out)
