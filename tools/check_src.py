@@ -369,6 +369,38 @@ def main():
                 if not re.match(r'\s*(blurb|title_cn)\s*:', l): continue
             for m in _reg.finditer(l): _rh.append('%s:%d「%s」' % (os.path.basename(f), i, m.group(0)))
     if _rh: errors.append('S12 成品里出现具体机号或「机号」一词 %d 处（SD-247：写「部分 737-NG 飞机」「部分 737-8 飞机」，数值不同的几组都保留、只换标签）：%s' % (len(_rh), '、'.join(_rh[:8])))
+    # S13 成品不写审核口吻（SD-248，2026-11-05 用户：「按你的建议做提速」）：校对理由写进卡片和台账，不进正文
+    _voice = re.compile(r'不能写成|不套用|本次所核|通用许可|推定|不把持续|不要把这一分支|本卡|未获原页|原页没有')
+    _vh = []
+    for f in files:
+        for i, l in enumerate(io.open(f, encoding='utf-8'), 1):
+            for m in _voice.finditer(l): _vh.append('%s:%d「%s」' % (os.path.basename(f), i, m.group(0)))
+    if _vh: errors.append('S13 成品里出现审核口吻 %d 处（SD-248：校对理由写进知识点卡和台账，正文只写手册内容）：%s' % (len(_vh), '、'.join(_vh[:8])))
+    # S14 两型对比表逐字相同未合并（B13，SD-248）：表头含 737-NG 与 737-8 的表，同一行两列内容逐字相同（「—」除外）应写成跨两列的共有格
+    _ih = []
+    for f in files:
+        _s = io.open(f, encoding='utf-8').read()
+        for _tm in re.finditer(r'<table[^>]*>(.*?)</table>', _s, re.S):
+            _ng = _e8 = None; _grid = set()
+            for _ri, (_attr, _r) in enumerate(re.findall(r'<tr([^>]*)>(.*?)</tr>', _tm.group(1), re.S)):
+                _cells = re.findall(r'<t[hd]([^>]*)>(.*?)</t[hd]>', _r, re.S)
+                if 'hdr' in _attr:
+                    _nm = [re.sub(r'<[^>]+>|[【】\s]', '', c[1]) for c in _cells]
+                    if '737-NG' in _nm and '737-8' in _nm: _ng, _e8 = _nm.index('737-NG'), _nm.index('737-8')
+                    continue
+                if _ng is None: continue
+                _col = 0; _pos = {}
+                for _a, _t in _cells:
+                    while (_ri, _col) in _grid: _col += 1
+                    _cs = int((re.search(r'colspan="(\d+)"', _a) or [0, 1])[1]); _rs = int((re.search(r'rowspan="(\d+)"', _a) or [0, 1])[1])
+                    for _k in range(1, _rs):
+                        for _c in range(_col, _col + _cs): _grid.add((_ri + _k, _c))
+                    if _cs == 1: _pos[_col] = _t
+                    _col += _cs
+                _x, _y = _pos.get(_ng), _pos.get(_e8)
+                if _x is not None and _y is not None and _x.strip() and _x.strip() not in ('—', '-', '–') and _x.strip() == _y.strip():
+                    _ih.append('%s:%d「%s」' % (os.path.basename(f), _s[:_tm.start()].count('\n') + 1, re.sub(r'<[^>]+>', '', _x)[:20]))
+    if _ih: errors.append('S14 两型对比表逐字相同未合并 %d 处（B13 / SD-248：写成 colspan="2" data-aircraft="both" 的共有格）：%s' % (len(_ih), '、'.join(_ih[:8])))
     # 约定保留（私有库根目录《两型混写保留.json》，2026-10-09）：按「文件 + 去标签前 24 字」匹配，只计数不列为待处理
     keepf = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '两型混写保留.json')
     keep = set()
