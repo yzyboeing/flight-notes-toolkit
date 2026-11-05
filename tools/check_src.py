@@ -52,6 +52,32 @@ def rel(p):
     return os.path.relpath(p, SRC)
 
 
+def find_type_mixtures(text):
+    """同格或同段显式混写，两种标记必须完整出现；返回准确原始偏移。"""
+    masked = list(text)
+    spans = []
+    def hide(start, end):
+        for i in range(start, end):
+            if masked[i] != '\n': masked[i] = ' '
+    for m in re.finditer(r'<!--.*?-->', text, re.S): hide(m.start(), m.end())
+    clean = ''.join(masked)
+    for m in re.finditer(r'<t[dh]\b[^>]*>.*?</t[dh]>', clean, re.S | re.I):
+        spans.append(('cell', m.start(), m.end()))
+    for m in re.finditer(r'<table\b.*?</table>', clean, re.S | re.I): hide(m.start(), m.end())
+    outside = ''.join(masked)
+    for m in re.finditer(r'(?m)(?:^[^\S\n]*\S[^\n]*(?:\n(?![ \t]*\n)[^\n]*)*)', outside):
+        if m.group().lstrip().startswith(('#', '%%FIG')): continue
+        spans.append(('paragraph', m.start(), m.end()))
+    out = []
+    for kind, start, end in sorted(spans, key=lambda x: x[1]):
+        block = clean[start:end]
+        if '【737-NG】' in block and '【737-8】' in block:
+            plain = re.sub(r'<[^>]+>|\s+', '', block)
+            out.append({'kind': kind, 'offset': start, 'line': text.count('\n', 0, start) + 1, 'fragment': plain[:24]})
+    return out
+
+MIX_DETAIL = []
+
 MIX = []
 def main():
     files = [f for f in glob.glob(os.path.join(SRC, '**', '*.md'), recursive=True)
@@ -89,7 +115,8 @@ def main():
             if pre and pre.group(1) != sid:
                 warns.append('id(%s) 与文件名前缀(%s) 不一致: %s' % (sid, pre.group(1), rel(f)))
 
-        body = t[m.end():]
+        body_start = m.end()
+        body = t[body_start:]
 
         # 行首项目符号：只查正文笔记，MOC / 总目录用 markdown 列表是正常的
         if is_note:
@@ -164,10 +191,13 @@ def main():
                 errors.append('表格首行列宽 %d，表内最大 %d（nCols 会被算成 %d）: %s:%d'
                               % (w[0], max(w), w[0], rel(f), ln_no))
 
-        # SD-170：两型共有的知识点用对比表，不在格内 / 段落里写「【737-NG】…／【737-8】…」（建议级，只计数；SRC_MIX=1 列出明细）
-        for seg in re.findall(r'<td\b[^>]*>.*?</td>', body, re.S) + [l for l in re.sub(r'<table\b.*?</table>', '', body, flags=re.S).split('\n')]:
-            if '【737-NG' in seg and '【737-8' in seg:
-                MIX.append('%s:%d「%s」' % (rel(f), body[:body.find(seg)].count('\n') + 1 if seg in body else 0, re.sub(r'<[^>]+>|\s+', '', seg)[:24]))
+        # SD-170：提示级；同格/完整多行段落，保留准确全文行号供私有进度表。
+        for hit in find_type_mixtures(body):
+            line = t[:body_start].count('\n') + hit['line']
+            previous = list(re.finditer(r'(?m)^### (\d+)\.', body[:hit['offset']]))
+            key = sid + ' ' + previous[-1].group(1) if previous and sid else ''
+            MIX_DETAIL.append({**hit, 'file': rel(f), 'section': sid or '', 'key': key, 'line': line})
+            MIX.append('%s:%d「%s」' % (rel(f), line, hit['fragment']))
 
         # 2026-10-10 用户（速查第 35 页 LE FLAPS TRANSIT 表）：对比表首列必须是「项目」，表头第一格就是机型名会被当成标签列排窄加粗
         for mh in re.finditer(r'<table\b[^>]*>\s*(?:<tr class="premise">.*?</tr>\s*)?<tr class="hdr">\s*<th[^>]*>(.*?)</th>', body, re.S):
@@ -338,6 +368,15 @@ def main():
             warns.extend('  两型混写 ' + x for x in MIX)
     if kept:
         print('  两型混写约定保留 %d 处（两型混写保留.json）' % len(kept))
+    if '--mix-report' in sys.argv:
+        target = _arg('--mix-report', '')
+        counts = collections.Counter(x['section'] for x in MIX_DETAIL)
+        data = {'scope': 'current notes_src only', 'level': 'warning',
+                'count': len(MIX_DETAIL), 'sections': dict(sorted(counts.items())),
+                'locations': [{**x, 'agreedKeep': (x['file'], x['fragment']) in keep} for x in MIX_DETAIL]}
+        with io.open(target, 'w', encoding='utf-8') as h:
+            json.dump(data, h, ensure_ascii=False, indent=2)
+            h.write('\n')
     if not QUIET:
         print('笔记 %d 节，文件 %d 个' % (notes, len(files)))
     for w in warns:
