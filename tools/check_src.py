@@ -76,6 +76,32 @@ def find_type_mixtures(text):
             out.append({'kind': kind, 'offset': start, 'line': text.count('\n', 0, start) + 1, 'fragment': plain[:24]})
     return out
 
+NOTE_LINE = re.compile(r'^[ \t]*注[：:](.*)$', re.M)
+NOTE_META = re.compile(r'中文\s*(?:QRH|FCOM|FCTM|AFM).{0,12}(?:译作|译为|措辞|写作)|'
+                       r'(?:属|仅为|只是)(?:中英文)?翻译差异|本表以.{0,24}为准|本机队|'
+                       r'两型.{0,12}(?:只是|仅)措辞不同')
+
+
+def check_note_lines(body, filename, offset=0):
+    notes = [[], [], []]
+    headings = list(re.finditer(r'^### (.+)$', body, re.M))
+    for index, heading in enumerate(headings):
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(body)
+        start = heading.end()
+        matches = list(NOTE_LINE.finditer(body, start, end))
+        line = offset + body.count('\n', 0, heading.start()) + 1
+        if len(matches) >= 4:
+            notes[0].append(f'{filename}:{line}「{heading[1]}」{len(matches)} 行')
+        for match in matches:
+            line = offset + body.count('\n', 0, match.start()) + 1
+            text = re.sub(r'<[^>]*>', '', match[1]).strip()
+            if not text:
+                notes[1].append(f'{filename}:{line}')
+            if NOTE_META.search(text):
+                notes[2].append(f'{filename}:{line}「{NOTE_META.search(text)[0]}」')
+    return notes
+
+
 MIX_DETAIL = []
 
 MIX = []
@@ -88,6 +114,7 @@ def main():
     names = {os.path.splitext(os.path.basename(f))[0] for f in files}
     ids   = collections.defaultdict(list)
     notes = 0
+    note_hints = [[], [], []]
 
     for f in sorted(files):
         t = io.open(f, encoding='utf-8').read()
@@ -117,6 +144,9 @@ def main():
 
         body_start = m.end()
         body = t[body_start:]
+        if is_note:
+            for bucket, hits in zip(note_hints, check_note_lines(body, rel(f), t[:body_start].count('\n'))):
+                bucket.extend(hits)
 
         # 行首项目符号：只查正文笔记，MOC / 总目录用 markdown 列表是正常的
         if is_note:
@@ -225,6 +255,8 @@ def main():
     qsrc = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '速查', '速查源.md')   # 2026-10-09 用户：速查也按 SD-170 查（此前漏查）
     if os.path.exists(qsrc):
         qt = io.open(qsrc, encoding='utf-8').read()
+        for bucket, hits in zip(note_hints, check_note_lines(qt, '速查/速查源.md')):
+            bucket.extend(hits)
         for mh in re.finditer(r'<table\b[^>]*>\s*(?:<tr class="premise">.*?</tr>\s*)?<tr class="hdr">\s*<th[^>]*>(.*?)</th>', qt, re.S):
             if re.match(r'\s*(?:<[^>]+>)*\s*737', mh.group(1)):
                 errors.append('对比表缺项目列（表头首格是机型名）速查/速查源.md:%d' % (qt[:mh.start()].count('\n') + 1))
@@ -423,6 +455,9 @@ def main():
         with io.open(target, 'w', encoding='utf-8') as h:
             json.dump(data, h, ensure_ascii=False, indent=2)
             h.write('\n')
+    for label, hits in zip(('S15 同条注 ≥ 4', 'S16 空注', 'S17 元注关键词'), note_hints):
+        if hits or not QUIET:
+            print(f'  提示  K-{label} {len(hits)} 处' + ('：' + '、'.join(hits[:8]) if hits else ''))
     if not QUIET:
         print('笔记 %d 节，文件 %d 个' % (notes, len(files)))
     for w in warns:
