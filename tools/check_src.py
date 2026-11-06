@@ -102,6 +102,95 @@ def check_note_lines(body, filename, offset=0):
     return notes
 
 
+# SD-239 / SD-240: old labels may appear at the start of a line or inside a table cell.
+RETIRED_NOTE = re.compile(r'(?:公司差异|解释|出处|来源)\s*[：:]')
+NAMED_MANUAL = re.compile(
+    r'FCOM\s*(?:限制|用(?!于))|大纲\s*用(?!于)|QRH\s*[：:]|'
+    r'(?:运行手册|SOP|FCOM|FCTM|QRH|AFM|大纲)\s*(?:的\s*)?口径|'
+    r'公司手册|(?:运行手册|SOP|FCOM|FCTM|QRH|AFM)\s*(?:只写|仅写|写作|另写|写为|只要求|写(?=[「“])|为[「“])'
+)
+ABBR_NOTE = re.compile(r'^\s*注[：:]\s*缩写[—–-]+')
+ABBR_DEFINITION = re.compile(r'(?:^|[；;])\s*([A-Z][A-Z0-9 /.-]*?)\s*[：:]')
+
+
+def common_abbreviations():
+    # Read the maintained W06 list to keep the checker and the rule in sync.
+    from pathlib import Path
+    rules = Path(__file__).resolve().parents[1] / 'prompt/layout-checklist.md'
+    w06 = next(line for line in rules.read_text(encoding='utf-8').splitlines() if '| **W06** |' in line)
+    match = re.search(r'常用缩写（([^（]+)（SD-250））', w06)
+    return set(match[1].removesuffix(' 等').split('、'))
+
+
+def scan_editorial_markers(source, filename, common, offset=0):
+    retired, named, glossary = [], [], []
+    # Mask comments, keeping line numbers stable.
+    source = re.sub(r'<!--.*?-->', lambda m: '\n' * m[0].count('\n'), source, flags=re.S)
+    for line, raw in enumerate(source.splitlines(), offset + 1):
+        text = re.sub(r'<[^>]*>', '', raw).strip()
+        where = f'{filename}:{line}'
+        for piece in re.split(r'<br\s*/?>|<t[dh]\b[^>]*>|[。；;]', raw, flags=re.I):
+            visible = re.sub(r'<[^>]*>', '', piece).strip().lstrip('#* ').strip()
+            if hit := RETIRED_NOTE.match(visible):
+                retired.append(f'{where}「{hit[0]}」')
+        for hit in NAMED_MANUAL.finditer(text):
+            named.append(f'{where}「{hit[0]}」')
+        match = ABBR_NOTE.match(text)
+        if match:
+            for item in ABBR_DEFINITION.findall(text[match.end():]):
+                if item in common:
+                    glossary.append(f'{where}「{item}」')
+    return retired, named, glossary
+
+
+# S21: a cell shared by the two model columns must contain only common material.
+MODEL_ONLY = re.compile(
+    r'【\s*737-(?:NG|8)(?=[\s】])[^】]*】|'
+    r'部分\s*737-(?:NG|8)\b|\b737-(?:NG|8)\s*及', re.I
+)
+MODEL_ATTRIBUTE = re.compile(r'data-aircraft=["\'](737-(?:NG|8))["\']', re.I)
+
+
+def scan_model_colspans(source, filename, offset=0):
+    def span(attrs, name):
+        match = re.search(rf'\b{name}=["\'](\d+)["\']', attrs)
+        return int(match[1]) if match else 1
+
+    hits = []
+    for table in re.finditer(r'<table\b[^>]*>.*?</table>', source, re.S):
+        if source.rfind('<!--', 0, table.start()) > source.rfind('-->', 0, table.start()):
+            continue
+        occupied = set()
+        model_columns, merged = {}, []
+        for index, row in enumerate(re.finditer(r'<tr\b[^>]*>.*?</tr>', table[0], re.S)):
+            column = 0
+            for cell in CELL.finditer(row[0]):
+                while (index, column) in occupied:
+                    column += 1
+                tag, attrs, body = cell.groups()
+                width, height = span(attrs, 'colspan'), span(attrs, 'rowspan')
+                columns = range(column, column + width)
+                occupied.update((index + step, col) for step in range(1, height) for col in columns)
+                visible = re.sub(r'<[^>]+>', '', body)
+                heading = re.sub(r'[【】\s]', '', visible).upper()
+                if tag == 'th' and heading in ('737-NG', '737-8'):
+                    model_columns[heading] = columns
+                if width > 1:
+                    location = table.start() + row.start() + cell.start()
+                    merged.append((columns, attrs, visible, location))
+                column += width
+        if len(model_columns) != 2:
+            continue
+        for columns, attrs, visible, location in merged:
+            if not all(set(columns).intersection(model) for model in model_columns.values()):
+                continue
+            marker = MODEL_ONLY.search(visible) or MODEL_ATTRIBUTE.search(attrs)
+            if marker:
+                line = offset + source.count('\n', 0, location) + 1
+                hits.append(f'{filename}:{line}「{marker[0]}」')
+    return hits
+
+
 MIX_DETAIL = []
 
 MIX = []
@@ -115,6 +204,14 @@ def main():
     ids   = collections.defaultdict(list)
     notes = 0
     note_hints = [[], [], []]
+    common = common_abbreviations()
+    editorial = [[], [], []]
+
+    def collect_editorial(text, filename, offset=0):
+        for bucket, hits in zip(editorial, scan_editorial_markers(text, filename, common, offset)):
+            bucket.extend(hits)
+        errors.extend('K-S21 两型共有格含单型内容 '+hit
+                      for hit in scan_model_colspans(text, filename, offset))
 
     for f in sorted(files):
         t = io.open(f, encoding='utf-8').read()
@@ -144,6 +241,7 @@ def main():
 
         body_start = m.end()
         body = t[body_start:]
+        collect_editorial(body, rel(f), t[:body_start].count("\n"))
         if is_note:
             for bucket, hits in zip(note_hints, check_note_lines(body, rel(f), t[:body_start].count('\n'))):
                 bucket.extend(hits)
@@ -255,6 +353,7 @@ def main():
     qsrc = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '速查', '速查源.md')   # 2026-10-09 用户：速查也按 SD-170 查（此前漏查）
     if os.path.exists(qsrc):
         qt = io.open(qsrc, encoding='utf-8').read()
+        collect_editorial(qt, '速查/速查源.md')
         for bucket, hits in zip(note_hints, check_note_lines(qt, '速查/速查源.md')):
             bucket.extend(hits)
         for mh in re.finditer(r'<table\b[^>]*>\s*(?:<tr class="premise">.*?</tr>\s*)?<tr class="hdr">\s*<th[^>]*>(.*?)</th>', qt, re.S):
@@ -455,6 +554,11 @@ def main():
         with io.open(target, 'w', encoding='utf-8') as h:
             json.dump(data, h, ensure_ascii=False, indent=2)
             h.write('\n')
+    # S18 applies to retired labels regardless of their source container.
+    errors.extend('K-S18 停用标签 '+hit for hit in editorial[0])
+    for label, hits in zip(('S19 点名手册', 'S20 W06 常用缩写注'), editorial[1:]):
+        for hit in hits:
+            print(f'  提示  K-{label} {hit}')
     for label, hits in zip(('S15 同条注 ≥ 4', 'S16 空注', 'S17 元注关键词'), note_hints):
         if hits or not QUIET:
             print(f'  提示  K-{label} {len(hits)} 处' + ('：' + '、'.join(hits[:8]) if hits else ''))

@@ -17,14 +17,6 @@ def sh(*a, cwd=None):
         return ''
 
 
-def pages(pdf):
-    try:
-        import fitz
-        return len(fitz.open(pdf))
-    except Exception:
-        return '—'
-
-
 def repo(path):
     head = sh('git', 'log', '-1', '--format=%h %ad %s', '--date=format:%m-%d %H:%M', cwd=path)
     dirty = [l for l in sh('git', 'status', '--porcelain', cwd=path).splitlines() if l]
@@ -35,23 +27,40 @@ def repo(path):
 L = ['# 现状一页纸', '',
      '> 自动生成（`pub/tools/status_page.py`），%s。只读汇总，不是规则；规则看 `gh-private/规则/` 三份现行规则。' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), '']
 
-# 基线
-tags = sh('git', 'tag', '-l', 'baseline/*', '--sort=-creatordate', cwd=G).splitlines()
-base = tags[0] if tags else '（无）'
-since = sh('git', 'rev-list', '--count', '%s..HEAD' % base, cwd=G) if tags else '?'
-eds = sorted({re.sub(r'\.(docx|pdf)$', '', os.path.basename(p)) for p in glob.glob(os.path.join(WS, 'B737机型理论*.pdf'))})
-L += ['## 基线与成品', '',
+# 以当前内容提交和已成功的本机上传日志为准。
+def app_status():
+    flight = os.path.join(HOME, 'flight-repos')
+    content = sh('git', 'log', '-1', '--format=%H', 'HEAD', '--', 'notes_src', '速查/速查源.md', cwd=G)
+    roots = glob.glob(os.path.join(flight, '_work', '学习系统快照_*', '基线.txt'))
+    matching = []
+    for meta in roots:
+        with open(meta, encoding='utf-8') as f:
+            revision = re.search(r'(?m)^提交：gh-private ([0-9a-f]+)', f.read())
+        if content and revision and revision[1] == content:
+            matching.append(meta)
+    snapshot = os.path.basename(os.path.dirname(max(matching, key=os.path.getmtime))) if matching else '尚无匹配快照'
+    uploads = []
+    for log in glob.glob(os.path.join(flight, '_work', 'archives', '737note_*_upload.log')):
+        version = re.fullmatch(r'737note_(\d+(?:\.\d+)*)_(\d+)_upload\.log', os.path.basename(log))
+        if not version:
+            continue
+        with open(log, encoding='utf-8', errors='replace') as f:
+            result = f.read()
+        if 'Upload succeeded' in result and 'EXPORT SUCCEEDED' in result:
+            uploads.append((os.path.getmtime(log), version[1], version[2]))
+    tf = '本机无成功上传记录'
+    if uploads:
+        _, version, number = max(uploads)
+        tf = f'{version} ({number}) 已上传（本机日志，未查询 Apple 当前处理状态）'
+    return content[:7] or '未知', snapshot, tf
+
+
+content, snapshot, tf = app_status()
+L += ['## App 快照与 TestFlight', '',
       '| 项目 | 现状 |', '|---|---|',
-      '| 现行基线标签 | `%s`（%s）；之后私有库又有 %s 个提交 |' % (base, sh('git', 'rev-list', '-n1', '--abbrev-commit', base, cwd=G) if tags else '—', since),
-      '| 桌面成品 | %s |' % ('、'.join(eds) or '（无）')]
-for nm in ('B737机型理论速查笔记',):   # SD-234
-    p = os.path.join(G, 'build', nm + '.pdf')
-    if os.path.exists(p):
-        L.append('| build/%s.pdf | %s 页，生成于 %s |' % (nm, pages(p), datetime.datetime.fromtimestamp(os.path.getmtime(p)).strftime('%m-%d %H:%M')))
-try: _lag = int(open(os.path.join(G, 'build', '完整版落后轮数.txt')).read().strip() or 0)
-except Exception: _lag = 0
-L.append('| 完整版落后速查 | %d 轮速查构建%s |' % (_lag, '——**已满 5 轮，请提醒用户全量收口（SD-227）**' if _lag >= 5 else '（满 5 轮提醒全量收口，SD-227）'))
-L.append('')
+      '| 当前内容提交 | `%s` |' % content,
+      '| 与当前内容一致的 App 快照 | `%s` |' % snapshot,
+      '| 最近成功上传的 TestFlight | %s |' % tf, '']
 
 # 两本规模
 secs = [f for f in glob.glob(os.path.join(G, 'notes_src', '[1-9] *', '*.md')) if re.match(r'\d+\.\d+ ', os.path.basename(f))]
@@ -62,12 +71,6 @@ L += ['## 两本规模', '',
       '| 本 | 结构 | 条目 |', '|---|---|---|',
       '| 完整版 | %d 章%s %d 节（%s） | %d 条 |' % (len([c for c in chs if '附录' not in c]), ' + 附录' if any('附录' in c for c in chs) else '', len(secs), '、'.join(chs), ents),
       '| 旧速查源（SD-234 起只作溯源） | %d 段 %d 个主题 | %d 条 |' % (len(re.findall(r'(?m)^%%PART%%', q)), len(re.findall(r'(?m)^## ', q)), len(re.findall(r'(?m)^### ', q))), '']
-
-# 检查
-rep = os.path.join(G, 'build', '排版检查报告.md')
-if os.path.exists(rep):
-    head = open(rep, encoding='utf-8').read().split('\n')[2]
-    L += ['## 上次全量检查', '', head, '']
 
 # 仓库
 L += ['## 仓库', '', '| 仓库 | 最新提交 | 未提交文件 | 未推送提交 |', '|---|---|---|---|']
@@ -96,11 +99,17 @@ one = os.path.join(WS, 'OneNote待同步记录.md')
 if os.path.exists(one):
     pend = [l for l in open(one, encoding='utf-8') if '待同步' in l]
     todo.append('- OneNote：%d 条记录标「待同步」（只在用户指令时更新）' % len(pend))
-top = open(os.path.join(WS, '00_先读我_AI交接.md'), encoding='utf-8').read()
-m = re.search(r'(?m)^### (.+)$', top)
-if m:
-    todo.append('- 最近一轮：%s' % m.group(1))
 L += todo + ['']
 
-open(os.path.join(WS, '现状一页纸.md'), 'w', encoding='utf-8').write('\n'.join(L))
+# 保留人工维护的剩余批次区；重新生成只替换自动段。
+dest = os.path.join(WS, '现状一页纸.md')
+marker = '<!-- status-page:manual -->'
+if os.path.isfile(dest):
+    with open(dest, encoding='utf-8') as f:
+        old = f.read()
+    _, sep, manual = old.partition(marker)
+    if sep:
+        L += [marker + manual.rstrip('\n'), '']
+with open(dest, 'w', encoding='utf-8') as f:
+    f.write('\n'.join(L))
 print('已生成 现状一页纸.md')
