@@ -207,40 +207,84 @@ def _alignment_length(text):
     return sum(0.5 if ord(ch) < 256 else 1 for ch in text)
 
 
-def scan_center_alignment(source):
-    """Return source positions of long centered columns and long/multiline centered cells."""
+_MODEL_HEADER = re.compile(r'737|两型|仅', re.I)
+_PIN_MARKS = {'居中': 'col-center', '靠左加点': 'col-bullet'}
+_PIN_BOOKS = {'两本': ('完整版', '速查'), '完整版': ('完整版',), '速查': ('速查',)}
+
+
+def alignment_tables(source):
+    """Yield source table positions with their logical column spans."""
     masked = re.sub(r'<!--.*?-->', lambda m: re.sub(r'[^\n]', ' ', m[0]), source, flags=re.S)
     for table in TABLE.finditer(masked):
         occupied, cells = set(), []
-        for r, row in enumerate(TR.finditer(table[0])):
-            c = 0
+        for row_no, row in enumerate(TR.finditer(table[0])):
+            col = 0
             for cell in CELL.finditer(row[2]):
-                while (r, c) in occupied:
-                    c += 1
+                while (row_no, col) in occupied:
+                    col += 1
                 tag, attrs, body = cell.groups()
-                def span(name):
-                    m = re.search(rf"\b{name}\s*=\s*[\"'](\d+)[\"']", attrs)
-                    return int(m[1]) if m else 1
-                cols, rows = span('colspan'), span('rowspan')
-                occupied.update((r + dr, c + dc) for dr in range(rows) for dc in range(cols))
+                colspan = int((re.search(r"""\bcolspan\s*=\s*["'](\d+)["']""", attrs) or [None, 1])[1])
+                rowspan = int((re.search(r"""\browspan\s*=\s*["'](\d+)["']""", attrs) or [None, 1])[1])
+                occupied.update((row_no + dy, col + dx) for dy in range(rowspan) for dx in range(colspan))
                 classes = _CELL_CLASS.search(attrs)
-                segments = _alignment_segments(body)
-                if classes:
-                    start = table.start() + row.start(2) + cell.start(2) + classes.start()
-                else:
-                    start = table.start() + row.start(2) + cell.start()
-                cells.append((r, c, cols, tag, classes[2].split() if classes else [], segments, start))
-                c += cols
-        for row, col, span, tag, classes, segments, start in cells:
-            excerpt = '／'.join(segments)
-            if 'center' in classes and (len(segments) > 1 or max(map(_alignment_length, segments), default=0) >= 15):
-                yield {'kind':'center', 'offset':start, 'cell':excerpt, 'column':col, 'colspan':span}
-            if tag == 'th' and 'col-center' in classes:
-                # A shared cell belongs to multiple columns and has its own alignment.
-                matches = [s for r, c, n, t, _, ss, _ in cells if r > row and t == 'td' and n == 1
-                           and col <= c < col + span for s in ss if _alignment_length(s) >= 15]
-                if matches:
-                    yield {'kind':'col-center', 'offset':start, 'cell':excerpt, 'example':max(matches, key=len)}
+                attr_start = table.start() + row.start(2) + cell.start(2)
+                cells.append({
+                    'row': row_no, 'col': col, 'span': colspan, 'tag': tag,
+                    'segments': _alignment_segments(body), 'classes': classes[2].split() if classes else [],
+                    'offset': attr_start + classes.start() if classes else attr_start + len(attrs),
+                })
+                col += colspan
+        header_row = next((cell['row'] for cell in cells if cell['tag'] == 'th'), None)
+        if header_row is not None:
+            headers = [cell for cell in cells if cell['row'] == header_row and cell['tag'] == 'th']
+            first_row = next((cell['row'] for cell in cells if cell['row'] > header_row and cell['tag'] == 'td'), None)
+            yield {'headers': headers, 'cells': cells, 'offset': table.start(),
+                   'first': [''.join(c['segments']) for c in cells if c['row'] == first_row]}
+
+
+def find_alignment_pins(documents, ledger):
+    """Resolve each active pin in each specified book and report unmatched or ambiguous pins."""
+    tables = collections.defaultdict(list)
+    for book, filename, source, offset, table in documents:
+        headers = tuple(''.join(cell['segments']) for cell in table['headers'])
+        tables[book].append((headers, filename, source, offset, table))
+    found, problems = [], []
+    for pin in ledger:
+        if pin.get('停用'):
+            continue
+        headers = tuple(re.sub(r'\s+', '', label) for label in pin['表头'])
+        label = re.sub(r'\s+', '', pin['列'])
+        first = re.sub(r'\s+', '', pin.get('首行', ''))
+        for book in _PIN_BOOKS[pin['书']]:
+            candidates = [entry for entry in tables[book]
+                          if not first or any(first in value for value in entry[4]['first'])]
+            matches = [entry for entry in candidates if entry[0] == headers]
+            if not matches:
+                # A table may acquire a trailing column while keeping the pinned headers.
+                extended = [entry for entry in candidates if entry[0][:len(headers)] == headers]
+                if len(extended) == 1:
+                    matches = extended
+            if len(matches) != 1:
+                problems.append(f"{book}「{'｜'.join(headers)}」/「{label}」匹配 {len(matches)} 张表")
+                continue
+            _, filename, source, offset, table = matches[0]
+            index = headers.index(label)
+            cell = table['headers'][index]
+            found.append((filename, source, offset, table, cell, pin))
+    return found, problems
+
+
+def scan_center_alignment(table, exempt):
+    for header in table['headers']:
+        label = ''.join(header['segments'])
+        if (header['offset'] in exempt or 'col-center' not in header['classes']
+                or not _MODEL_HEADER.search(label)):
+            continue
+        if any(_alignment_length(segment) >= 15 for cell in table['cells']
+               if cell['row'] > header['row'] and cell['tag'] == 'td' and cell['span'] == 1
+               and header['col'] <= cell['col'] < header['col'] + header['span']
+               for segment in cell['segments']):
+            yield header
 
 
 MIX_DETAIL = []
@@ -258,15 +302,16 @@ def main():
     note_hints = [[], [], []]
     common = common_abbreviations()
     editorial = [[], [], []]
+    alignment_documents = []
 
     def collect_editorial(text, filename, offset=0):
         for bucket, hits in zip(editorial, scan_editorial_markers(text, filename, common, offset)):
             bucket.extend(hits)
         errors.extend('K-S21 两型共有格含单型内容 '+hit
                       for hit in scan_model_colspans(text, filename, offset))
-        for hit in scan_center_alignment(text):
-            line = offset + text.count('\n', 0, hit['offset']) + 1
-            errors.append(f"K-S22 居中标记用于长句或多行 {filename}:{line}（{hit['kind']}）")
+        book = '速查' if filename == '速查/速查源.md' else '完整版'
+        alignment_documents.extend((book, filename, text, offset, table) for table in alignment_tables(text))
+
 
     for f in sorted(files):
         t = io.open(f, encoding='utf-8').read()
@@ -417,6 +462,25 @@ def main():
         for seg in re.findall(r'<td\b[^>]*>.*?</td>', qt, re.S) + [l for l in re.sub(r'<table\b.*?</table>', '', qt, flags=re.S).split('\n') if not l.startswith(('<!--', '#'))]:
             if '【737-NG' in seg and '【737-8' in seg:
                 MIX.append('速查/速查源.md:%d「%s」' % (qt[:qt.find(seg)].count('\n') + 1, re.sub(r'<[^>]+>|\s+', '', seg)[:24]))
+    ledger_path = os.path.join(os.path.dirname(SRC), '用户点名排版台账.json')
+    ledger = []
+    if os.path.isfile(ledger_path):
+        with open(ledger_path, encoding='utf-8') as ledger_file:
+            ledger = json.load(ledger_file)
+    pins, pin_problems = find_alignment_pins(alignment_documents, ledger)
+    errors.extend('K-USERPIN ' + problem for problem in pin_problems)
+    exempt = collections.defaultdict(set)
+    for filename, source, offset, _, cell, pin in pins:
+        exempt[filename].add(cell['offset'])
+        mark = _PIN_MARKS[pin['要求']]
+        if mark not in cell['classes']:
+            line = offset + source.count('\n', 0, cell['offset']) + 1
+            errors.append(f"K-USERPIN {filename}:{line}「{pin['列']}」缺少 {mark}")
+    for _, filename, source, offset, table in alignment_documents:
+        for cell in scan_center_alignment(table, exempt[filename]):
+            line = offset + source.count('\n', 0, cell['offset']) + 1
+            errors.append(f"K-S22 {filename}:{line} 机型长句列标了 col-center")
+
     # SD-196：速查主题 JSON 的 order / see / exclude / short 引用必须能前缀匹配到某条速查标题（失效引用曾掩盖条目被删）
     _qj = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '速查', '速查按主题查.json')
     if os.path.exists(qsrc) and os.path.exists(_qj):
