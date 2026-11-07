@@ -10,11 +10,13 @@ FONT="FangSong"; SRCW=1020; DOT_PT=6.5; DOT_COLOR="#7f7f7f"
 #   dash（默认）：保留文字「– 」，作为父项列表项下的缩进段（读回留在 <ul> 内）；circle：OneNote 二级空心圆列表
 LISTS=_os.environ.get('ONENOTE_LISTS','1')!='0'; CHILD=_os.environ.get('ONENOTE_CHILD','dash')
 BUL='\x01B\x01'   # 3 个字符：fit_widths 按约 21px 估列表缩进
-K=TABW/SRCW
-def px(v): return max(30,round(int(v)*K))
+LEGACY_TABW = 830
+
+def px(v, tabw=TABW): return max(30,round(int(v)*(tabw/SRCW)))
 class C(HTMLParser):
-    def __init__(s):
+    def __init__(s, tabw=TABW):
         super().__init__(convert_charrefs=True)
+        s.tabw = tabw
         s.out=[]; s.inp=0; s.st=[{}]; s.inbody=False; s.sup=0; s.blk=None; s.skip=0
     def cur(s): return s.st[-1]
     def push(s,**kw):
@@ -40,13 +42,13 @@ class C(HTMLParser):
             s.push(bold=True if t[0]=='h' else None); s.blk=t; s.inp=1; s.lead=True; return
         if t=='table':
             w=a.get('width'); 
-            s.out.append('<table border="1" style="border-collapse:collapse%s">'%(';width:%dpx'%px(w) if w else '')); return
+            s.out.append('<table border="1" style="border-collapse:collapse%s">'%(';width:%dpx'%px(w, s.tabw) if w else '')); return
         if t=='tr': s.out.append('<tr>'); return
         if t in('td','th'):
             st=['border:1px solid #bfbfbf']
             bg=a.get('bgcolor') or (re.search(r'background:\s*(#\w+)',sty) or [None,None])[1]
             if bg and bg.lower() not in('#ffffff','transparent'): st.append('background-color:%s'%bg)
-            if a.get('width'): st.append('width:%dpx'%px(a['width']))
+            if a.get('width'): st.append('width:%dpx'%px(a['width'], s.tabw))
             span=''.join(' %s="%s"'%(k,a[k]) for k in('rowspan','colspan','data-aircraft') if k in a)
             s.out.append('<td style="%s"%s>'%(';'.join(st),span)); return
         if t=='br': s.out.append('<br/>'); return
@@ -172,7 +174,7 @@ SHORT_MAX, LONG_MIN = 240, 140
 ORPHAN = 4 * CJK_W                     # 尾行不超过 4 个汉字宽视为短字，要消除         # SD-35③：短列一行排下；长句列不少于约 10 个汉字
 def _seg_w(t):
     return sum(CJK_W if ord(ch) > 0x2E80 or 0x2190 <= ord(ch) <= 0x22FF or ch in '±×' else ASC_W for ch in t)   # 箭头、≤ ≥ ≈ × ± 在宋体里是全角（2026-10-05 实测）
-def fit_widths(h):
+def fit_widths(h, tabw=TABW):
     """按原笔记 SD-35③ / SD-85 重新定列宽：短列（标签、数值、序号）按最长一行排下；长句列分剩余宽度。"""
     def one(m):
         t = m.group(0)
@@ -206,8 +208,8 @@ def fit_widths(h):
         for i in short: W[i] = max(int(need[i] + 0.5), 30)
         if long_:
             # 2026-10-05 用户：「明明右边还是有空位的，可以让表格尽量宽一点，这样行数就会少一点」——
-            # 长句列只要会折行，表格就加宽，直到长句都一行排下或到满宽 TABW 为止（不再锁在原表宽的等比例上）
-            target = min(TABW, max(total, sum(W[i] for i in short) + sum(max(need[i], LONG_MIN) for i in long_)))
+            # 长句列只要会折行，表格就加宽，直到长句都一行排下或到满宽 tabw 为止（不再锁在原表宽的等比例上）
+            target = min(tabw, max(total, sum(W[i] for i in short) + sum(max(need[i], LONG_MIN) for i in long_)))
             rest = max(target - sum(W[i] for i in short), LONG_MIN * len(long_))
             # 按原宽比例分给长句列；某列分到的超过它一行排下所需，多出的再分给其余长句列
             def fill(capped, rest=rest):
@@ -220,7 +222,7 @@ def fit_widths(h):
                         break
                     for i in cap: V[i] = max(LONG_MIN, int(need[i] + 0.5)); left -= V[i]; todo.remove(i)
                 return V
-            t0 = min(TABW, max(total, sum(W[i] for i in short) + LONG_MIN * len(long_)))   # 旧做法：表宽按原表比例
+            t0 = min(tabw, max(total, sum(W[i] for i in short) + LONG_MIN * len(long_)))   # 旧做法：表宽按原表比例
             cands = [fill(True), fill(False), fill(False, max(t0 - sum(W[i] for i in short), LONG_MIN * len(long_)))]   # 几种分法都做完后处理，取总行数少的（同样行数取先者，即更宽的）
         else:
             cands = [[max(W[i], orig[i]) for i in range(n)]]
@@ -230,10 +232,10 @@ def fit_widths(h):
         def wraps(W):
             return any(_seg_w(x) > sum(W[c:c + cs]) - PAD for r, c, cs, segs, w0 in cells for x in segs if x)
         def balance(W):
-            """SD-151：表宽不超 TABW；超了就从加行最少的列收；有折行且有空位时，把空位给最省行的列。"""
+            """SD-151：表宽不超 tabw；超了就从加行最少的列收；有折行且有空位时，把空位给最省行的列。"""
             W = list(W)
-            while sum(W) > TABW:
-                ex = sum(W) - TABW
+            while sum(W) > tabw:
+                ex = sum(W) - tabw
                 best = None
                 for i in range(n):
                     if W[i] <= 40: continue
@@ -243,7 +245,7 @@ def fit_widths(h):
                 if not best: break
                 W[best[1]] -= best[2]
             while True:
-                room = TABW - sum(W); best = None
+                room = tabw - sum(W); best = None
                 if room <= 0: break
                 for r, c, cs, segs, w0 in cells:
                     cw = sum(W[c:c + cs]) - PAD
@@ -259,7 +261,7 @@ def fit_widths(h):
                 if not best: break
                 W[best[1]] += best[2]
             # SD-151：「哪怕减少不了行数，也可以把空白区域利用起来」——仍有折行就把余下空位给折行最多的列
-            room = TABW - sum(W)
+            room = tabw - sum(W)
             if room > 0 and wraps(W):
                 cnt = [0] * n
                 for r, c, cs, segs, w0 in cells:
@@ -270,11 +272,11 @@ def fit_widths(h):
             return W
         done = []
         for W in cands:
-            # 跨列格（colspan）里的长句：所跨各列之和不够一行排下时，把差额匀给这几列，表宽以 TABW 为限
+            # 跨列格（colspan）里的长句：所跨各列之和不够一行排下时，把差额匀给这几列，表宽以 tabw 为限
             for r, c, cs, segs, w0 in cells:
                 if cs < 2: continue
                 nw = max((_seg_w(x) for x in segs), default=0) + PAD
-                gap = min(nw - sum(W[c:c + cs]), TABW - sum(W))
+                gap = min(nw - sum(W[c:c + cs]), tabw - sum(W))
                 if gap > 0:
                     for k in range(cs): W[c + k] += int(gap / cs) + (1 if k < gap % cs else 0)
             # SD-85：消除尾行短字——某格最后一行只剩 ≤ ORPHAN 宽度的字时，给该列加宽，从不会因此多折一行的列匀出宽度
@@ -299,7 +301,7 @@ def fit_widths(h):
                 for i in range(n):
                     d = demand(i)
                     if not d or d > 120: continue
-                    room = max(0, TABW - sum(W))
+                    room = max(0, tabw - sum(W))
                     donors = sorted([j for j in range(n) if j != i], key=lambda j: -slack(j))
                     give = min(d, room); takes = []
                     for j in donors:
@@ -311,32 +313,52 @@ def fit_widths(h):
                         W[i] += d; changed = True
                 if not changed: break
             done.append(W)
+        def equalize(W):
+            ix = [i for i in EQ.get(hkey, ()) if i < n]
+            if not ix:
+                return W
+            W = list(W)
+            v = sum(W[i] for i in ix) // len(ix)
+            for i in ix:
+                W[i] = v
+            return W
+
+        def format_table(W):
+            pos = iter(cells)
+            def td(cm):
+                r, c, cs, segs, w0 = next(pos)
+                w = sum(W[c:c + cs])
+                a = re.sub(r'width:\d+px', 'width:%dpx' % w, cm.group(1)) if 'width:' in cm.group(1) else cm.group(1).replace('style="', 'style="width:%dpx;' % w, 1)
+                return '<td%s>%s</td>' % (a, cm.group(2))
+            t2 = re.sub(r'<td\b([^>]*)>(.*?)</td>', td, t, flags=re.S)
+            return re.sub(r'(<table border="1" style="[^"]*?)width:\d+px', r'\1width:%dpx' % sum(W), t2, count=1)
+
         W = min(done, key=nlines)
         if hkey in FIXED and all(orig):
-            # SD-153 定宽表：列间比例照成品（orig 已是 docx 宽度 × K）；OneNote 字相对更大，
-            # 表宽从成品占比起按同一比例放大，取行数降到最少的最小表宽（SD-151 表宽以文字成行为准），以 TABW 为限
-            base = [max(30, o) for o in orig]; fmax = TABW / sum(base)
+            # SD-153：维持成品的列宽比例；宽版按拆合并格后的视觉行评分。
+            base = [max(30, o) for o in orig]
+            fmax = tabw / sum(base)
             fs = [1 + k * 0.02 for k in range(int((fmax - 1) / 0.02) + 1)] + [fmax] if fmax > 1 else [fmax]
-            sc = lambda f: [max(30, int(o * f)) for o in base]
-            best = min(nlines(sc(f)) for f in fs)
-            W = sc(next(f for f in fs if nlines(sc(f)) == best))
-            if wraps(W): W = sc(fmax)                           # 仍有折行：照比例拉满（「有空位就别折行」）
+            def scaled(f):
+                return [max(30, int(o * f)) for o in base]
+            if tabw <= LEGACY_TABW:
+                # 精确复现现有 830px 版，给横版保留可回退的基线。
+                W = min(map(scaled, fs), key=nlines)
+                if wraps(W):
+                    W = scaled(fmax)
+            else:
+                def visual_score(V):
+                    output = unmerge(format_table(equalize(V)))
+                    if LISTS:
+                        output = to_lists(output)
+                    return sum(t.visual_lines() for t in _printed_tables(output))
+                W = min(map(scaled, fs), key=visual_score)
+                # SD-151：仍有折行时尽量利用空白。单调放大列宽不会增加视觉行数。
+                if wraps(W):
+                    W = scaled(fmax)
         else:
             W = balance(W)
-        if hkey in EQ:                                         # SD-152 col-eq：这几列等宽
-            ix = [i for i in EQ[hkey] if i < n]
-            if ix:
-                v = sum(W[i] for i in ix) // len(ix)
-                for i in ix: W[i] = v
-        # 写回：每格宽度 = 所跨各列之和
-        k = [0]
-        def td(cm):
-            r, c, cs, segs, w0 = cells[k[0]]; k[0] += 1
-            w = sum(W[c:c + cs])
-            a = re.sub(r'width:\d+px', 'width:%dpx' % w, cm.group(1)) if 'width:' in cm.group(1) else cm.group(1).replace('style="', 'style="width:%dpx;' % w, 1)
-            return '<td%s>%s</td>' % (a, cm.group(2))
-        t2 = re.sub(r'<td\b([^>]*)>(.*?)</td>', td, t, flags=re.S)
-        return re.sub(r'(<table border="1" style="[^"]*?)width:\d+px', r'\1width:%dpx' % sum(W), t2, count=1)
+        return format_table(equalize(W))
     return re.sub(r'<table border="1".*?</table>', one, h, flags=re.S)
 
 def unshrink(h):
@@ -460,20 +482,107 @@ def unwrap_figside(h):
         tail = re.sub(r'</td>\s*</tr>\s*</table>\s*$', '', h[k:end])
         out.append(h[i:s]); out.append(inner + tail); i = end
     return ''.join(out)
-def convert(src):
-    p=C(); p.feed(src); h=''.join(p.out)
+class _PrintedTable:
+    def __init__(self, start, data_table):
+        self.start = start
+        self.end = None
+        self.data_table = data_table
+        self.rows = []
+        self.cell = None
+
+    def visual_lines(self):
+        def cell_lines(cell):
+            width, chunks = cell
+            segs = [' '.join(x.split()) for x in ''.join(chunks).splitlines() if x.strip()]
+            if not width:
+                return max(1, len(segs))
+            usable = max(width - PAD, 1)
+            return max(1, sum(max(1, -(-int(_seg_w(x)) // usable)) for x in segs))
+        return sum(max(map(cell_lines, row), default=0) for row in self.rows)
+
+
+def _printed_tables(source):
+    """Match tables and score final rows, including layouts with nested tables."""
+    starts = [0] + [m.end() for m in re.finditer(r'\n', source)]
+    tables, stack = [], []
+    class Parser(HTMLParser):
+        def source_offset(self):
+            line, column = self.getpos()
+            return starts[line - 1] + column
+
+        def handle_starttag(self, tag, attrs):
+            if tag in ('p', 'br', 'li', 'div'):
+                self.handle_data('\n')
+            if tag == 'table':
+                table = _PrintedTable(self.source_offset(), dict(attrs).get('border') == '1')
+                tables.append(table)
+                stack.append(table)
+            if not stack:
+                return
+            table = stack[-1]
+            if tag == 'tr':
+                table.rows.append([])
+            elif tag in ('td', 'th') and table.rows:
+                width = re.search(r'(?:^|;)\s*width:\s*(\d+)px', dict(attrs).get('style', ''))
+                table.cell = (int(width[1]) if width else 0, [])
+                table.rows[-1].append(table.cell)
+
+        def handle_endtag(self, tag):
+            if tag in ('p', 'li', 'div'):
+                self.handle_data('\n')
+            if not stack:
+                return
+            if tag in ('td', 'th'):
+                stack[-1].cell = None
+            elif tag == 'table':
+                table = stack.pop()
+                table.end = source.index('>', self.source_offset()) + 1
+
+        def handle_data(self, data):
+            for table in stack:
+                if table.cell is not None:
+                    table.cell[1].append(data)
+
+    parser = Parser()
+    parser.feed(source)
+    parser.close()
+    if stack:
+        raise ValueError('Unclosed converted table')
+    return [table for table in tables if table.data_table]
+
+
+def _convert_at_width(src, tabw):
+    p=C(tabw); p.feed(src); h=''.join(p.out)
     h=re.sub(r'<p style="[^"]*">(\s|<br/>)*<br/>(\s|<br/>)*</p>','<p style="margin-top:0;margin-bottom:0"><span style="font-size:4pt">&#160;</span></p>',h)  # 表间分隔段
     h=re.sub(r'<p style="[^"]*">(\s|<span[^>]*>\s*</span>)*</p>','',h)  # 去空段
     h=drop_sources(h)
     h=drop_xref(h)
     h=unwrap_figside(h)
     h=unshrink(h)
-    h=fit_widths(h)
+    h=fit_widths(h, tabw)
     h=unmerge(h)
     h=note_blocks(h)
     h=lead_indent(h) if _os.environ.get('DOC_LEAD')!='old' else h
     if LISTS: h=to_lists(h)
     return h
+
+
+def convert(src):
+    wide = _convert_at_width(src, TABW)
+    if TABW <= LEGACY_TABW:
+        return wide
+    stats = SRC_STATS.copy()
+    try:
+        legacy = _convert_at_width(src, LEGACY_TABW)
+    finally:
+        SRC_STATS.update(stats)  # Do not count source processing twice.
+    pos, chunks = 0, []
+    for current, old in zip(_printed_tables(wide), _printed_tables(legacy), strict=True):
+        if current.start >= pos and current.visual_lines() > old.visual_lines():
+            chunks.extend((wide[pos:current.start], legacy[old.start:old.end]))
+            pos = current.end
+    chunks.append(wide[pos:])
+    return ''.join(chunks)
 _PARA=re.compile(r'<p\b([^>]*)>(.*?)</p>',re.S)
 def _is_dash(inner):
     t=html.unescape(re.sub(r'<[^>]+>','',inner)).lstrip()
