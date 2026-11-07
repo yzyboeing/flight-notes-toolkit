@@ -699,14 +699,54 @@ function htmlTableCore(html) {
     /* 跨列共有格一律居中、不加点（SD-156；2026-10-16 用户先选方案 C「多条靠左加点」，随即改回：「共有还是统一居中吧」）。
        方案 C 的实现保留为开关（用户未采纳）：DOC_SHARED_BULLET=1 时两条以上的共有格靠左按段加点 */
     const sharedMark = (c) => {
+      // Explicit cell alignment takes precedence over the default for shared cells.
+      if (/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) return;
       const segs = String(c.text).split(/<br\s*\/?>/).map(x => plainOf(x).trim()).filter(Boolean).filter(x => !/^[（(]/.test(x));
       const multi = !!process.env.DOC_SHARED_BULLET && !/(^|\s)center(\s|$)/.test(c.cls || '') && segs.length >= 2 && segs.some(x => x.replace(/^[-–•]\s*/, '').length >= 10);
       if (multi) { if (!/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) c.cls = ((c.cls || '') + ' cell-bullet').trim(); }
       else { c.cls = ((c.cls || '') + ' center').trim(); c.cmpShared = true; } };
+    const modelOf = (cell) => {
+      const label = plainOf(cell.text).replace(/[\s\u200b\u2060\u00ad]/g, '').toUpperCase();
+      const ng = /737[-‐‑–—]?NG/.test(label), eight = /737[-‐‑–—]?(?:8(?![0-9])|MAX)/.test(label);
+      return ng === eight ? null : ng ? 'NG' : '8';
+    };
+    const segsOf = (c) => String(c.text).split(/<br\s*\/?>/).map(plainOf).filter(Boolean);
+    const modelLength = (text) => Array.from(text.replace(/[\s\u200b\u2060\u00ad]/g, '')).reduce((n, ch) => n + (ch.codePointAt(0) < 256 ? 0.5 : 1), 0);
+    const modelValue = (c) => {
+      const text = segsOf(c).join(';').replace(/[\s\u200b\u2060\u00ad]/g, '')
+        .replace(/（[^）]{0,14}）|\([^)]{0,14}\)/g, '');
+      if (/^[—－\-–]$/.test(text)) return true;
+      return !!text && text.split(/[;；]/).filter(Boolean).every(value => {
+        const numeric = value.replace(/^(约|至少|不少于|不超过|最多|最少|小于|大于)/, '')
+          .replace(/千米|公里|英尺|夸脱|分钟|小时|米|磅|升|秒|天|度|个/g, 'u');
+        return /\d/.test(numeric) && /^[\d.,:：~～+\-−–≤≥<>≦≧≈=%\/°×±℃℉a-zA-Z·→]*$/.test(numeric);
+      });
+    };
+    const modelHdr = parsed.find(r => /hdr/.test(r.cls) && r.cells.some(c => modelOf(c) === 'NG') && r.cells.some(c => modelOf(c) === '8'));
+    const modelCells = modelHdr ? modelHdr.cells.filter(c => c.colspan === 1 && modelOf(c)) : [];
+    const modelCols = new Set(modelCells.map(c => startCol[parsed.indexOf(modelHdr)][modelHdr.cells.indexOf(c)]));
+    const modelRows = parsed.map((r, ri) => /hdr|note|premise|warn/.test(r.cls) ? [] :
+      r.cells.filter((c, k) => c.colspan === 1 && modelCols.has(startCol[ri][k]) && segsOf(c).length));
+    const modelLong = modelCells.some(c => /\bcol-bullet\b/.test(c.cls || '')) ||
+      modelRows.some(cells => cells.some(c => {
+        const segs = segsOf(c);
+        return segs.length >= 3 || segs.some(x => modelLength(x) >= 15 || /^[-–—]\s/.test(x)) ||
+          segs.slice(0, -1).some(x => /[：:]$/.test(x));
+      }));
+    const modelPinned = modelCells.some(c => /\bcol-center\b/.test(c.cls || ''));
+    // B10 取值格独立居中。只有文字格参与两型成对判断。
+    if (modelCells.length >= 2) modelRows.forEach(cells => {
+      const textCells = cells.filter(c => !modelValue(c));
+      const short = textCells.every(c => {
+        const segs = segsOf(c);
+        return segs.length === 1 && modelLength(segs[0]) <= 10 && !/[；;]|^[①-⑳▪•]/.test(segs[0]);
+      });
+      cells.forEach(c => { c.modelRowStyle = modelValue(c) || modelPinned || !modelLong || short ? 'center' : 'bullet'; });
+    });
     { const hrC = parsed.find(r => r.cls.includes('hdr'));
       if (hrC && !process.env.NO_CMP && hrC.cells.every(c => c.colspan === 1) && hrC.cells.length >= 3 && !/(^|\s)no-cmp(\s|$)/.test(hrC.cells[0].cls || '')) {
-        const hriC = parsed.indexOf(hrC), vh0 = hrC.cells.filter((c, k) => startCol[hriC][k] >= 1);
-        const TY = /737[- ]?NG|737-8|737 ?MAX/, tyCols = vh0.filter(c => TY.test(plainOf(c.text)));
+        const vh0 = hrC.cells.slice(1);
+        const tyCols = hrC === modelHdr ? modelCells : [];
         const typeH = tyCols.length >= 2;
         /* 并列方式：变体列表头（去括注）全部同前缀或同后缀（≥ 2 字），如「A/P 复飞 | F/D 复飞 | 单发 F/D 复飞」；「VIS 要求 | RVR 要求 | 机组 / 设备附加条件」不算 */
         const hn = vh0.map(c => plainOf(c.text).replace(/[（(][^）)]*[）)]/g, '').trim());
@@ -715,11 +755,14 @@ function htmlTableCore(html) {
         const body = parsed.filter(r => r !== hrC && !/hdr|note|premise|warn/.test(r.cls));
         const shared = body.some(r => r.cells.some((c, k) => startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2));
         if ((typeH || (shared && affix)) && body.length >= 2 && !serialTable(parsed, startCol)) {
-          const segsOf = (c) => String(c.text).split(/<br\s*\/?>/).map(plainOf).filter(Boolean);
           const longT = vh.some(c => /(^|\s)col-bullet(\s|$)/.test(c.cls || '')) || body.some(r => r.cells.some((c, k) => { if (startCol[parsed.indexOf(r)][k] < 1) return false;
             const sg = segsOf(c); return sg.length >= 3 || sg.some(x => /^[-–—]\s/.test(x)) || sg.slice(0, -1).some(x => /[：:]$/.test(x)); }));
           const strip = (t) => String(t || '').replace(/(^|\s)col-(center|bullet|plain|left)(?=\s|$)/g, ' ').trim();
-          vh.forEach(c => { c.cls = (strip(c.cls) + (longT ? ' col-bullet' : ' col-center')).trim(); });
+          vh.forEach(c => {
+            const authoredCenter = /(^|\s)col-center(\s|$)/.test(c.cls || '');
+            const bullet = !authoredCenter && (typeH ? modelLong && !modelPinned : longT);
+            c.cls = (strip(c.cls) + (bullet ? ' col-bullet' : ' col-center')).trim();
+          });
           body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) sharedMark(c); }));
           if (process.env.CMP_LOG) console.error('CMP', TBL_IDX, longT ? 'long' : 'short', vh.map(c => plainOf(c.text)).join(' | '));
         } else if (shared && !serialTable(parsed, startCol)) {
@@ -853,7 +896,7 @@ function htmlTableCore(html) {
     parsed.forEach((r, ri) => {
       if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => {
-        if (c.head || (startCol[ri][k] === 0 && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '') && !(parTbl && bulletCols.has(0))) || (noSemCols.has(startCol[ri][k]) && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) || c.cmpShared) return;   // cell-bullet 跨列格从首列开始也分条（速查 43 高度表说明行）
+        if (c.modelRowStyle === 'center' || c.head || (startCol[ri][k] === 0 && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '') && !(parTbl && bulletCols.has(0))) || (noSemCols.has(startCol[ri][k]) && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) || c.cmpShared) return;   // cell-bullet 跨列格从首列开始也分条（速查 43 高度表说明行）
         if (serialTbl && !bulletCols.has(startCol[ri][k]) && String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x)).length < 2) return;   // 序号只编行：一格 ≥ 2 条并列要点仍分条加点（用户 2026-10-03 评估第 2 条）
         if ((bulletCols.has(startCol[ri][k]) && c.colspan === 1) || /(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) {   // 显式整列加点：每段按「；」拆项（各 ≥ 约 6 字），延续句悬挂对齐
           const s1 = String(c.text).split(/<br\s*\/?>/).filter(x => plainOf(x));
@@ -1939,7 +1982,7 @@ function htmlTableCore(html) {
           : ((c.colspan === 1 && (centerCols.has(ci) || narrowSet.has(ci)))
              || (isFirstCol && c.colspan === 1)))))));   // SD-132：带序号的一律靠左（4.9 液压表「① … ② …」连写格曾经从别的分支被居中）
       /* SD-207（2026-10-17 用户，速查 344「第一列统一居中」）：首列一律居中——取消 A2「首列是长句 / 完整条件句的左对齐」例外（与 C25「首列不靠左」冲突）；父子层级格、注 / 前提行除外 */
-      const center = center0 || (boldFirst && !hierarchy && !semMarked && !isNote && !isPre && !isWarn && !process.env.DOC_FIRST_LONG_LEFT);
+      const center = c.modelRowStyle ? c.modelRowStyle === 'center' : center0 || (boldFirst && !hierarchy && !semMarked && !isNote && !isPre && !isWarn && !process.env.DOC_FIRST_LONG_LEFT);
       if (process.env.AUDIT_LOG && !isHdr && !c.head && !isNote && !isPre && !isWarn) { const t0 = String(c.text); console.error('AUD\t' + TBL_IDX + '\t' + ci + '\t' + c.colspan + '\t' + nCols + '\t' + (placeholder ? 'ph' : /\uE001/.test(t0) ? 'dot' : /\uE005|\uE002/.test(t0) ? 'sub' : center ? 'c' : 'l') + '\t' + (serialLeft.size ? "S" : "-") + '\t' + (hdrRow ? unesc(String(((hdrRow.cells.find((h, hk) => startCol[parsed.indexOf(hdrRow)][hk] === ci)) || {}).text || '').replace(/<[^>]+>/g, '')) : '') + '\t' + unesc(t0.replace(/<br\s*\/?>/g, ' ¦ ').replace(/<[^>]+>|[\uE001-\uE006]/g, '')).slice(0, 60)); }
       /* 首列序号格：原先因圈码字形回退到无粗体字体而改排阿拉伯数字；SD-76 全书统一 Songti SC 后圈码有粗体字形，
          2026-09-30 用户「统一序号」：表格与正文一律保留 ①②③（设 SERIAL_ARABIC=1 可恢复旧做法） */
@@ -1986,6 +2029,7 @@ function htmlTableCore(html) {
           && (nm.startsWith('\uE002') || nm === '\uE005' || c.cmpShared || NUM_RE.test(String(rawParas[pj + 1]).replace(/^[\uE001-\uE006]+/, '')));   // 与下面 parentSeg 判定一致；带编号的引导语不算
         return n0 + ((m0 === '\uE001' || par) ? 1 : 0); }, 0);
       const leadDot = !LEAD_OLD && !hierarchy && !SERIAL_T && process.env.DOC_LEAD_DOT !== '0' && topCnt >= 2;
+      const firstModelParagraph = c.modelRowStyle === 'bullet' ? rawParas.findIndex(seg => seg.replace(/<[^>]+>|[\uE001-\uE006]/g, '').trim()) : -1;
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
         const mk = (seg.match(/^[\uE001-\uE006]+/) || [''])[0]; seg = seg.slice(mk.length);
@@ -2005,14 +2049,15 @@ function htmlTableCore(html) {
         const prefix = (SERIAL_T && ci > 0) ? ((mk.startsWith('\uE002') || (hierarchy && !parentFlags[pi] && hasParent)) ? '– ' : '') :   // SD-140：序号表其余列不加「•」，子项「–」保留
           leadSeg ? ((leadDot && !isNumSeg) ? '• ' : '') :
           hierarchy ? (parentFlags[pi] ? '• ' : (hasParent ? '– ' : '')) :   /* 父项统一「•」（Muse M5-149 / 258，2026-10-01） */ mk === '\uE001' ? '• ' : mk.startsWith('\uE002') ? '– ' : '';
-        const prefix2 = (prefix === '– ' && /^\s*(<[^>]+>\s*)*([\u2460-\u2473]|\d+[.、)）])/.test(seg)) ? '' : prefix;   // ① 子项已编号不加短线
+        const prefix2 = c.modelRowStyle === 'center' ? '' : pi === firstModelParagraph ? '• ' : (prefix === '– ' && /^\s*(<[^>]+>\s*)*([\u2460-\u2473]|\d+[.、)）])/.test(seg)) ? '' : prefix;   // ① 子项已编号不加短线
         const CHW = FS * 10;   // 一个汉字宽（twip）
         const childInd = LEAD_OLD ? null : prefix === '– ' ? (prefix2 ? { left: Math.round(CHW * 1.75), hanging: Math.round(CHW * 0.85) } : { left: Math.round(CHW * 0.9) }) : null;
-        if (dumpP) dumpP.push(((/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? 'C' : (hierarchy || semMarked) ? 'L' : (center ? 'C' : 'L')) + (prefix2 || '').trim());
+        const paragraphCenter = c.modelRowStyle ? center : /(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft || (!(hierarchy || semMarked) && center);
+        if (dumpP) dumpP.push((paragraphCenter ? 'C' : 'L') + (prefix2 || '').trim());
         if (cellItems) cellItems.push({
           role: (leadSeg || parentSeg) ? 'parent' : numUnderLead ? 'num' : (mk.startsWith('\uE002') || (hierarchy && !parentFlags[pi] && hasParent)) ? 'sub' : mk === '\uE001' ? 'item' : 'plain',
           level: (prefix === '– ' || numUnderLead) ? 1 : 0, bullet: (prefix2 || '').trim(),
-          align: ((/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? 'center' : (hierarchy || semMarked) ? 'left' : (center ? 'center' : 'left')),
+          align: paragraphCenter ? 'center' : 'left',
           bold: !!(isHdr || c.head || labelCol || boldFirst || parentSeg), lead: !!leadSeg,
           hang: prefix2 === '• ' ? 'bullet' : prefix2 === '– ' ? 'child' : prefix === '– ' ? 'child' : numUnderLead ? 'num' : 'none',
           html: seg.trim() });
@@ -2020,10 +2065,10 @@ function htmlTableCore(html) {
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
           children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS, ...(leadSeg && !BW ? { color: LEAD_C } : {}) }),
           spacing: shrinkLv >= 5 ? { before: 0, after: 0, line: LN } : shrinkLv === 4 ? { before: 10, after: 10, line: LN } : { before: 20, after: 20, line: LN },   // 2026-10-23：4 级（8pt 收行距）格内段间距减半而不是清零——清零让 3→4 级表高骤减约 23%（实测），中间少了一档   // 4 级（one-page 超大表）：格内段间距取 0（1.4 D-2 约 70 段，段间距合计约 140pt）
-          indent: leadSeg ? ((leadDot && !isNumSeg) ? { left: 0, hanging: 120 } : { left: 0 }) : childInd ? childInd : numUnderLead ? { left: Math.round(CHW * 2.2), hanging: Math.round(CHW * 1.3) } : hierarchy ? { left: 0, hanging: 120 } : (mk === '\uE001' || mk.startsWith('\uE002')) ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : undefined,   // 用户 2026-10-04 样本：子项「–」与圆点对齐（都悬挂在左留白），子项文字与父项文字对齐；编号子项、单句同一起点（SD-180 起子项缩进一级，DOC_LEAD=old 时仍按此）   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
+          indent: c.modelRowStyle === 'center' ? undefined : pi === firstModelParagraph ? { left: 0, hanging: 120 } : leadSeg ? ((leadDot && !isNumSeg) ? { left: 0, hanging: 120 } : { left: 0 }) : childInd ? childInd : numUnderLead ? { left: Math.round(CHW * 2.2), hanging: Math.round(CHW * 1.3) } : hierarchy ? { left: 0, hanging: 120 } : (mk === '\uE001' || mk.startsWith('\uE002')) ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : undefined,   // 用户 2026-10-04 样本：子项「–」与圆点对齐（都悬挂在左留白），子项文字与父项文字对齐；编号子项、单句同一起点（SD-180 起子项缩进一级，DOC_LEAD=old 时仍按此）   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
           keepNext: false,   // SD-218（2026-10-21）：表格行内不设「与下段同页」——LibreOffice 见到就整表不拆、并与下文连成一串整体下移；断点改由 fit_fix 按实测修（原：表头 / 前提 / 整表同页 / 首尾防孤行 / 表后注 / KEEP_LAST）
           /* 单格居中（<td class="center">，2026-10-01 用户，速查 120「条件」跨列格）优先于列规则 */
-          alignment: (/(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft) ? AlignmentType.CENTER : (hierarchy || semMarked) ? undefined : (center ? AlignmentType.CENTER : undefined)
+          alignment: paragraphCenter ? AlignmentType.CENTER : undefined
         });
       });
       const borders = {
@@ -3375,7 +3420,12 @@ const doc = new Document({
 });
 
 if (process.env.TBL_DUMP) fs.writeFileSync(process.env.TBL_DUMP, TBL_DUMPS.map(x => JSON.stringify(x)).join('\n') + '\n');
-if (CELL_DUMP_F) { console.log('DOC_DUMP_CELLS 写出 ' + CELL_DUMP_F + '（未打包 Word）'); process.exit(0); }
+if (CELL_DUMP_F) {
+  require('child_process').execFileSync('python3',
+    [require('path').join(__dirname, 'check_model_symmetry.py'), CELL_DUMP_F], { stdio: 'inherit' });
+  console.log('DOC_DUMP_CELLS 写出 ' + CELL_DUMP_F + '（未打包 Word）');
+  process.exit(0);
+}
 Packer.toBuffer(doc).then(async b => {
   {
     /* SD-71：rowSpan 生成的合并延续格是空段落 <w:p/>，不带「与下段同页」；LibreOffice 要求表内段落全都设了才整表不拆。
