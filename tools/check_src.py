@@ -19,6 +19,7 @@ verify.py 查的是排版结果（空白页、跨页、标签泄漏到 PDF），
 本脚本查的是源头。两者互补，不能互相替代。
 """
 import json, io, os, re, subprocess, sys, glob, collections
+from html import unescape
 
 def _arg(flag, default):
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
@@ -191,6 +192,57 @@ def scan_model_colspans(source, filename, offset=0):
     return hits
 
 
+_CELL_CLASS = re.compile(r"\bclass\s*=\s*([\"'])(.*?)\1", re.S)
+_CELL_LINE_BREAK = re.compile(r'<br\s*/?>|</(?:p|li)>', re.I)
+
+
+def _alignment_segments(body):
+    text = re.sub(r'<[^>]+>', '', _CELL_LINE_BREAK.sub('\n', body.replace('\n', ' ')))
+    return [re.sub(r'[\s\u200b\u2060\u00ad]+', '', unescape(part))
+            for part in text.split('\n') if re.sub(r'\s+', '', unescape(part))]
+
+
+def _alignment_length(text):
+    # 与 App 的短格口径一致，中文计一字宽，ASCII 计半字宽。
+    return sum(0.5 if ord(ch) < 256 else 1 for ch in text)
+
+
+def scan_center_alignment(source):
+    """Return source positions of long centered columns and long/multiline centered cells."""
+    masked = re.sub(r'<!--.*?-->', lambda m: re.sub(r'[^\n]', ' ', m[0]), source, flags=re.S)
+    for table in TABLE.finditer(masked):
+        occupied, cells = set(), []
+        for r, row in enumerate(TR.finditer(table[0])):
+            c = 0
+            for cell in CELL.finditer(row[2]):
+                while (r, c) in occupied:
+                    c += 1
+                tag, attrs, body = cell.groups()
+                def span(name):
+                    m = re.search(rf"\b{name}\s*=\s*[\"'](\d+)[\"']", attrs)
+                    return int(m[1]) if m else 1
+                cols, rows = span('colspan'), span('rowspan')
+                occupied.update((r + dr, c + dc) for dr in range(rows) for dc in range(cols))
+                classes = _CELL_CLASS.search(attrs)
+                segments = _alignment_segments(body)
+                if classes:
+                    start = table.start() + row.start(2) + cell.start(2) + classes.start()
+                else:
+                    start = table.start() + row.start(2) + cell.start()
+                cells.append((r, c, cols, tag, classes[2].split() if classes else [], segments, start))
+                c += cols
+        for row, col, span, tag, classes, segments, start in cells:
+            excerpt = '／'.join(segments)
+            if 'center' in classes and (len(segments) > 1 or max(map(_alignment_length, segments), default=0) >= 15):
+                yield {'kind':'center', 'offset':start, 'cell':excerpt, 'column':col, 'colspan':span}
+            if tag == 'th' and 'col-center' in classes:
+                # A shared cell belongs to multiple columns and has its own alignment.
+                matches = [s for r, c, n, t, _, ss, _ in cells if r > row and t == 'td' and n == 1
+                           and col <= c < col + span for s in ss if _alignment_length(s) >= 15]
+                if matches:
+                    yield {'kind':'col-center', 'offset':start, 'cell':excerpt, 'example':max(matches, key=len)}
+
+
 MIX_DETAIL = []
 
 MIX = []
@@ -212,6 +264,9 @@ def main():
             bucket.extend(hits)
         errors.extend('K-S21 两型共有格含单型内容 '+hit
                       for hit in scan_model_colspans(text, filename, offset))
+        for hit in scan_center_alignment(text):
+            line = offset + text.count('\n', 0, hit['offset']) + 1
+            errors.append(f"K-S22 居中标记用于长句或多行 {filename}:{line}（{hit['kind']}）")
 
     for f in sorted(files):
         t = io.open(f, encoding='utf-8').read()
