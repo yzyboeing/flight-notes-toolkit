@@ -146,8 +146,31 @@ def save():
         for (sg, k) in sorted(wfrozen): f.write('WZ:%d:%s\n' % (k, sg))   # SD-232 ⑨：列宽冻结（检查器据此把 T13 / T8 降为提示）
 
 bg = lambda x: {x[k:k + 2] for k in range(len(x) - 1)}
-def match(text, tbls):
-    """返回最匹配的表签名集合（同文表分数相近的一并返回）；匹配不上返回空集。"""
+# 2026-11-10（1109R13）：逐字相同的表（第一章两型差异表与 6.1 原表等）签名带「@节号」（build_docx.js），PDF 上文字一样分不出——
+# 按页脚的节号挑：SECMAP＝本遍 PDF 每页的节号；match 传了 page 就只留同节的那张
+SECMAP = {}
+def load_secmap(path):
+    global SECMAP
+    SECMAP = {}
+    try:
+        import fitz as _fzs
+        _ds = _fzs.open(path); _H = _ds[0].rect.height
+        for _i, _p in enumerate(_ds):
+            _t = ' '.join(b[4] for b in _p.get_text('blocks') if b[1] > _H - 45)
+            _m = re.search(r'(?<![\d.])(\d\.\d{1,2})\s+\S', _t)
+            if _m: SECMAP[_i + 1] = _m.group(1)
+    except Exception as e:
+        print('fit_fix：读页脚节号出错（同文表不分节）：%s' % e)
+def _bysec(res, page):
+    if not page or len(res) < 2 or not any('@' in s for s in res): return res
+    sec = SECMAP.get(page)
+    if not sec: return res
+    keep = {s for s in res if '@' not in s or s.rsplit('@', 1)[1] == sec}
+    return keep or res
+def match(text, tbls, page=None):
+    """返回最匹配的表签名集合（同文表分数相近的一并返回）；匹配不上返回空集。传 page 时同文表只留页脚同节的那张。"""
+    return _bysec(_match(text, tbls), page)
+def _match(text, tbls):
     want = bg(text)
     if not want: return set()
     score = sorted(((len(want & t['bg']) / len(want), t['sig']) for t in tbls), reverse=True)
@@ -261,6 +284,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     nwlock = {k2 for k2 in nwlock if k2[0] in sigs}
     wblock = {k2 for k2 in wblock if k2[0] in sigs}
     pdf = to_pdf(); last_pdf = os.path.splitext(OUT)[0] + '.fitfix.pdf'; shutil.copy2(pdf, last_pdf); shipped = n   # 测量后临时目录会删，先留一份
+    load_secmap(pdf)
     # SD-238（治理 C）：接着用上次记录排出的第一遍若实测干净（断表问题 0、留白页 0），就是不动点——直接交这一遍，
     #   不再重做上次已试过、放弃的退级与列宽调整（这些「试过」只在运行内记着，重做就把版面又推走：沙盒 1025R3 源文件重建 492 页漂移）
     if n == 1 and _warm and os.environ.get('FITFIX_COLD') != '1':
@@ -290,7 +314,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     lendm = {}
     for x in _xs:
         if not x.get('nw') or 'lend' not in x or x['col'] < 0: continue
-        for sg in match(x['table'], tbls):
+        for sg in match(x['table'], tbls, x.get('page')):
             tb = next(t for t in tbls if t['sig'] == sg); c = _srccol(x, tb)
             if c is None: continue
             lendm[(sg, c)] = min(lendm.get((sg, c), 10 ** 9), int(x['lend'] * 20))
@@ -323,7 +347,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     _orph_cols = set()
     for x0 in _xs:
         if x0.get('orphan') and not x0.get('nw'):
-            for sg0 in match(x0['table'], tbls):
+            for sg0 in match(x0['table'], tbls, x0.get('page')):
                 tb0 = next(t for t in tbls if t['sig'] == sg0); c0 = _srccol(x0, tb0)
                 if c0 is not None: _orph_cols.add((sg0, c0))
     for (sg, k, j), dd in list(bw.items()):
@@ -334,7 +358,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     # 2026-10-15 首次试运行：省行借宽（growb）与 T14「空位让给折行列」互相打架、整表来回挪，借宽只用于消末行孤字；省行仍由 SD-144 / T14 处理
     for x in [x0 for x0 in _xs if x0.get('orphan') and not x0.get('nw')]:   # 借宽：定宽满宽表的孤字，以及普通加宽已放弃（WB）的孤字
         if True:
-            for sg in match(x['table'], tbls):
+            for sg in match(x['table'], tbls, x.get('page')):
                 tb = next(t for t in tbls if t['sig'] == sg); k = _srccol(x, tb)
                 if k is None or x.get('span'): continue
                 if x.get('growb') and (tb.get('fixed') != 'full' and (sg, k) not in wblock): continue   # 省行借宽只给定宽满宽表和普通加宽已放弃的列（其余表由 SD-144 加宽 / 拉满处理）
@@ -343,7 +367,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
                 need = int(x['extra_pt'] * 20) + 20
                 if borrow(sg, tb, k, need, 'orphan' if x.get('orphan') else 'growb'): nbw += 1
     for x in _xs:
-        for sg in match(x['table'], tbls):           # 速查区与正文同文的表一并加宽
+        for sg in match(x['table'], tbls, x.get('page')):           # 速查区与正文同文的表一并加宽（2026-11-10：同文表按页脚节号分开）
             tb = next(t for t in tbls if t['sig'] == sg)
             fx = tb.get('fixed') or ''   # 2026-10-12：定宽表（w-NN）——满宽的生成器不吃任何实测调整，窄的只吃加宽（W:）；不再记账，免得每遍空转
             if (fx == 'full' or (fx == 'narrow' and (x.get('nw') or x.get('fill')))) and not (x.get('nw') and sg in _cmpd): continue   # SD-204：origin（定宽起始）照常收窄 / 拉满
@@ -496,7 +520,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     ladd = 0
     for x in lonely(pdf):
         if x['kind'] != 'lead': continue
-        for sg in match(x['table'], tbls):
+        for sg in match(x['table'], tbls, x.get('page')):
             if sg.startswith('块主题条目'):
                 if sg not in splitok: splitok.add(sg); lv.pop(sg, None); ladd += 1
             elif sg in onep and sg not in block and sg not in splitok:
@@ -505,7 +529,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     # SD-89 只有一两行的页：上一页最后一张表收紧一级（最多到 3 级），把这一两行拉回上一页
     from layout_measure import sparse
     for x in sparse(pdf):
-        sgs = match(x['table'], tbls) if x['table'] else set()
+        sgs = match(x['table'], tbls, x['page'] - 1) if x['table'] else set()
         live = [sg for sg in sgs if sg in onep and sg not in block and sg not in splitok]
         live = []   # SD-229：点名整页表也不为拉注压缩
         # SD-218：非点名整页的表——把它最后一行挪到下一页，和这一两行（通常是表后注）作伴，不留孤页
@@ -540,7 +564,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
             _t0 = _tb[0]
             if any(_hre.match(b[4].strip()) and _bl[0][1] < b[1] < _t0.bbox[1] for b in _bl[1:]): continue   # 表不属于这一条
             _hd = _t0.bbox[1] - _bl[0][1]
-            for _sg in match(re.sub(r'\s+', '', _nx.get_text(clip=_t0.bbox)), tbls) - onep - splitok:
+            for _sg in match(re.sub(r'\s+', '', _nx.get_text(clip=_t0.bbox)), tbls, _i + 2) - onep - splitok:
                 if _sg in ipfail: continue
                 if _sg in trial: clv[_sg] = trial.pop(_sg); locked.add(_sg); ipull += 1; continue   # 试退一级后这一条又掉回下一页：恢复原级并锁定
                 if _sg in ipdone:   # 试过拉回、这一条仍在下一页页首：拉回失败——恢复原压缩级，不再试（不留压小了却没拉回的表）
@@ -581,7 +605,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
             return (min((b[1] for b in body), default=fy), max((b[3] for b in body), default=0), fy)
         for sp in res['splits']:
             if sp['page'] >= len(_d): continue
-            for s in (match(sp['text'], tbls) & set(sbk)) - sbfree:
+            for s in (match(sp['text'], tbls, sp['page']) & set(sbk)) - sbfree:
                 _, a_bot, a_fy = _span(_d[sp['page'] - 1]); b_top, b_bot, _ = _span(_d[sp['page']])
                 tail = b_bot - b_top - 20                           # 续页表头约 20pt，收回后不再重复
                 if b_bot < 0.45 * _d[0].rect.height and a_fy - 8 - a_bot >= tail:
@@ -598,7 +622,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
             try: _t1 = [t for t in _d[_i + 1].find_tables().tables if t.bbox[3] - t.bbox[1] > 10]
             except Exception: _t1 = []
             if not _t1: continue
-            for _sg in match(re.sub(r'\s+', '', _d[_i + 1].get_text(clip=_t1[0].bbox)), tbls) & brk:
+            for _sg in match(re.sub(r'\s+', '', _d[_i + 1].get_text(clip=_t1[0].bbox)), tbls, _i + 2) & brk:
                 brk.discard(_sg); nobrk.add(_sg); unbrk += 1
     except Exception as e:
         print('fit_fix：空白页自愈出错（跳过）：%s' % e)
@@ -624,7 +648,7 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
             if _hd and _needn <= _FIT * _gap:
                 for _h in [h for h in pbreak if _hd.startswith(h) or h.startswith(_hd)]:
                     pbreak.discard(_h); pbfree.add(_h); pull += 1
-            for _sg in match(_tx, tbls) & brk:
+            for _sg in match(_tx, tbls, _i + 2) & brk:
                 _roomy = _needn <= 0.9 * _gap and not clv.get(_sg, 0)   # 正文字号连注都宽裕放得下：不受「只拉回一两次」限制
                 if _sg in pulled and not _roomy and (_gap < 0.5 * (_BOT0 - _TOP0) or _sg in repulled): continue   # 2026-10-22：上一页空过半时可再拉回（移页记录过时，速查第 355 条整页只剩三行）
                 _r = _gap / max(1, _needn) * SHRINK_F[clv.get(_sg, 0)]
@@ -641,11 +665,11 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     if pull: print('fit_fix 第 %d 遍：移页复查——上一页空位放得下，拉回 %d 张表' % (n, pull))
     # 2026-10-22：压缩只到「刚好放得下」——本遍没拆开的已压缩表试退一级（每张只试一次），退了又拆开就恢复并锁定
     _splitsig = set()
-    for _sp in res['splits']: _splitsig |= match(_sp['text'], tbls)
+    for _sp in res['splits']: _splitsig |= match(_sp['text'], tbls, _sp['page'])
     # 2026-10-23（SD-232）：每遍留痕——各压缩表的状态与每处断表匹配到的表（键名不用 pass / W，fixosc.py 不读）
     trace({'state_pass': n, 'tables': {_s[:40]: {'lv': clv.get(_s, 0), 'brk': _s in brk, 'big': _s in bigsplit, 'trial': trial.get(_s), 'lock': _s in locked}
                                        for _s in set(clv) | bigsplit | set(trial) | locked},
-           'splits': [[_sp['page'], _sp.get('csize'), sorted(_x[:40] for _x in match(_sp['text'], tbls))] for _sp in res['splits']]})
+           'splits': [[_sp['page'], _sp.get('csize'), sorted(_x[:40] for _x in match(_sp['text'], tbls, _sp['page']))] for _sp in res['splits']]})
     tdown = 0
     # 2026-10-23（SD-232，用户：「不要让排版来回跳，否则每改动一次都会来回跳，就会一直做重复工」）：删去每遍「按估算直接退级」——
     #   它按比例估算、还把锁定过的表解锁再退，退了注掉页、下遍又压回，是来回跳的来源。每遍只留下面的真排试退一级（拆表 / 注掉页即恢复并锁定），
@@ -661,9 +685,9 @@ for n in range(1, MAXPASS + 1):   # 2026-10-06：7 → 10 遍（列宽规则多�
     shutil.rmtree(os.path.dirname(pdf), ignore_errors=True)
     add, up, gave, miss, stuck = 0, 0, 0, [], 0
     for sp in res['splits']:
-        one_hit = match(sp['text'], tbls) & onep
+        one_hit = match(sp['text'], tbls, sp['page']) & onep
         if not sp.get('orphan') and not one_hit and sp.get('over', 9) > 1.6: continue   # 2026-10-22：超出一页不多（≤ 45%）的大表也处理——压缩后放得下就整表同页          # SD-218：合格的跨页断点不动；点名整页的表任何断开都要处理
-        cand = match(sp['text'], tbls)
+        cand = match(sp['text'], tbls, sp['page'])
         if not cand:
             miss.append('第 %d 页（%s…）' % (sp['page'], sp['text'][:16])); continue
         for s in cand - splitok:
@@ -904,12 +928,12 @@ try:
     from check_gaps import room as _room5, FIT as _FIT5
     for _round in range(2):
         if not (last_pdf and os.path.exists(last_pdf) and _BASE): break
-        _dd = _fz5.open(last_pdf); _sigs, _pgs = set(), []
+        _dd = _fz5.open(last_pdf); _sigs, _pgs = set(), []; load_secmap(last_pdf)
         for _i in range(len(_dd) - 1):
             _rm = _room5(_dd, _i)
             if not (_rm and _rm[1] <= _FIT5 * _rm[0]): continue
             _tx = re.sub(r'[●•]', '', re.sub(r'\s+', '', _dd[_i + 1].get_text(clip=_rm[2])))
-            _hit = match(re.split(r'注[:：]|公司差异[:：]', _tx)[0], tbls)
+            _hit = match(re.split(r'注[:：]|公司差异[:：]', _tx)[0], tbls, _i + 2)
             if _hit: _sigs |= _hit; _pgs.append(_i + 1)
         if not _sigs: break
         _kf0 = open(KF, encoding='utf-8').read()

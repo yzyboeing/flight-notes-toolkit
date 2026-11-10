@@ -1645,7 +1645,10 @@ function htmlTableCore(html) {
   /* SD-80（2026-09-30 用户批准）：略超一页的表按级压缩后整表同页，级别由 fit_fix.py 按 PDF 实测逐级试出：
      1 级＝9pt 不变、收紧行距与单元格边距；2 级＝8.5pt；3 级＝8pt（底线，不再往下缩）。3 级仍放不下的照常分页。 */
   const tblText = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '');
-  const tblSig = tblText.slice(0, 80);
+  /* 2026-11-10（1109R13）：全书逐字相同的表（第一章「两型差异」表与 6.1 原表等，K-S23 要求逐字一致）签名相同，
+     keep_force 的移页 / 压缩 / 列宽记录会被两张表共用（1.15.23 被 6.1.12 的 B: 记录误移页、6.1.1 被 1.2.29 的 Z~5 压过头）——
+     这类表签名后加「@节号」区分；不重复的表签名不变 */
+  const tblSig = tblText.slice(0, 80) + (dupSigs().has(tblText.slice(0, 80)) && CUR_SEC ? '@' + CUR_SEC : '');
   const splitRow = /^\s*<table[^>]*\bsplit-ok\b/.test(String(html));   // split-ok：不压字号、允许行间分页，防孤行照常（与块索引表的 SPLITOK 分开）   // 源文件 <table class="ftn split-ok">：长清单行间正常分页、不压字号（用户 2026-10-03 大表方案，2.3 B-1）
   const onePageT = /^\s*<table[^>]*\bone-page\b/.test(String(html));   // SD-218：只有点名整页的表压缩字号，其余一律正文字号
   let shrinkLv = SPLITOK.has(tblSig) ? 0 : splitRow ? Math.min(2, SHRINK.get(tblSig) || 0) : !onePageT ? Math.min(6, SHRINK.get(tblSig) || 0) : (SHRINK.get(tblSig) || 0);   // 2026-10-21：一页放得下的表下截只差一点时，fit_fix 收紧 1～2 级留在本页（不拆）   // split-ok 最多 2 级（8.5pt），避免孤页；不压到 8pt
@@ -2393,6 +2396,17 @@ function singleToc(ch, brk) {
 }
 /* SD-118 按主题查：速查条目按主题表（DOC_QRTOPICS，JSON，按标题前缀匹配）列出，点击跳到条目；编号随条目自动更新 */
 let CUR_SEC = '';
+let _DUPSIGS = null;   // 2026-11-10：源文件里出现不止一次的表签名（见表格函数里 tblSig 的说明）
+function dupSigs() {
+  if (_DUPSIGS) return _DUPSIGS;
+  const cnt = new Map();
+  for (const m of String(rawSrc).matchAll(/<table\b[\s\S]*?<\/table>/g)) {
+    const k = unesc(m[0].replace(/<[^>]+>/g, '')).replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+    if (k) cnt.set(k, (cnt.get(k) || 0) + 1);
+  }
+  _DUPSIGS = new Set([...cnt].filter(([, v]) => v > 1).map(([k]) => k));
+  return _DUPSIGS;
+}
 /* SD-139：块书签名。块号「A-1」→ BLK_1_14_A1；第 4、5 章「3.」→ BLK_4_17_N3 */
 function blkId(sec, title) {
   const s = String(sec).replace('.', '_');

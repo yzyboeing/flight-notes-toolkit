@@ -79,6 +79,12 @@ def scan_over(pdf, src=(), levels=None):
             if any(tx.startswith(k) for k in small): continue
             nt = _norm(tx)
             hit = [(v, full) for s, v, full in sigs if nt.startswith(s) or (len(nt) >= 16 and s.startswith(nt[:24]))]
+            # 2026-11-10（1109R13）：逐字相同的表签名带「@节号」——按本页页脚的节号只留同节那张（不然两张表一起退级 / 一起记账）
+            if any('@' in full for v, full in hit):
+                _fm = re.search(r'(?<![\d.])(\d\.\d{1,2})\s+\S', ' '.join(tt for z, bb, tt in lines if bb[1] > H - 45))
+                if _fm:
+                    _h2 = [(v, full) for v, full in hit if '@' not in full or full.rsplit('@', 1)[1] == _fm.group(1)]
+                    if _h2: hit = _h2
             lvl = max([v for v, full in hit] or [0])
             sig_hit = [full for v, full in hit if v == lvl]
             if not lvl:
