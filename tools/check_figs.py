@@ -14,7 +14,7 @@ from pathlib import Path
 
 NOTES = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2] / 'gh-private'
 FIGS = NOTES / 'figures_src' / 'figs.py'
-VAL = re.compile(r'(?<![\w.])(\d+(?:\.\d+)?)\s*(%|kt|ft|fpm|psi|nm|NM|km|m|℃|°C|°|s|min|V|Hz|hPa|mb)(?![A-Za-z])')
+VAL = re.compile(r'(?<![\w.])(\d+(?:\.\d+)?)\s*(%|kt|ft|fpm|psi|nm|NM|km|m|℃|°C|°|s|min|V|Hz|hPa|mb|\s*秒钟|\s*秒|\s*分钟)(?![A-Za-z])')
 TYPES = ('737-NG', '737-8')
 
 
@@ -27,7 +27,7 @@ def strip(t):
 
 
 def vals(s):
-    return {m.group(1) + m.group(2) for m in VAL.finditer(s)}
+    return {m.group(1) + m.group(2).strip() for m in VAL.finditer(s)}
 
 
 def type_facts(text):
@@ -59,9 +59,10 @@ def main():
     errs = []
     if not FIGS.is_file():
         print('FIGS 提示 没有 figures_src/figs.py，跳过'); return 0
-    tree = ast.parse(FIGS.read_text(encoding='utf-8'))
     figs, ok, typevals = {}, {}, {}
-    for n in tree.body:
+    # 2026-11-09：第 5 章处置导图单独放 figures_src/figs_flow.py，一并核对
+    body = [n for f in (FIGS, FIGS.parent / 'figs_flow.py') if f.is_file() for n in ast.parse(f.read_text(encoding='utf-8')).body]
+    for n in body:
         if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id in ('FIGVALS_OK', 'TYPEVALS'):
             (ok if n.targets[0].id == 'FIGVALS_OK' else typevals).update(ast.literal_eval(n.value))
         if isinstance(n, ast.FunctionDef):

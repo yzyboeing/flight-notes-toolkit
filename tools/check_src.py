@@ -678,6 +678,20 @@ def main():
     for label, hits in zip(('S19 点名手册', 'S20 W06 常用缩写注'), editorial[1:]):
         for hit in hits:
             print(f'  提示  K-{label} {hit}')
+    # K-S21（N7，用户 2026-11-09）：第五章故障条目按「现象 → 分析 → 处置 → 注意事项」四段写——缺「现象：」导语表或「注：注意事项——」的报提示（进度跟踪用）
+    s21 = []
+    for f in sorted(glob.glob(os.path.join(SRC, '5 故障处置', '5.*.md'))):
+        sec = os.path.basename(f).split(' ')[0]
+        if sec not in ('5.3', '5.4', '5.5', '5.7', '5.9', '5.14'):
+            continue
+        parts = re.split(r'\n### (\d+)\. ', io.open(f, encoding='utf-8').read())
+        for k in range(1, len(parts), 2):
+            body = parts[k + 1]
+            miss = [n for n, ok in (('现象', re.search(r'(?m)^现象：\s*$', body)), ('注意事项', '注：注意事项——' in body)) if not ok]
+            if miss:
+                s21.append('%s.%s 缺%s' % (sec, parts[k], '、'.join(miss)))
+    if s21 or not QUIET:
+        print(f'  提示  K-S21 故障条目四段结构 {len(s21)} 条未完成' + ('：' + '、'.join(s21[:8]) + ('…' if len(s21) > 8 else '') if s21 else ''))
     for label, hits in zip(('S15 同条注 ≥ 4', 'S16 空注', 'S17 元注关键词'), note_hints):
         if hits or not QUIET:
             print(f'  提示  K-{label} {len(hits)} 处' + ('：' + '、'.join(hits[:8]) if hits else ''))
