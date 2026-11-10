@@ -693,11 +693,15 @@ def main():
         parts = re.split(r'\n### (\d+)\. ', io.open(f, encoding='utf-8').read())
         for k in range(1, len(parts), 2):
             body = parts[k + 1]
-            miss = [n for n, ok in (('现象', re.search(r'(?m)^现象(与处置)?：\s*$', body)), ('注意事项', '注：注意事项——' in body)) if not ok]
+            summ = '现象与处置：' in body   # 汇总条目：一行一张检查单，不要求处置思路
+            miss = [n for n, ok in (('现象', re.search(r'(?m)^现象(与处置)?：\s*$', body)),
+                                    ('处置思路', summ or re.search(r'(?m)^处置思路：\s*$', body)),
+                                    ('注意事项', '注：注意事项——' in body),
+                                    ('相关故障', '注：相关故障——' in body)) if not ok]
             if miss and '%s.%s' % (sec, parts[k]) not in S21_EXEMPT:
                 s21.append('%s.%s 缺%s' % (sec, parts[k], '、'.join(miss)))
     if s21 or not QUIET:
-        print(f'  提示  K-S21 故障条目四段结构 {len(s21)} 条未完成' + ('：' + '、'.join(s21[:8]) + ('…' if len(s21) > 8 else '') if s21 else ''))
+        print(f'  提示  K-S21 故障条目五段结构 {len(s21)} 条未完成' + ('：' + '、'.join(s21[:8]) + ('…' if len(s21) > 8 else '') if s21 else ''))
     for label, hits in zip(('S15 同条注 ≥ 4', 'S16 空注', 'S17 元注关键词'), note_hints):
         if hits or not QUIET:
             print(f'  提示  K-{label} {len(hits)} 处' + ('：' + '、'.join(hits[:8]) if hits else ''))
