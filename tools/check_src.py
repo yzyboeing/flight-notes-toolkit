@@ -716,6 +716,19 @@ def main():
                     s = plain(seg)
                     if len(s) >= 6 and s != '无此项' and s not in T62:
                         s22.append('%s「%s」' % (os.path.basename(f).split(' ')[0], seg.strip()[:24]))
+    # K-S23：第一章「737-NG 与 737-8 的系统差异」条目里的表，须与 6.1 对应表逐字一致（6.1 为对照视图）
+    s23 = []
+    p61 = glob.glob(os.path.join(SRC, '6 机型差异', '6.1 *.md'))
+    if p61:
+        norm = lambda s: re.sub(r'\s+', '', s)
+        T61 = {norm(x) for x in re.findall(r'(?s)<table.*?</table>', io.open(p61[0], encoding='utf-8').read())}
+        for f in sorted(glob.glob(os.path.join(SRC, '1 系统描述', '1.*.md'))):
+            for m in re.finditer(r'(?ms)^### (\d+)\. 737-NG 与 737-8 的系统差异\n(.*?)(?=^### |\Z)', io.open(f, encoding='utf-8').read()):
+                for tb in re.findall(r'(?s)<table.*?</table>', m.group(2)):
+                    if norm(tb) not in T61:
+                        s23.append('%s.%s' % (os.path.basename(f).split(' ')[0], m.group(1)))
+    if s23:
+        warns.append('K-S23 第一章两型差异表与 6.1 不一致 %d 处：%s' % (len(s23), '、'.join(s23)))
     if s22:
         warns.append('K-S22 两型检查单差异注与 6.2 不一致 %d 处：%s' % (len(s22), '、'.join(s22[:6])))
     for label, hits in zip(('S15 同条注 ≥ 4', 'S16 空注', 'S17 元注关键词'), note_hints):
