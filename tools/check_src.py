@@ -693,7 +693,7 @@ def main():
         parts = re.split(r'\n### (\d+)\. ', io.open(f, encoding='utf-8').read())
         for k in range(1, len(parts), 2):
             body = parts[k + 1]
-            miss = [n for n, ok in (('现象', re.search(r'(?m)^现象：\s*$', body)), ('注意事项', '注：注意事项——' in body)) if not ok]
+            miss = [n for n, ok in (('现象', re.search(r'(?m)^现象(与处置)?：\s*$', body)), ('注意事项', '注：注意事项——' in body)) if not ok]
             if miss and '%s.%s' % (sec, parts[k]) not in S21_EXEMPT:
                 s21.append('%s.%s 缺%s' % (sec, parts[k], '、'.join(miss)))
     if s21 or not QUIET:
