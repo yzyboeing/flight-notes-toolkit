@@ -702,6 +702,22 @@ def main():
                 s21.append('%s.%s 缺%s' % (sec, parts[k], '、'.join(miss)))
     if s21 or not QUIET:
         print(f'  提示  K-S21 故障条目五段结构 {len(s21)} 条未完成' + ('：' + '、'.join(s21[:8]) + ('…' if len(s21) > 8 else '') if s21 else ''))
+    # K-S22（顾问 11-09：差异真源在知识点处、第六章作对照视图）：第五章「注：两型检查单差异——」每一段都要能在 6.2 正文里找到
+    s22 = []
+    p62 = glob.glob(os.path.join(SRC, '6 机型差异', '6.2 *.md'))
+    if p62:
+        plain = lambda s: re.sub(r'\s+', '', re.sub(r'<[^>]+>', '', s.replace('<br>', '；'))).replace('&lt;', '<').replace('&gt;', '>')
+        T62 = plain(io.open(p62[0], encoding='utf-8').read())
+        for f in sorted(glob.glob(os.path.join(SRC, '5 故障处置', '5.*.md'))):
+            for line in io.open(f, encoding='utf-8').read().split('\n'):
+                if not line.startswith('注：两型检查单差异——'): continue
+                body = re.sub(r'(^|。)\s*[^。【]*?：(?=【737-NG】)', r'\1', line[len('注：两型检查单差异——'):])   # 去掉每段开头「检查单 + 差异点」标题
+                for seg in re.split(r'【737-NG】|【737-8】|：|；|。', body):
+                    s = plain(seg)
+                    if len(s) >= 6 and s != '无此项' and s not in T62:
+                        s22.append('%s「%s」' % (os.path.basename(f).split(' ')[0], seg.strip()[:24]))
+    if s22:
+        warns.append('K-S22 两型检查单差异注与 6.2 不一致 %d 处：%s' % (len(s22), '、'.join(s22[:6])))
     for label, hits in zip(('S15 同条注 ≥ 4', 'S16 空注', 'S17 元注关键词'), note_hints):
         if hits or not QUIET:
             print(f'  提示  K-{label} {len(hits)} 处' + ('：' + '、'.join(hits[:8]) if hits else ''))
