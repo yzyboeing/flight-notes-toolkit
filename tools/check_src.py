@@ -728,6 +728,20 @@ def main():
                 for tb in re.findall(r'(?s)<table.*?</table>', m.group(2)):
                     if norm(tb) not in T61:
                         s23.append('%s.%s' % (os.path.basename(f).split(' ')[0], m.group(1)))
+    # K-S24（第四轮 F0）：同一节内插图编号「图 x.y-N」须按出现顺序 1、2、3…（导图追加后忘了重编号会乱序）
+    # K-S25（第四轮第一批）：正文不得有连续重复的中文标点「；；」「，，」「。。」（转换脚本拼接时最易产生）
+    s24, s25 = [], []
+    for f in sorted(glob.glob(os.path.join(SRC, '[1-6] *', '[1-6].*.md'))):
+        sec = os.path.basename(f).split(' ')[0]; nums = []
+        for ln, line in enumerate(io.open(f, encoding='utf-8').read().split('\n'), 1):
+            m = re.match(r'%%FIG[A-Z]*%%[^|]*\|\s*图\s*' + re.escape(sec) + r'-(\d+)', line)
+            if m: nums.append(int(m.group(1)))
+            if not line.startswith('%%') and re.search(r'；；|，，|。。', line):
+                s25.append('%s:%d' % (os.path.basename(f), ln))
+        if nums and nums != list(range(1, len(nums) + 1)):
+            s24.append('%s 图号顺序 %s' % (sec, '、'.join(map(str, nums))))
+    errors.extend('K-S24 插图编号未按出现顺序：' + x for x in s24)
+    errors.extend('K-S25 连续重复标点：' + x for x in s25)
     if s23:
         warns.append('K-S23 第一章两型差异表与 6.1 不一致 %d 处：%s' % (len(s23), '、'.join(s23)))
     if s22:
