@@ -13,9 +13,10 @@ from onenote_api import req, content, list_pages, create_page, patch_with_image,
 from onenote_conv import convert, page, strip_index, FONT, TABW
 NS = os.path.expanduser('~/flight-repos/gh-private/notes_src/')
 WORK = os.path.expanduser('~/flight-repos/_work/onenote')
-CHN = {'第一章': '第一章 系统描述', '第二章': '第二章 操作程序', '第三章': '第三章 运行规范', '第四章': '第四章 特殊情况与风险', '第五章': '第五章 故障处置', '附录': '附录 机型差异'}   # 2026-10-24 SD-234；2026-11-02 第四章按 SD-241 改「特殊情况与风险」
+CHN = {'第一章': '第一章 系统描述', '第二章': '第二章 操作程序', '第三章': '第三章 运行规范', '第四章': '第四章 特殊情况与风险', '第五章': '第五章 故障处置', '附录': '机型差异'}   # 2026-10-24 SD-234；2026-11-02 第四章按 SD-241 改「特殊情况与风险」
 # 2026-10-15 SD-185 第一章改名「系统描述」；接口不能改分区名——OneNote 里还叫旧名时沿用旧分区写入，页眉照新名（用户在 OneNote 里右键改名即可）
-ALIAS = {'第一章 系统描述': ['第一章 系统理论'], '第二章 操作程序': ['第二章 机组训练手册'],
+ALIAS = {'机型差异': ['附录 机型差异'],   # 2026-11-09 第 6 部分改名「机型差异」（Word 成品仍作附录）：OneNote 里还叫旧名时沿用旧分区写入
+         '第一章 系统描述': ['第一章 系统理论'], '第二章 操作程序': ['第二章 机组训练手册'],
          '第三章 运行规范': ['第三章 运行手册'], '第四章 特殊情况与风险': ['第四章 技术提示', '第四章 飞行技术提示', '第五章 技术提示'], '第五章 故障处置': ['第五章 模拟机笔记', '第四章 模拟机训练']}
 # SD-234（2026-10-24）沿用旧分区写入；2026-10-25 三 / 四 / 五章再改名：OneNote 里可能是最早的旧名、也可能已按 R2 建议改过名——按列出顺序找第一个存在的分区
 def sec_name(name, secs): return name if name in secs else next((a for a in ALIAS.get(name, []) if a in secs), name)
@@ -205,7 +206,7 @@ def main():
     for name, sid in secs.items():
         for q in list_pages(sid):
             if q['title']: continue
-            m = re.search(r'(?:第[一二三四五]章|附录) [^｜<]+ ｜ ([^<]+)', content(q['id']) or '')   # SD-234：附录页眉
+            m = re.search(r'(?:(?:第[一二三四五]章|附录) [^｜<]+|机型差异) ｜ ([^<]+)', content(q['id']) or '')   # SD-234：附录页眉
             if not m: continue
             for k in range(6):
                 try: req('PATCH', '/pages/%s/content' % q['id'], [{'target': 'title', 'action': 'replace', 'content': m.group(1).strip()}]); L('补标题', m.group(1).strip()); break
