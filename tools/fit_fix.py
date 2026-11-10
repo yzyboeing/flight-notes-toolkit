@@ -39,12 +39,17 @@ def lo_fonts(prof):
 
 def to_pdf():
     lo_fonts(PROF)
-    d = tempfile.mkdtemp()
-    subprocess.run([SOF, '-env:UserInstallation=file://' + PROF, '--headless', '--convert-to', 'pdf', '--outdir', d, OUT],
-                   capture_output=True)
-    p = os.path.join(d, name + '.pdf')
-    if not os.path.exists(p): sys.exit('LibreOffice 没能生成 PDF')
-    return p
+    # 2026-11-10：1109R13 第四次重建两次在不同遍出现 LibreOffice 不出 PDF、同一 docx 手动重转正常（非确定性）——记下返回码 / 用时 / stderr 尾，重试 2 次
+    import time as _t
+    for _try in range(3):
+        d = tempfile.mkdtemp(); _t0 = _t.time()
+        r = subprocess.run([SOF, '-env:UserInstallation=file://' + PROF, '--headless', '--convert-to', 'pdf', '--outdir', d, OUT],
+                           capture_output=True, text=True, errors='replace')
+        p = os.path.join(d, name + '.pdf')
+        if os.path.exists(p): return p
+        _err = ' | '.join(l for l in (r.stderr or '').splitlines()[-6:] if 'Fontconfig' not in l)
+        print('fit_fix：LibreOffice 没出 PDF（第 %d 次，返回码 %s，用时 %.0fs，stderr：%s）%s' % (_try + 1, r.returncode, _t.time() - _t0, _err[-400:], '，重试' if _try < 2 else ''), flush=True)
+    sys.exit('LibreOffice 没能生成 PDF（重试 2 次仍失败）')
 
 # 状态：lv[sig] = 0（强制整表）/ 1～3（压缩级）；block＝放弃
 lv, block, wfix, wblock, splitok, pbreak, nwfix = {}, set(), {}, set(), set(), set(), {}
