@@ -728,7 +728,7 @@ def main():
                 for tb in re.findall(r'(?s)<table.*?</table>', m.group(2)):
                     if norm(tb) not in T61:
                         s23.append('%s.%s' % (os.path.basename(f).split(' ')[0], m.group(1)))
-    # K-S24（第四轮 F0）：同一节内插图编号「图 x.y-N」须按出现顺序 1、2、3…（导图追加后忘了重编号会乱序）
+    # 规则号 S24 S25。K-S24（第四轮 F0）：同一节内插图编号「图 x.y-N」须按出现顺序 1、2、3…（导图追加后忘了重编号会乱序）
     # K-S25（第四轮第一批）：正文不得有连续重复的中文标点「；；」「，，」「。。」（转换脚本拼接时最易产生）
     s24, s25 = [], []
     for f in sorted(glob.glob(os.path.join(SRC, '[1-6] *', '[1-6].*.md'))):
