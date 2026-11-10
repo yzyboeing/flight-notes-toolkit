@@ -716,14 +716,15 @@ def main():
                     s = plain(seg)
                     if len(s) >= 6 and s != '无此项' and s not in T62:
                         s22.append('%s「%s」' % (os.path.basename(f).split(' ')[0], seg.strip()[:24]))
-    # K-S23：第一章「737-NG 与 737-8 的系统差异」条目里的表，须与 6.1 对应表逐字一致（6.1 为对照视图）
+    # K-S23：第一章「〈本节系统名〉两型差异」条目里的表，须与 6.1 对应表逐字一致（6.1 为对照视图）
     s23 = []
     p61 = glob.glob(os.path.join(SRC, '6 机型差异', '6.1 *.md'))
     if p61:
         norm = lambda s: re.sub(r'\s+', '', s)
         T61 = {norm(x) for x in re.findall(r'(?s)<table.*?</table>', io.open(p61[0], encoding='utf-8').read())}
         for f in sorted(glob.glob(os.path.join(SRC, '1 系统描述', '1.*.md'))):
-            for m in re.finditer(r'(?ms)^### (\d+)\. 737-NG 与 737-8 的系统差异\n(.*?)(?=^### |\Z)', io.open(f, encoding='utf-8').read()):
+            txt = io.open(f, encoding='utf-8').read(); sysn = (re.search(r'(?m)^title_cn:\s*"([^"]+)"', txt) or [None, '\x00'])[1]
+            for m in re.finditer(r'(?ms)^### (\d+)\. %s ?两型差异\n(.*?)(?=^### |\Z)' % re.escape(sysn), txt):
                 for tb in re.findall(r'(?s)<table.*?</table>', m.group(2)):
                     if norm(tb) not in T61:
                         s23.append('%s.%s' % (os.path.basename(f).split(' ')[0], m.group(1)))
