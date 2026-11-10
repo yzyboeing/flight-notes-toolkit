@@ -509,7 +509,7 @@ function cellImgParas(text) {
    不属于本截的行标 ghost（参与列宽 / 对齐 / 加点判断、不印出）——两截的列宽与排法和整表完全一致 */
 function coreSplit(h) {
   const pr = parseHtmlTable(h);
-  const sig = pr.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+  const sig = secSig(pr.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80));
   const rows = String(h).match(/<tr[\s\S]*?<\/tr>/g) || [];
   let lead = 0; while (lead < rows.length && /class="(hdr|premise)/.test(rows[lead])) lead++;
   const data = rows.slice(lead);
@@ -1506,7 +1506,7 @@ function htmlTableCore(html) {
         if (process.env.W_LOG) console.error('TAILFIX', k, tail[k]); }
     }
     /* SD-85 按 PDF 实测加宽（fit_fix.py 写入）：从最宽的另一列匀出，不超过其 15% */
-    { const sig0 = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+    { const sig0 = secSig(parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80));
       for (const [k, dd] of (WFIX.get(sig0) || [])) { if (k >= nCols) continue;
         let j = -1; for (let q = 0; q < nCols; q++) if (q !== k && (j < 0 || W[q] > W[j])) j = q;
         /* 2026-10-03 末行孤字：先用表格没占满的页宽，不够再从最宽的另一列匀出（上限由 15% 放宽到 25%） */
@@ -1534,7 +1534,7 @@ function htmlTableCore(html) {
        每列只补到「最长一段排成一行」为止；补完仍有剩余说明已无折行，表格保持按内容的宽度。全是短格的表不动（仍守 SD-144 收窄）。
        放在实测加宽 / 收窄之后，最后一步决定总宽。 */
     /* SD-148 / 151 实测拉满（fit_fix 写入 F:）：右侧实测空余给实测折行最多的列；该列做过不增行收窄（SHRUNK）的，转给同表估算折行最多的其余列（第 31 页：宽度让给旁边挤的列） */
-    { const sigX = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+    { const sigX = secSig(parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80));
       for (const [k0, dd] of (FFIX.get(sigX) || [])) { if (k0 >= nCols) continue;
         let k = k0;
         const nwF = new Set((NWFIX.get(sigX) || []).map(x => x[0]));   // 正在实测收窄的列不接收拉满宽度
@@ -1554,7 +1554,7 @@ function htmlTableCore(html) {
             const mk0 = (sg.match(/^[\uE001-\uE006]+/) || [''])[0];
             segsF[k].push(fineVis(sg.replace(/^[\uE001-\uE006]+/, '')) * UNIT_W(sg) + (mk0 ? 200 : 0) + SUB_IND(mk0)); }); }); });
       const longest = segsF.map(ss => Math.max(0, ...ss));
-      const sigF = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+      const sigF = secSig(parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80));
       const nwSet = new Set((NWFIX.get(sigF) || []).map(x => x[0]));   // 实测已确认不折行（fit_fix 写了 NW: 收窄）的列不拉宽，免得与收窄来回拉锯
       /* SD-151（2026-10-06 用户，第 31 页：「在不增加行数的情况下，尽量让这一列窄一点，同时给旁边的一列留点空间」）：
          收窄过（不增行）的列不再分回宽度；剩余页宽一小步一小步地给「当前折行最多」的列（最挤的先得），直到用完或都排成一行 */
@@ -1585,7 +1585,7 @@ function htmlTableCore(html) {
         for (let k = 0; k < nCols; k++) W[k] = Math.floor(TOTAL * pct[k] / Math.max(tot, 100));   // 合计不足 100 时按版心宽的百分比（窄表不硬撑满）
         /* 2026-10-07 用户（完整版第 11 页 1.1 C-1「输送路径」折 3 行、表右侧大片空白却不加宽）：定宽表没占满版心时，
            fit_fix 的实测加宽（W:，SD-144 加宽省行 / 孤字）照样生效——只用右侧空余，不从别的列匀，各列定宽比例不变 */
-        if (tot < 100) { const sigW = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+        if (tot < 100) { const sigW = secSig(parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80));
           for (const [k, dd] of (WFIX.get(sigW) || [])) { if (k >= nCols) continue;
             const f = Math.min(dd, Math.max(0, TOTAL - W.reduce((a2, b2) => a2 + b2, 0))); if (f > 0) W[k] += f; } } } } }
   /* 借宽（2026-10-15 用户，速查第 61 条 EEC 备用方式：「最右侧一列适当收窄也不会增加总行数，可以适当收窄最后一列同时适当加宽第二列」）：
@@ -1596,7 +1596,7 @@ function htmlTableCore(html) {
       hrB.cells.forEach((hc, hk) => { const c0 = startCol[hriB][hk]; if (c0 < nCols) bwHdr[c0] = unesc(String(hc.text).replace(/<[^>]+>/g, '')).trim();
         if (hc.colspan === 1 && /(^|\s)col-eq(\s|$)/.test(hc.cls || '')) bwEq.push(c0);
         if (hc.colspan === 1 && /(^|\s)w-lock(\s|$)/.test(hc.cls || '')) bwLock.push(c0); }); }
-    const sigB = parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80);
+    const sigB = secSig(parsed.map(r => r.cells.map(c => unesc(String(c.text).replace(/<[^>]+>/g, ''))).join('')).join('').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 80));
     for (const [k, j, dd] of (fixedW === 'full' ? [] : (BWFIX.get(sigB) || []))) {   // SD-207：满宽锁宽（w-lock）表不再套用借宽记录（落地交接矩阵锁宽后被旧 BW 记录改回）
       if (k >= nCols || j >= nCols || k === j || bwEq.includes(k) || bwEq.includes(j) || bwLock.includes(k) || bwLock.includes(j)) continue;
       const d = Math.min(dd, Math.max(0, W[j] - FLOOR));
@@ -1648,7 +1648,7 @@ function htmlTableCore(html) {
   /* 2026-11-10（1109R13）：全书逐字相同的表（第一章「两型差异」表与 6.1 原表等，K-S23 要求逐字一致）签名相同，
      keep_force 的移页 / 压缩 / 列宽记录会被两张表共用（1.15.23 被 6.1.12 的 B: 记录误移页、6.1.1 被 1.2.29 的 Z~5 压过头）——
      这类表签名后加「@节号」区分；不重复的表签名不变 */
-  const tblSig = tblText.slice(0, 80) + (dupSigs().has(tblText.slice(0, 80)) && CUR_SEC ? '@' + CUR_SEC : '');
+  const tblSig = secSig(tblText.slice(0, 80));
   const splitRow = /^\s*<table[^>]*\bsplit-ok\b/.test(String(html));   // split-ok：不压字号、允许行间分页，防孤行照常（与块索引表的 SPLITOK 分开）   // 源文件 <table class="ftn split-ok">：长清单行间正常分页、不压字号（用户 2026-10-03 大表方案，2.3 B-1）
   const onePageT = /^\s*<table[^>]*\bone-page\b/.test(String(html));   // SD-218：只有点名整页的表压缩字号，其余一律正文字号
   let shrinkLv = SPLITOK.has(tblSig) ? 0 : splitRow ? Math.min(2, SHRINK.get(tblSig) || 0) : !onePageT ? Math.min(6, SHRINK.get(tblSig) || 0) : (SHRINK.get(tblSig) || 0);   // 2026-10-21：一页放得下的表下截只差一点时，fit_fix 收紧 1～2 级留在本页（不拆）   // split-ok 最多 2 级（8.5pt），避免孤页；不压到 8pt
@@ -2395,8 +2395,8 @@ function singleToc(ch, brk) {
   return out.concat(qrTopicPage());   // SD-118 单册：目录之后「按主题查」
 }
 /* SD-118 按主题查：速查条目按主题表（DOC_QRTOPICS，JSON，按标题前缀匹配）列出，点击跳到条目；编号随条目自动更新 */
-let CUR_SEC = '';
-let _DUPSIGS = null;   // 2026-11-10：源文件里出现不止一次的表签名（见表格函数里 tblSig 的说明）
+var CUR_SEC = '';
+var _DUPSIGS = null;   // 2026-11-10：源文件里出现不止一次的表签名（见表格函数里 tblSig 的说明）
 function dupSigs() {
   if (_DUPSIGS) return _DUPSIGS;
   const cnt = new Map();
@@ -3514,3 +3514,4 @@ Packer.toBuffer(doc).then(async b => {
   }
   fs.writeFileSync(OUT, b); console.log('written ' + OUT + '  (' + body.length + ' blocks)' + (BW ? ' [黑白]' : '') + (DUPLEX ? ' [双面]' : ''));
 });
+function secSig(s) { return s + (dupSigs().has(s) && CUR_SEC ? '@' + CUR_SEC : ''); }   // 2026-11-10：同文表签名加节号——列宽 / 拆表 / 收窄 / 借宽记录与移页压缩记录用同一个签名（第三次重建发现列宽各处签名漏加节号）

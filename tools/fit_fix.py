@@ -167,6 +167,7 @@ def _bysec(res, page):
     if not sec: return res
     keep = {s for s in res if '@' not in s or s.rsplit('@', 1)[1] == sec}
     return keep or res
+def _sigbase(sig): return sig.rsplit('@', 1)[0]
 def match(text, tbls, page=None):
     """返回最匹配的表签名集合（同文表分数相近的一并返回）；匹配不上返回空集。传 page 时同文表只留页脚同节的那张。"""
     return _bysec(_match(text, tbls), page)
@@ -178,10 +179,13 @@ def _match(text, tbls):
     if score[0][0] < 0.75:
         # 2026-10-22：PDF 上把紧跟表后的注框也认成表的一部分时，截到的文字比源表多、覆盖率偏低——改看「源表文字有多少出现在截到的文字里」（速查 RVR 表）
         rev = sorted(((len(want & t['bg']) / max(1, len(t['bg'])), t['sig']) for t in tbls), reverse=True)
-        if rev and rev[0][0] >= 0.9 and (len(rev) < 2 or rev[0][0] - rev[1][0] >= 0.2): return {rev[0][1]}
+        # 2026-11-10：同文表（签名只差「@节号」）算同一张，和「第二名」比时跳过它；返回全部同文表，由 _bysec 按页脚节号挑
+        if rev and rev[0][0] >= 0.9:
+            r2 = next((v for v, s in rev if _sigbase(s) != _sigbase(rev[0][1])), 0)
+            if rev[0][0] - r2 >= 0.2: return {s for v, s in rev if _sigbase(s) == _sigbase(rev[0][1]) and v == rev[0][0]}
         # 跨页表、紧贴表后注的表：PDF 上截到的文字只是源表的一部分，覆盖率偏低。最高分 ≥ 0.5 且明显高于第二名（≥ 0.2）也算匹配上（2026-10-05）
-        second = score[1][0] if len(score) > 1 else 0
-        return {score[0][1]} if score[0][0] >= 0.5 and score[0][0] - second >= 0.2 else set()
+        second = next((v for v, s in score if _sigbase(s) != _sigbase(score[0][1])), 0)
+        return {s for v, s in score if _sigbase(s) == _sigbase(score[0][1]) and v == score[0][0]} if score[0][0] >= 0.5 and score[0][0] - second >= 0.2 else set()
     return {s for v, s in score if v >= max(0.75, score[0][0] - 0.1)}
 
 dump = os.path.join(tempfile.mkdtemp(), 'dump.jsonl')
