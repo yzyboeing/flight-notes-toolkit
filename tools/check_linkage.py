@@ -102,7 +102,7 @@ for rel, L in files.items():
                     errs.append((rel, n, f'「{m.group(0)}」在本{"区" if sid == "0" else "节"}找不到第 {key} 条'))
 
 # ---------- 改动 ----------
-diff = subprocess.run(['git', '-C', REPO, 'diff', '-U0', base, '--', 'notes_src'], capture_output=True, text=True).stdout
+diff = subprocess.run(['git', '-c', 'core.quotepath=false', '-C', REPO, 'diff', '-U0', base, '--', 'notes_src'], capture_output=True, text=True).stdout
 hunks = []   # (rel, [removed], [added])
 cur = None; rel = None
 for ln in diff.split('\n'):

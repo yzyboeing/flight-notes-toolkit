@@ -402,7 +402,7 @@ def clean_around(raw, pos):
 
 
 def find_base(path, ver):
-    m = re.match(r'(B737机型理论知识(?:笔记|速查))(\d{4}R\d+)?', os.path.basename(path))
+    m = re.match(r'(B737机型理论(?:知识(?:笔记|速查)|速查笔记))(\d{4}R\d+)?', os.path.basename(path))
     if not m: return None
     v = ver or m.group(2) or ''
     for d in BASE_DIRS:

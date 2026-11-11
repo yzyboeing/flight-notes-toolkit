@@ -3433,7 +3433,8 @@ const doc = new Document({
   sections: SECTIONS
 });
 
-if (process.env.TBL_DUMP) fs.writeFileSync(process.env.TBL_DUMP, TBL_DUMPS.map(x => JSON.stringify(x)).join('\n') + '\n');
+// TBL_DUMP=1（sync.sh 默认）只要 TBL_DUMP_F 的列宽导出；签名导出只在 fit_fix 传了真实路径时写（以前会在当前目录写出名为「1」的文件，两次误入 gh-private）
+if (process.env.TBL_DUMP && process.env.TBL_DUMP !== '1') fs.writeFileSync(process.env.TBL_DUMP, TBL_DUMPS.map(x => JSON.stringify(x)).join('\n') + '\n');
 if (CELL_DUMP_F) {
   require('child_process').execFileSync('python3',
     [require('path').join(__dirname, 'check_model_symmetry.py'), CELL_DUMP_F], { stdio: 'inherit' });
