@@ -78,7 +78,7 @@ markdown 骨架 + 内嵌 HTML 表格，只有六个标记：
 ```bash
 npm install docx
 python3 tools/check_src.py --src <笔记仓库>/notes_src   # 先查源头
-python3 tools/assemble.py                # 源文件 → build/mod0..5.md + build/full.md
+python3 tools/assemble.py --src <笔记仓库>/notes_src   # 源文件 → build/mod0..6.md + build/full.md（不带 --src 时默认组装当前目录，在本仓库根目录运行即组装 pub 自己）
 
 DOC_AUTHOR="by　某某" NODE_PATH=./node_modules \
   node tools/build_docx.js build/full.md build/manual.docx
