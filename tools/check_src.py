@@ -389,6 +389,10 @@ def main():
             cm = re.match(r'%%FIG(?:SIDE|RIGHT)?%%[^|]*\|([^|]*)', line)
             if cm and re.search(r'(?:FCOM|FCTM|AFM|QRH) [\d.]+|AC-\d+-\d+ 图|技术提示汇总|依据', cm.group(1)):
                 errors.append('SD-212 图注写了手册出处 %s:%d「%s」' % (rel(f), ln_no, cm.group(1).strip()[:40]))
+        # S30（K-S30，第六轮 11-11）：正文不加「待核」类标注——手册查不到的是培训资料，不删、不标注；可疑的进存疑清单（红线 1、2）
+        for ln_no, line in enumerate(body.split('\n'), 1):
+            if re.search(r'手册未检到|未检到|待核|存疑清单', line) and not line.lstrip().startswith('<!--'):
+                errors.append('K-S30 正文有「待核」类标注 %s:%d「%s」' % (rel(f), ln_no, line.strip()[:40]))
         # SD-140（2026-10-05 用户）：全书不写「详见」——「本身目录和前面的序号都会改变」
         for ln_no, line in enumerate(body.split('\n'), 1):
             if '详见' in line and not line.lstrip().startswith('<!--'):
