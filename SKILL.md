@@ -83,7 +83,7 @@ cd ~/flight-repos/gh-private && git status                     # 开工检查
 python3 ../pub/tools/check_src.py --src notes_src              # 源头规范，0 错误
 python3 ../pub/tools/preview.py 1.12 5.9                       # 单节预览
 cd ~/flight-repos/study
-python3 tools/study.py snapshot ~/flight-repos/_work/学习系统快照_<新名>   # 再改 build_web.sh 的 STUDY_NOTES_REPO
+python3 tools/study.py snapshot ~/flight-repos/_work/学习系统快照_<新名>   # 再 export STUDY_NOTES_REPO=该快照（build_web.sh、release.sh 要求显式传入）
 STUDY_GATE_ONLY=1.12,5.9 zsh tools/build_web.sh                # 中途只测几节
 zsh tools/release.sh                                           # 全书门禁 → 网页上线 → 装用户 iPad
 zsh tools/release.sh testflight                                # 攒批发版，需用户点头

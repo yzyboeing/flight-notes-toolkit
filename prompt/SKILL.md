@@ -84,7 +84,7 @@ cd ~/flight-repos/gh-private && git status                     # 开工检查
 python3 ../pub/tools/check_src.py --src notes_src              # 源头规范，0 错误
 python3 ../pub/tools/preview.py 1.12 5.9                       # 单节预览
 cd ~/flight-repos/study
-python3 tools/study.py snapshot ~/flight-repos/_work/学习系统快照_<新名>   # 再改 build_web.sh 的 STUDY_NOTES_REPO
+python3 tools/study.py snapshot ~/flight-repos/_work/学习系统快照_<新名>   # 再 export STUDY_NOTES_REPO=该快照（build_web.sh、release.sh 要求显式传入）
 STUDY_GATE_ONLY=1.12,5.9 zsh tools/build_web.sh                # 中途只测几节
 zsh tools/release.sh                                           # 全书门禁 → 网页上线 → 装用户 iPad
 zsh tools/release.sh testflight                                # 攒批发版，需用户点头
@@ -456,7 +456,7 @@ updated: "2026-10-21"
 4. 提建议前先查本总纲、长期决策里用户以前的裁定（例：OneNote 合并格 SD-230 → SD-246），不推翻已定的做法；确有理由重议的，写明旧裁定和新理由交用户。
 
 **App**
-5. 内容改完先 `python3 tools/study.py snapshot ~/flight-repos/_work/学习系统快照_<新名>`，再改 `tools/build_web.sh` 的 `STUDY_NOTES_REPO`；中途 `STUDY_GATE_ONLY=<节号,…> zsh tools/build_web.sh`；收尾 `zsh tools/release.sh`（全书门禁 → 网页上线 → 装 iPad）。TestFlight 用 `release.sh testflight`，攒批、用户点头再传。
+5. 内容改完先 `python3 tools/study.py snapshot ~/flight-repos/_work/学习系统快照_<新名>`，再 `export STUDY_NOTES_REPO=<该快照>`（build_web.sh、release.sh 要求显式传入，不再改脚本）；中途 `STUDY_GATE_ONLY=<节号,…> zsh tools/build_web.sh`；收尾 `zsh tools/release.sh`（全书门禁 → 网页上线 → 装 iPad）。TestFlight 用 `release.sh testflight`，攒批、用户点头再传。
 6. 门禁判据是 WebKit（iOS 模拟器）：全书 0 错误，K19（`.note` 宽 1180 横屏 1019、820 竖屏 727 不变）/ K20 / K21、L2、对比度全过；不过不装不传。App 表格规则见排版规则总表 A 组，界面规则见 `study/DESIGN.md`。
 7. 增删条目：构建按条目身份（正文指纹或唯一标题）生成迁移链 `entry_keys/history.json`，App 启动时迁移收藏 / 最近查看 / 上次位置（先备份、可恢复、中断后续迁）；歧义不猜号、构建中止。插条后列出旧键 → 新键对照交 Claude 核对。
 8. 视觉改动先出样图（模拟器或浏览器在草稿副本注入样式截图），用户选定再改；机型视角「另一型只变淡不隐藏」。
