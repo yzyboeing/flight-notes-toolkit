@@ -694,6 +694,11 @@ def main():
         for k in range(1, len(parts), 2):
             body = parts[k + 1]
             summ = '现象与处置：' in body   # 汇总条目：一行一张检查单，不要求处置思路
+            if re.search(r'(?m)^判断与决策参考：\s*$', body):   # 第五轮（11-10）新骨架：判断与决策参考 → 背景知识（可无）→ 结构说明（可无）→ 检查单与重要项目说明 → 相关故障
+                miss = [n for n, ok in (('检查单与重要项目说明', re.search(r'(?m)^检查单与重要项目说明：\s*$', body)), ('相关故障', '注：相关故障——' in body)) if not ok]
+                if miss and '%s.%s' % (sec, parts[k]) not in S21_EXEMPT:
+                    s21.append('%s.%s（新骨架）缺%s' % (sec, parts[k], '、'.join(miss)))
+                continue
             miss = [n for n, ok in (('现象', re.search(r'(?m)^现象(与处置)?：\s*$', body)),
                                     ('处置思路', summ or re.search(r'(?m)^处置思路：\s*$', body)),
                                     ('注意事项', '注：注意事项——' in body),
@@ -762,6 +767,33 @@ def main():
                 if len(ps) >= 200 and _top_semis(ps) >= 1:
                     s26.append('%s:%d（%d 字）' % (os.path.basename(f), ln, len(ps)))
     errors.extend('K-S26 长注未分行（≥ 200 字的并列内容按「；」逐条换行）：' + x for x in s26)
+    # 规则号 S27。K-S27（第五轮，用户 11-10「知识点用超链接引到所在位置，减少重复」）：行内知识点链接 <a href="x.y 第 N 条">文字</a> 的目标条目须存在、不指向本条、文字非空
+    s27 = []; _items = set()
+    for f in sorted(glob.glob(os.path.join(SRC, '[1-6] *', '[1-6].*.md'))):
+        _sec = os.path.basename(f).split(' ')[0]
+        for _n in re.findall(r'(?m)^### (\d+)\.', io.open(f, encoding='utf-8').read()): _items.add('%s 第 %s 条' % (_sec, _n))
+    for f in sorted(glob.glob(os.path.join(SRC, '[1-6] *', '[1-6].*.md'))):
+        _sec = os.path.basename(f).split(' ')[0]; _cur = None
+        for ln, line in enumerate(io.open(f, encoding='utf-8').read().split('\n'), 1):
+            _m = re.match(r'### (\d+)\.', line)
+            if _m: _cur = '%s 第 %s 条' % (_sec, _m.group(1))
+            for _h, _txt in re.findall(r'<a href="([^"]*)">(.*?)</a>', line):
+                if _h not in _items: s27.append('%s:%d 链接目标不存在「%s」' % (os.path.basename(f), ln, _h))
+                elif _h == _cur: s27.append('%s:%d 链接指向本条「%s」' % (os.path.basename(f), ln, _h))
+                if not re.sub(r'<[^>]+>', '', _txt).strip(): s27.append('%s:%d 链接文字为空' % (os.path.basename(f), ln))
+    errors.extend('K-S27 知识点链接：' + x for x in s27)
+    # 规则号 S28。K-S28（第五轮，用户点名「下方附两型下降率表」）：<!-- copy:x.y 第 N 条 --> … <!-- /copy --> 里的表须与原条目第一张表逐字一致（只许照抄，改只改原条目）
+    s28 = []; _ent = {}
+    for f in sorted(glob.glob(os.path.join(SRC, '[1-6] *', '[1-6].*.md'))):
+        _sec = os.path.basename(f).split(' ')[0]
+        for _m in re.finditer(r'(?ms)^### (\d+)\.[^\n]*\n(.*?)(?=^### |\Z)', io.open(f, encoding='utf-8').read()):
+            _tb = re.search(r'(?s)<table.*?</table>', _m.group(2)); _ent['%s 第 %s 条' % (_sec, _m.group(1))] = _tb.group(0) if _tb else None
+    for f in sorted(glob.glob(os.path.join(SRC, '[1-6] *', '[1-6].*.md'))):
+        for _m in re.finditer(r'(?s)<!-- copy:(\S+ 第 \d+ 条) -->\s*(.*?)\s*<!-- /copy -->', io.open(f, encoding='utf-8').read()):
+            _src = _ent.get(_m.group(1))
+            if _src is None: s28.append('%s 照抄来源「%s」不存在或没有表' % (os.path.basename(f), _m.group(1)))
+            elif re.sub(r'\s+', '', _src) != re.sub(r'\s+', '', _m.group(2)): s28.append('%s 照抄「%s」的表与原表不一致' % (os.path.basename(f), _m.group(1)))
+    errors.extend('K-S28 照抄表：' + x for x in s28)
     errors.extend('K-S24 插图编号未按出现顺序：' + x for x in s24)
     errors.extend('K-S25 连续重复标点：' + x for x in s25)
     if s23:
