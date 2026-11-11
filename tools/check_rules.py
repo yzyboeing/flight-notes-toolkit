@@ -128,6 +128,7 @@ alltext = '\n'.join(src_text.values())
 ELSEWHERE = {'RULES': 'check_rules.py', 'L7': 'check_figs.py', 'B5': 'check_gaps.py', 'Z3': 'check_overshrink.py'}
 # 外部检查（实现在别的仓库，SD-244）：学习系统网页排版检查 AC1～AC10 = study/tools/test_layout.js 的 C1～C10；本机没有 study 库（如噜噜虚拟机）时只提示不报错
 EXTERNAL = {'AC%d' % n: PUB.parent / 'study' / 'tools' / 'test_layout.js' for n in range(1, 11)}
+EXTERNAL['L9'] = PUB.parent / 'gh-private' / 'figures_src' / 'qrh' / 'build_figs.py'   # 第六轮（11-11）：第五章旁注图最小字号（App 727 宽下 ≥ 11px），出图时由 build_figs 检查
 for code in sorted(registered) if not COPIES_ONLY else ():
     if code in EXTERNAL:
         if not EXTERNAL[code].is_file() and code == 'AC1':
