@@ -77,7 +77,23 @@ def main():
         quick = ''.join(e for e in qents if re.search(r'\[\[%s ' % re.escape(sec), e.split('\n', 2)[1] if '\n' in e else ''))
         if not full and not quick:
             errs.append('图 %s：找不到第 %s 节的正文' % (k, sec)); continue
-        text = plain(full + quick)
+        # 第五轮：本节 QRH 检查单图（figures_src/qrh/overlays/<节>，K-L8 已逐字核两型 QRH）的文字也算出处
+        qrhtxt = ''
+        ovd = FIGS.parent / 'qrh' / 'overlays' / sec
+        if ovd.is_dir():
+            import sys as _sys, json as _json
+            _sys.path.insert(0, str(FIGS.parent / 'qrh'))
+            try:
+                from compose import compose as _compose
+                qrhtxt = ' '.join(_json.dumps(_compose(_json.load(open(f, encoding='utf-8'))), ensure_ascii=False) for f in sorted(glob.glob(str(ovd / '*.json'))))
+            except Exception as e:
+                errs.append('图 %s：读本节 QRH 检查单叠加层出错 %s' % (k, e))
+        qrh_orig = qrhtxt
+        if qrhtxt:      # QRH 写法：5,000 英尺 / 20 分钟 / 1 秒 / 235K / 15 节 → 与图中写法同口径
+            qrhtxt = re.sub(r'(?<=\d),(?=\d{3})', '', qrhtxt)
+            for a, b in ((r'\s*英尺', 'ft'), (r'\s*分钟', 'min'), (r'\s*秒钟?', 's'), (r'\s*节', 'kt'), (r'(?<=\d)K\b', 'kt'), (r'(?<=\d)\s+(?=(ft|kt|min|s)\b)', '')):
+                qrhtxt = re.sub(r'(?<=\d)' + a if not a.startswith('(?<=') else a, b, qrhtxt)
+        text = plain(full + quick + qrh_orig + ' ' + qrhtxt)
         for v in sorted(set().union(*[vals(s) for s in ss]) if ss else ()):
             if v not in text and v not in ok.get(k, {}):
                 errs.append('图 %s 里的数值「%s」在 %s 节两本正文里都找不到——图中数值要取自正文（只作示意的登记 FIGVALS_OK 并写理由）' % (k, v, sec))

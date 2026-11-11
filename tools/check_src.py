@@ -678,35 +678,29 @@ def main():
     for label, hits in zip(('S19 点名手册', 'S20 W06 常用缩写注'), editorial[1:]):
         for hit in hits:
             print(f'  提示  K-{label} {hit}')
-    # K-S21（N7，用户 2026-11-09）：第五章故障条目按「现象 → 分析 → 处置 → 注意事项」四段写——缺「现象：」导语表或「注：注意事项——」的报提示（进度跟踪用）
-    s21 = []
-    # 判断方法、指示判读、操作技术、数值由来类条目不是单一故障，不套四段（顾问 11-09 裁定）
-    S21_EXEMPT = {'5.3.1', '5.3.2', '5.3.3', '5.3.4', '5.3.7', '5.3.8', '5.3.9', '5.3.10', '5.3.11', '5.3.15',
-                  '5.5.2', '5.5.3', '5.5.4', '5.5.5',   # 5.5.2～5 是单发按飞行阶段的处置流程
-                  '5.7.3', '5.7.7',   # 限坡度进近技术、非正常形态进近速度汇总（1110 第四轮 O2 调序后 5.7.6 → 5.7.7）
-                  '5.9.5',   # 液压失效识别与决策（现象与判断已在 5.9.6）
-                  '5.14.3', '5.14.4'}   # 水上迫降检查单的后续阶段（现象与分析在 5.14.2）
+    # K-S21（N7，用户 2026-11-09；第五轮 11-10 改为按规则判、不按条号豁免——条号会随改号变）：
+    #   带 QRH 检查单图或旁注受管块的条目 → 新骨架须齐（判断与决策参考 / 检查单与重要项目说明 / 相关故障）；
+    #   有旧式「现象：」的条目 → 旧四段须齐；其余（判断方法、机动、技术、按阶段流程、记忆项目汇总）为方法条，只计数。
+    s21 = []; s21_method = 0
     for f in sorted(glob.glob(os.path.join(SRC, '5 故障处置', '5.*.md'))):
         sec = os.path.basename(f).split(' ')[0]
-        if sec not in ('5.3', '5.4', '5.5', '5.7', '5.9', '5.14'):
-            continue
+        if sec == '5.12': continue     # 记忆项目汇总节：链到各故障条目，不套骨架
         parts = re.split(r'\n### (\d+)\. ', io.open(f, encoding='utf-8').read())
         for k in range(1, len(parts), 2):
             body = parts[k + 1]
-            summ = '现象与处置：' in body   # 汇总条目：一行一张检查单，不要求处置思路
-            if re.search(r'(?m)^判断与决策参考：\s*$', body):   # 第五轮（11-10）新骨架：判断与决策参考 → 背景知识（可无）→ 结构说明（可无）→ 检查单与重要项目说明 → 相关故障
-                miss = [n for n, ok in (('检查单与重要项目说明', re.search(r'(?m)^检查单与重要项目说明：\s*$', body)), ('相关故障', '注：相关故障——' in body)) if not ok]
-                if miss and '%s.%s' % (sec, parts[k]) not in S21_EXEMPT:
-                    s21.append('%s.%s（新骨架）缺%s' % (sec, parts[k], '、'.join(miss)))
-                continue
-            miss = [n for n, ok in (('现象', re.search(r'(?m)^现象(与处置)?：\s*$', body)),
-                                    ('处置思路', summ or re.search(r'(?m)^处置思路：\s*$', body)),
-                                    ('注意事项', '注：注意事项——' in body),
-                                    ('相关故障', '注：相关故障——' in body)) if not ok]
-            if miss and '%s.%s' % (sec, parts[k]) not in S21_EXEMPT:
-                s21.append('%s.%s 缺%s' % (sec, parts[k], '、'.join(miss)))
+            qrh = '<!-- callouts:' in body or '检查单与要点' in body
+            if qrh or re.search(r'(?m)^判断与决策参考：\s*$', body):
+                need = (('判断与决策参考', re.search(r'(?m)^判断与决策参考：\s*$', body)), ('检查单与重要项目说明', (not qrh) or re.search(r'(?m)^检查单与重要项目说明：\s*$', body)), ('相关故障', '注：相关故障——' in body))
+                miss = [n for n, ok in need if not ok]
+                if miss: s21.append('%s.%s（新骨架）缺%s' % (sec, parts[k], '、'.join(miss)))
+            elif re.search(r'(?m)^现象(与处置)?：\s*$', body):
+                summ = '现象与处置：' in body
+                miss = [n for n, ok in (('处置思路', summ or re.search(r'(?m)^处置思路：\s*$', body)), ('注意事项', '注：注意事项——' in body), ('相关故障', '注：相关故障——' in body)) if not ok]
+                if miss: s21.append('%s.%s 缺%s' % (sec, parts[k], '、'.join(miss)))
+            else:
+                s21_method += 1
     if s21 or not QUIET:
-        print(f'  提示  K-S21 故障条目五段结构 {len(s21)} 条未完成' + ('：' + '、'.join(s21[:8]) + ('…' if len(s21) > 8 else '') if s21 else ''))
+        print(f'  提示  K-S21 故障条目骨架 {len(s21)} 条未完成（方法条 {s21_method} 条不套骨架）' + ('：' + '、'.join(s21[:8]) + ('…' if len(s21) > 8 else '') if s21 else ''))
     # K-S22（顾问 11-09：差异真源在知识点处、第六章作对照视图）：第五章「注：两型检查单差异——」每一段都要能在 6.2 正文里找到
     s22 = []
     p62 = glob.glob(os.path.join(SRC, '6 机型差异', '6.2 *.md'))
