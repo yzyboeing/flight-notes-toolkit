@@ -794,6 +794,12 @@ def main():
             if _src is None: s28.append('%s 照抄来源「%s」不存在或没有表' % (os.path.basename(f), _m.group(1)))
             elif re.sub(r'\s+', '', _src) != re.sub(r'\s+', '', _m.group(2)): s28.append('%s 照抄「%s」的表与原表不一致' % (os.path.basename(f), _m.group(1)))
     errors.extend('K-S28 照抄表：' + x for x in s28)
+    # 规则号 S29。K-S29（第五轮）：骨架生成器留下的占位「〔待写」「〔图号〕」「〔条号〕」不许入库
+    s29 = []
+    for f in sorted(glob.glob(os.path.join(SRC, '[1-6] *', '[1-6].*.md'))):
+        for ln, line in enumerate(io.open(f, encoding='utf-8').read().split('\n'), 1):
+            if re.search(r'〔待写|〔图号〕|〔条号〕', line): s29.append('%s:%d' % (os.path.basename(f), ln))
+    errors.extend('K-S29 占位未补写：' + x for x in s29)
     errors.extend('K-S24 插图编号未按出现顺序：' + x for x in s24)
     errors.extend('K-S25 连续重复标点：' + x for x in s25)
     if s23:
