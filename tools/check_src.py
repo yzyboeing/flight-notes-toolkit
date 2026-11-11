@@ -709,13 +709,18 @@ def main():
         plain = lambda s: re.sub(r'\s+', '', re.sub(r'<[^>]+>', '', s.replace('<br>', '；'))).replace('&lt;', '<').replace('&gt;', '>')
         T62 = plain(io.open(p62[0], encoding='utf-8').read())
         for f in sorted(glob.glob(os.path.join(SRC, '5 故障处置', '5.*.md'))):
-            for line in io.open(f, encoding='utf-8').read().split('\n'):
-                if not line.startswith('注：两型检查单差异——'): continue
-                body = re.sub(r'(^|。)\s*[^。【]*?：(?=【737-NG】)', r'\1', line[len('注：两型检查单差异——'):])   # 去掉每段开头「检查单 + 差异点」标题
-                for seg in re.split(r'【737-NG】|【737-8】|：|；|。', body):
-                    s = plain(seg)
-                    if len(s) >= 6 and s != '无此项' and s not in T62:
-                        s22.append('%s「%s」' % (os.path.basename(f).split(' ')[0], seg.strip()[:24]))
+            _t5 = io.open(f, encoding='utf-8').read()
+            # 第五轮（11-10）：差异由「注：两型检查单差异——」大段注改为「两型检查单差异：」导语 + 表格；取表格里除首列（检查单 / 差异点）、机型列外的各格
+            for m in re.finditer(r'(?m)^两型检查单差异：\n\n((?:<table.*?</table>\n\n?)+)', _t5, re.S):
+                for row in re.findall(r'(?s)<tr><td>.*?</tr>', m.group(1)):
+                    cells = re.findall(r'(?s)<td[^>]*>(.*?)</td>', row)[1:]
+                    cells = [c for c in cells if c not in ('737-8', '737-NG')]
+                    for seg in re.split(r'<br>|：|；|。', '；'.join(cells)):
+                        s = plain(seg).lstrip('-')
+                        if len(s) >= 6 and s != '无此项' and s not in T62:
+                            s22.append('%s「%s」' % (os.path.basename(f).split(' ')[0], seg.strip()[:24]))
+            if '注：两型检查单差异——' in _t5:
+                s22.append('%s 仍有旧式「注：两型检查单差异——」大段注（应改为表格）' % os.path.basename(f).split(' ')[0])
     # K-S23：第一章「〈本节系统名〉两型差异」条目里的表，须与 6.1 对应表逐字一致（6.1 为对照视图）
     s23 = []
     p61 = glob.glob(os.path.join(SRC, '6 机型差异', '6.1 *.md'))
@@ -740,6 +745,23 @@ def main():
                 s25.append('%s:%d' % (os.path.basename(f), ln))
         if nums and nums != list(range(1, len(nums) + 1)):
             s24.append('%s 图号顺序 %s' % (sec, '、'.join(map(str, nums))))
+    # 规则号 S26。K-S26（第五轮，用户 11-10：「这种太复杂了，看一眼就不想看下去了」）：注的任一行（<br> 分隔）≥ 200 字且含 2 段以上并列（顶层「；」）须分行；第五章两型检查单差异须用表格（K-S22 同时把关）
+    s26 = []
+    def _top_semis(s):
+        d = 0; n = 0
+        for ch in s:
+            if ch in '（(': d += 1
+            elif ch in '）)': d -= 1
+            elif ch == '；' and d == 0: n += 1
+        return n
+    for f in sorted(glob.glob(os.path.join(SRC, '[1-6] *', '[1-6].*.md'))):
+        for ln, line in enumerate(io.open(f, encoding='utf-8').read().split('\n'), 1):
+            if not line.startswith('注：'): continue
+            for seg in line.split('<br>'):
+                ps = re.sub(r'<[^>]+>', '', seg)
+                if len(ps) >= 200 and _top_semis(ps) >= 1:
+                    s26.append('%s:%d（%d 字）' % (os.path.basename(f), ln, len(ps)))
+    errors.extend('K-S26 长注未分行（≥ 200 字的并列内容按「；」逐条换行）：' + x for x in s26)
     errors.extend('K-S24 插图编号未按出现顺序：' + x for x in s24)
     errors.extend('K-S25 连续重复标点：' + x for x in s25)
     if s23:
