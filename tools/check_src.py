@@ -393,6 +393,10 @@ def main():
         for ln_no, line in enumerate(body.split('\n'), 1):
             if re.search(r'手册未检到|未检到|待核|存疑清单', line) and not line.lstrip().startswith('<!--'):
                 errors.append('K-S30 正文有「待核」类标注 %s:%d「%s」' % (rel(f), ln_no, line.strip()[:40]))
+        # S31（K-S31，第六轮 11-11）：一节只有一个「# 节号　节名」标题——多出的 # 行会被 build_docx 当书名，封面变成节名（5.7 重复标题，Obsidian 自动备份带入）
+        h1 = [n for n, line in enumerate(body.split('\n'), 1) if re.match(r'^#\s', line)]
+        if len(h1) > 1:
+            errors.append('K-S31 一节有 %d 个 # 标题 %s:%s' % (len(h1), rel(f), '、'.join(map(str, h1))))
         # SD-140（2026-10-05 用户）：全书不写「详见」——「本身目录和前面的序号都会改变」
         for ln_no, line in enumerate(body.split('\n'), 1):
             if '详见' in line and not line.lstrip().startswith('<!--'):
