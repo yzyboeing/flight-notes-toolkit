@@ -748,7 +748,7 @@ def main():
         for ln, line in enumerate(io.open(f, encoding='utf-8').read().split('\n'), 1):
             m = re.match(r'%%FIG[A-Z]*%%[^|]*\|\s*图\s*' + re.escape(sec) + r'-(\d+)', line)
             if m: nums.append(int(m.group(1)))
-            if not line.startswith('%%') and re.search(r'；；|，，|。。', line):
+            if not line.startswith('%%') and re.search(r'；；|，，|。。|[。；，][。；，]|：。', line):   # 11-12：混合重复「。；」「；。」也算
                 s25.append('%s:%d' % (os.path.basename(f), ln))
         if nums and nums != list(range(1, len(nums) + 1)):
             s24.append('%s 图号顺序 %s' % (sec, '、'.join(map(str, nums))))
@@ -804,6 +804,24 @@ def main():
     errors.extend('K-S29 占位未补写：' + x for x in s29)
     errors.extend('K-S24 插图编号未按出现顺序：' + x for x in s24)
     errors.extend('K-S25 连续重复标点：' + x for x in s25)
+    # 规则号 S32。K-S32（11-12 用户截图 5.1.2「一列里有的有句号有的没有」）：表格句末标点规则 A（W01，含序号表同列统一）在源头每次都查——原先只在 Word 全量构建的 K-T24 里查，App 门禁漏掉，漂了 383 格
+    try:
+        import subprocess, tempfile, json as _json
+        _tmp = tempfile.mktemp(suffix='.json')
+        subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'punct_rule.py'), '--repo', os.path.dirname(os.path.abspath(SRC)), '--report', _tmp], capture_output=True, timeout=300)
+        _pr = _json.load(open(_tmp, encoding='utf-8')); os.remove(_tmp)
+        for _x in _pr['改'][:20]: errors.append('K-S32 句末标点（规则 A，跑 punct_rule.py --apply）：%s「%s」%s → %s' % (_x[0], _x[2], _x[4], _x[5]))
+        if len(_pr['改']) > 20: errors.append('K-S32 句末标点：另有 %d 格' % (len(_pr['改']) - 20))
+    except Exception as _e:
+        warns.append('K-S32 句末标点检查没跑成：%s' % _e)
+    # 规则号 S33。K-S33（同上）：中文旁的半角标点「,」「;」「:」（网址、时刻、比例除外）
+    s31 = []
+    for f in sorted(glob.glob(os.path.join(SRC, '[1-6] *', '[1-6].*.md'))):
+        for ln, line in enumerate(io.open(f, encoding='utf-8').read().split('\n'), 1):
+            if line.startswith('%%') or line.startswith('<!--'): continue
+            _p = re.sub(r'https?://\S+', '', re.sub(r'<[^>]+>', '', line))
+            if re.search(r'[\u4e00-\u9fff][,;:](?!//)|(?<![A-Za-z0-9])[,;:][\u4e00-\u9fff]', _p): s31.append('%s:%d' % (os.path.basename(f), ln))
+    errors.extend('K-S33 中文旁的半角标点：' + x for x in s31)
     if s23:
         warns.append('K-S23 第一章两型差异表与 6.1 不一致 %d 处：%s' % (len(s23), '、'.join(s23)))
     if s22:
