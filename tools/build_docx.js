@@ -470,6 +470,7 @@ const TBL_TARGET = [];
    %%FIGSIDE%% 文件 | 图注 | 宽度mm      → 紧接的下一张 HTML 表与图并排：左图右表
    %%FIGRIGHT%% 文件 | 图注 | 宽度mm     → 紧接的下一张 HTML 表与图并排：左表右图（2026-10-17 用户：速查窄表右侧空位「配图」）
    文件路径相对 notes_src/（或 DOC_FIG_DIR），PNG / JPG；图注小号灰字、居中 */
+const FIG_CAPPED = { n: 0 };   // 按版心高缩小的图数（构建结束打印）
 function figParts(spec, keepCap, alignLeft) {
   const [file, cap, wmm] = spec.split('|').map(x => (x || '').trim());
   const path = require('path');
@@ -479,8 +480,11 @@ function figParts(spec, keepCap, alignLeft) {
   const isPng = data.slice(1, 4).toString() === 'PNG';
   let pw = 1000, ph = 1000;
   if (isPng) { pw = data.readUInt32BE(16); ph = data.readUInt32BE(20); }
-  const wpx = Math.round((+wmm || 120) / 25.4 * 96), hpx = Math.round(wpx * ph / pw);
-  const indR = alignLeft ? Math.max(0, TOTAL - Math.round((+wmm || 120) * 56.7)) : 0;   // SD-208：「左」——图靠左（与表格左缘对齐），图注在图正下方居中
+  let wpx = Math.round((+wmm || 120) / 25.4 * 96), hpx = Math.round(wpx * ph / pw);
+  // 11-11 第六轮：图高上限——图 + 图注不超过版心高（版心 − 900 DXA 留给图注与段距），超了等比缩小。原来没有上限，竖长的 QRH 旁注图在横版被页底裁掉
+  const HMAX = Math.floor((PAGE_HT - M_TOP - M_BOT - 900) / 1440 * 96);
+  if (hpx > HMAX) { wpx = Math.round(wpx * HMAX / hpx); hpx = HMAX; FIG_CAPPED.n++; }
+  const indR = alignLeft ? Math.max(0, TOTAL - Math.round(wpx / 96 * 1440)) : 0;   // SD-208：「左」——图靠左（与表格左缘对齐），图注在图正下方居中
   const img = new ParagraphX({ alignment: alignLeft ? AlignmentType.LEFT : AlignmentType.CENTER, keepNext: true, spacing: { before: 60, after: 40 },
     children: [new ImageRun({ type: isPng ? 'png' : 'jpg', data, transformation: { width: wpx, height: hpx } })] });
   FIG_PARAS.add(img);
@@ -3513,6 +3517,6 @@ Packer.toBuffer(doc).then(async b => {
     }
     b = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
   }
-  fs.writeFileSync(OUT, b); console.log('written ' + OUT + '  (' + body.length + ' blocks)' + (BW ? ' [黑白]' : '') + (DUPLEX ? ' [双面]' : ''));
+  fs.writeFileSync(OUT, b); console.log('written ' + OUT + '  (' + body.length + ' blocks；按版心高缩小的图 ' + FIG_CAPPED.n + ' 张)' + (BW ? ' [黑白]' : '') + (DUPLEX ? ' [双面]' : ''));
 });
 function secSig(s) { return s + (dupSigs().has(s) && CUR_SEC ? '@' + CUR_SEC : ''); }   // 2026-11-10：同文表签名加节号——列宽 / 拆表 / 收窄 / 借宽记录与移页压缩记录用同一个签名（第三次重建发现列宽各处签名漏加节号）
