@@ -69,7 +69,8 @@ def main():
             for d in n.decorator_list:
                 if isinstance(d, ast.Call) and getattr(d.func, 'id', '') == 'fig':
                     figs[d.args[0].value] = [c.value for c in ast.walk(n) if isinstance(c, ast.Constant) and isinstance(c.value, str)]
-    qsrc = (NOTES / '速查' / '速查源.md').read_text(encoding='utf-8')
+    _q = NOTES / '速查' / '速查源.md'   # 11-13 速查本退役：没有速查源就只核正文
+    qsrc = _q.read_text(encoding='utf-8') if _q.exists() else ''
     qents = re.split(r'(?m)^### ', qsrc)
     for k, ss in sorted(figs.items()):
         sec = k.split('-')[0]
