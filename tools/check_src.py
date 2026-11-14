@@ -256,6 +256,8 @@ def find_alignment_pins(documents, ledger):
         label = re.sub(r'\s+', '', pin['列'])
         first = re.sub(r'\s+', '', pin.get('首行', ''))
         for book in _PIN_BOOKS[pin['书']]:
+            if book == '速查' and not tables.get('速查'):   # 11-13 速查本退役（用户：App 为唯一成品）：速查源不存在时不再核速查一侧
+                continue
             candidates = [entry for entry in tables[book]
                           if not first or any(first in value for value in entry[4]['first'])]
             matches = [entry for entry in candidates if entry[0] == headers]
