@@ -4,8 +4,10 @@
 用法：check_figs.py [笔记库路径]   ——问题打印「FIGS 错误 …」，退出码 1；全部通过退出码 0
 
 读私有库 figures_src/figs.py（只做语法解析，不执行、不出图）：
-1. 每个 @fig('图号') 函数里所有字符串中的数值（数字 + 单位）都要在所在节的两本正文里找得到
-   （完整版该节文件 + 速查里绑定到该节的条目）；只作示意的数值登记在 FIGVALS_OK 并写理由。
+1. 每个 @fig('图号') 函数（figs.py 与第 5 章处置导图 figs_flow.py）里所有字符串中的数值（数字 + 单位；马赫数只认小数写法 0.65M / .82M）
+   都要在所在节的正文里找得到；只作示意的数值登记在 FIGVALS_OK 并写理由。
+   2026-11-13：本节 QRH 检查单旁注图（qrh/overlays）的文字不再算出处——旁注图也是图片，App 搜不到；
+   图里的数值必须写进正文（通常是图后「注：关键数值——」，P10）。
 2. TYPEVALS 登记的两型数值：正文里该数值必须属于同一机型（两型对比表的机型列，或【737-NG】/【737-8】标注之后），
    属于另一机型 → 错误（教训：1.7-6 起动时序图曾把两型 N2 标反）；两边都认不出 → 错误，请人工看。
 """
@@ -26,8 +28,11 @@ def strip(t):
     return re.sub(r'<[^>]+>', '', t).replace('&lt;', '<').replace('&gt;', '>')
 
 
+MACH = re.compile(r'(?<![\w.])(\d*\.\d+)M(?![A-Za-z])')   # 马赫数只认小数写法，免得把 300M 一类误当马赫
+
+
 def vals(s):
-    return {m.group(1) + m.group(2).strip() for m in VAL.finditer(s)}
+    return {m.group(1) + m.group(2).strip() for m in VAL.finditer(s)} | {m.group(1) + 'M' for m in MACH.finditer(s)}
 
 
 def type_facts(text):
@@ -78,26 +83,11 @@ def main():
         quick = ''.join(e for e in qents if re.search(r'\[\[%s ' % re.escape(sec), e.split('\n', 2)[1] if '\n' in e else ''))
         if not full and not quick:
             errs.append('图 %s：找不到第 %s 节的正文' % (k, sec)); continue
-        # 第五轮：本节 QRH 检查单图（figures_src/qrh/overlays/<节>，K-L8 已逐字核两型 QRH）的文字也算出处
-        qrhtxt = ''
-        ovd = FIGS.parent / 'qrh' / 'overlays' / sec
-        if ovd.is_dir():
-            import sys as _sys, json as _json
-            _sys.path.insert(0, str(FIGS.parent / 'qrh'))
-            try:
-                from compose import compose as _compose
-                qrhtxt = ' '.join(_json.dumps(_compose(_json.load(open(f, encoding='utf-8'))), ensure_ascii=False) for f in sorted(glob.glob(str(ovd / '*.json'))))
-            except Exception as e:
-                errs.append('图 %s：读本节 QRH 检查单叠加层出错 %s' % (k, e))
-        qrh_orig = qrhtxt
-        if qrhtxt:      # QRH 写法：5,000 英尺 / 20 分钟 / 1 秒 / 235K / 15 节 → 与图中写法同口径
-            qrhtxt = re.sub(r'(?<=\d),(?=\d{3})', '', qrhtxt)
-            for a, b in ((r'\s*英尺', 'ft'), (r'\s*分钟', 'min'), (r'\s*秒钟?', 's'), (r'\s*节', 'kt'), (r'(?<=\d)K\b', 'kt'), (r'(?<=\d)\s+(?=(ft|kt|min|s)\b)', '')):
-                qrhtxt = re.sub(r'(?<=\d)' + a if not a.startswith('(?<=') else a, b, qrhtxt)
-        text = plain(full + quick + qrh_orig + ' ' + qrhtxt)
+        # 2026-11-13：QRH 旁注图文字不再算出处（第五轮曾算入；旁注图同样搜不到，数值须进正文）
+        text = plain(full + quick)
         for v in sorted(set().union(*[vals(s) for s in ss]) if ss else ()):
             if v not in text and v not in ok.get(k, {}):
-                errs.append('图 %s 里的数值「%s」在 %s 节两本正文里都找不到——图中数值要取自正文（只作示意的登记 FIGVALS_OK 并写理由）' % (k, v, sec))
+                errs.append('图 %s 里的数值「%s」在 %s 节正文里找不到——图中数值要写进正文（图后「注：关键数值——」；只作示意的登记 FIGVALS_OK 并写理由）' % (k, v, sec))
         facts = type_facts(full + quick)
         for t, vs in typevals.get(k, {}).items():
             other = TYPES[1 - TYPES.index(t)]
