@@ -785,8 +785,14 @@ function htmlTableCore(html) {
           /* SD-204（2026-10-17 用户：刹车效应列「统一居中。这个为什么上一次提出以后也没有改？」）：源文件表头显式写了 col-center 的列，按标注整列居中，不被「独有格靠左」覆盖 */
           const srcCtr = new Set(); { const hm0 = String(html).match(/<tr class="hdr">([\s\S]*?)<\/tr>/); let col0 = 0;
             if (hm0) for (const m0 of hm0[1].matchAll(/<th([^>]*)>([\s\S]*?)<\/th>/g)) { const cs0 = +((m0[1].match(/colspan="(\d+)"/) || [0, 1])[1]); if (/(^|\s)col-center(\s|$)/.test((m0[1].match(/class="([^"]*)"/) || [0, ''])[1]) && !/737/.test(m0[2])) for (let q = 0; q < cs0; q++) srcCtr.add(col0 + q); col0 += cs0; } }
+          /* SD-215（2026-11-15 用户，2.6.3 下降率表：「形态为什么没有居中？」）：共有格表里非首列的短值列——本列跨 1 列的正文格全部单段、≤ 10 字宽（半角算半个）、至少 2 格非空，
+             表头没标 col-left（与 App K7 的 td.vc 同口径）——是取值 / 子标签列（光洁 / 减速板、喊话 / 补充简令），整列居中不加点，不按「独有文字格靠左」处理。DOC_SD215_OFF=1 关闭 */
+          const shortCol = new Set(); if (!process.env.DOC_SD215_OFF) { const by = new Map(), wl = t => [...String(t).replace(/\s/g, '')].reduce((n, ch) => n + (ch.charCodeAt(0) < 256 ? .5 : 1), 0);
+            body.forEach(r => r.cells.forEach((c, k) => { const sc = startCol[parsed.indexOf(r)][k]; if (sc < 1 || c.colspan !== 1) return; if (!by.has(sc)) by.set(sc, []); by.get(sc).push(c); }));
+            for (const [sc, cs] of by) { const tx = cs.map(c => plainOf(c.text)), hc = hrC.cells[sc];
+              if (cs.every(c => segsOf(c).length <= 1) && tx.every(t => wl(t) <= 10) && tx.filter(Boolean).length >= 2 && !(hc && /(^|\s)col-left(\s|$)/.test(hc.cls || ''))) shortCol.add(sc); } }
           body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] < 1 || c.colspan !== 1 || c.cmpShared) return;
-            if (srcCtr.has(startCol[parsed.indexOf(r)][k])) { if (plainOf(c.text).trim()) { c.cls = ((c.cls || '') + ' center nodot').trim(); c.cmpShared = true; } return; }
+            if (srcCtr.has(startCol[parsed.indexOf(r)][k]) || shortCol.has(startCol[parsed.indexOf(r)][k])) { if (plainOf(c.text).trim()) { c.cls = ((c.cls || '') + ' center nodot').trim(); c.cmpShared = true; } return; }
             if (isVal(c)) { if (plainOf(c.text).trim()) { c.cls = ((c.cls || '') + ' center nodot').trim(); c.cmpShared = true; } }
             else c.leftUniq = true; }));
         } } }

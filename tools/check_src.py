@@ -824,6 +824,39 @@ def main():
             _p = re.sub(r'https?://\S+', '', re.sub(r'<[^>]+>', '', line))
             if re.search(r'[\u4e00-\u9fff][,;:](?!//)|(?<![A-Za-z0-9])[,;:][\u4e00-\u9fff]', _p): s31.append('%s:%d' % (os.path.basename(f), ln))
     errors.extend('K-S33 中文旁的半角标点：' + x for x in s31)
+    # 规则号 S34。K-S34（2026-11-15 用户，3.2.3「下表前三行为结冰高度上方的最低间隔，这个什么意思？」）：不按行号指代表格内容——
+    # 「下表前三行」「（下两行）」「上表第 2 行」这类写法读者要自己数行、改表后还会错位；要区分就拆表，或写行的名称（W15）。CDU「左第 3 行」这类设备行位不算。
+    s34 = []
+    for f in sorted(glob.glob(os.path.join(SRC, '[1-6] *', '[1-6].*.md'))):
+        for ln, line in enumerate(io.open(f, encoding='utf-8').read().split('\n'), 1):
+            if line.startswith('%%') or line.startswith('<!--'): continue
+            _p = re.sub(r'<[^>]+>', '', line)
+            _m = re.search(r'[下上本该此]表(?:的)?[前后第]?\s*[一二三四五六七八九十两0-9]+\s*行|[（(][下上前后][一二三四五六七八九十两0-9]+\s*行[）)]|[前后][一二三四五六七八九十两0-9]+\s*行(?:为|是|对应|适用)', _p)
+            if _m: s34.append('%s:%d「%s」' % (os.path.basename(f), ln, _m.group(0)))
+    errors.extend('K-S34 按行号指代表格内容（拆表或写行名）：' + x for x in s34)
+    # 规则号 S35。K-S35（2026-11-15 用户，3.4.18「第 3、4 行是同样的，为什么不合并单元格呢？」）：首列上下相邻、内容相同的格要合并（rowspan，B45）。
+    # 只看首列、正文行（不含表头 / 前提 / 注行）、不带 rowspan / colspan 的格；内容为空或「—」的不算；含嵌套表的表不看。
+    s35 = []
+    _norm = lambda x: re.sub(r'\s+', '', unescape(re.sub(r'<[^>]+>', '', x)))
+    for f in sorted(glob.glob(os.path.join(SRC, '[1-6] *', '[1-6].*.md'))):
+        _t = io.open(f, encoding='utf-8').read()
+        for _tm in re.finditer(r'<table\b[^>]*>.*?</table>', _t, flags=re.S):
+            _tb = _tm.group(0)
+            if _tb.count('<table') > 1: continue
+            _occ, _first = {}, {}
+            for _ri, _rm in enumerate(re.finditer(r'<tr\b([^>]*)>(.*?)</tr>', _tb, flags=re.S)):
+                _col = 0; _hdr = bool(re.search(r'\b(hdr|premise|note|fnrow)\b', _rm.group(1)))
+                for _cm in re.finditer(r'<t([dh])\b([^>]*)>(.*?)</t[dh]>', _rm.group(2), flags=re.S):
+                    while _occ.get((_ri, _col)): _col += 1
+                    _rs = int((re.search(r'rowspan="(\d+)"', _cm.group(2)) or [0, 1])[1]); _cs = int((re.search(r'colspan="(\d+)"', _cm.group(2)) or [0, 1])[1])
+                    for _a in range(_rs):
+                        for _b in range(_cs): _occ[(_ri + _a, _col + _b)] = 1
+                    if _col == 0 and not _hdr and _cm.group(1) == 'd' and _rs == 1 and _cs == 1: _first[_ri] = _norm(_cm.group(3))
+                    _col += _cs
+            for _ri in sorted(_first):
+                if _first[_ri] and _first[_ri] not in ('—', '-', '–') and _first.get(_ri + 1) == _first[_ri]:
+                    s35.append('%s:%d「%s」' % (os.path.basename(f), _t.count('\n', 0, _tm.start()) + 1, _first[_ri][:20]))
+    errors.extend('K-S35 首列相邻同内容的格没合并（rowspan）：' + x for x in s35)
     if s23:
         warns.append('K-S23 第一章两型差异表与 6.1 不一致 %d 处：%s' % (len(s23), '、'.join(s23)))
     if s22:
