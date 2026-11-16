@@ -719,6 +719,7 @@ def main():
     if p62:
         plain = lambda s: re.sub(r'\s+', '', re.sub(r'<[^>]+>', '', s.replace('<br>', '；'))).replace('&lt;', '<').replace('&gt;', '>')
         T62 = plain(io.open(p62[0], encoding='utf-8').read())
+        C62 = {re.sub(r'\s+', '', c) for tb in re.findall(r'(?s)<table.*?</table>', io.open(p62[0], encoding='utf-8').read()) for c in re.findall(r'(?s)<td[^>]*>(.*?)</td>', tb)}
         for f in sorted(glob.glob(os.path.join(SRC, '5 故障处置', '5.*.md'))):
             _t5 = io.open(f, encoding='utf-8').read()
             # 第五轮（11-10）：差异由「注：两型检查单差异——」大段注改为「两型检查单差异：」导语 + 表格；取表格里除首列（检查单 / 差异点）、机型列外的各格
@@ -733,10 +734,9 @@ def main():
                         cells = [c for _, c in tds]
                         cells = cells[1:] if (not ncol or span >= ncol) else cells
                         cells = [c for c in cells if c not in ('737-8', '737-NG')]
-                        for seg in re.split(r'<br>|：|；|。', '；'.join(cells)):
-                            s = plain(seg).lstrip('-')
-                            if len(s) >= 6 and s != '无此项' and s not in T62:
-                                s22.append('%s「%s」' % (os.path.basename(f).split(' ')[0], seg.strip()[:24]))
+                        for c in cells:   # 11-16 第九轮收紧：整格逐字（只去空白，标签、换行、标点都算）须在 6.2 有同样的格；原「分段子串」口径漏掉 45 行
+                            if c.strip() and c.strip() != '无此项' and re.sub(r'\s+', '', c) not in C62:
+                                s22.append('%s「%s」' % (os.path.basename(f).split(' ')[0], re.sub(r'<[^>]+>', '', c).strip()[:24]))
             if '注：两型检查单差异——' in _t5:
                 s22.append('%s 仍有旧式「注：两型检查单差异——」大段注（应改为表格）' % os.path.basename(f).split(' ')[0])
     # K-S23：第一章「〈本节系统名〉两型差异」条目里的表，须与 6.1 对应表逐字一致（6.1 为对照视图）
