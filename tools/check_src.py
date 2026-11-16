@@ -720,14 +720,21 @@ def main():
         for f in sorted(glob.glob(os.path.join(SRC, '5 故障处置', '5.*.md'))):
             _t5 = io.open(f, encoding='utf-8').read()
             # 第五轮（11-10）：差异由「注：两型检查单差异——」大段注改为「两型检查单差异：」导语 + 表格；取表格里除首列（检查单 / 差异点）、机型列外的各格
-            for m in re.finditer(r'(?m)^两型检查单差异：\n\n((?:<table.*?</table>\n\n?)+)', _t5, re.S):
-                for row in re.findall(r'(?s)<tr><td>.*?</tr>', m.group(1)):
-                    cells = re.findall(r'(?s)<td[^>]*>(.*?)</td>', row)[1:]
-                    cells = [c for c in cells if c not in ('737-8', '737-NG')]
-                    for seg in re.split(r'<br>|：|；|。', '；'.join(cells)):
-                        s = plain(seg).lstrip('-')
-                        if len(s) >= 6 and s != '无此项' and s not in T62:
-                            s22.append('%s「%s」' % (os.path.basename(f).split(' ')[0], seg.strip()[:24]))
+            # 11-16 全量审核：补两处盲区——①「只有一型的检查单：」表也查；② 首格带 rowspan 的行不再漏掉，被 rowspan 延续的行（少首格）不再误删内容格
+            for m in re.finditer(r'(?m)^(?:两型检查单差异|只有一型的检查单)：\n\n((?:<table.*?</table>\n\n?)+)', _t5, re.S):
+                for tb in re.findall(r'(?s)<table.*?</table>', m.group(1)):
+                    hdr = re.search(r'(?s)<tr class="hdr">(.*?)</tr>', tb)
+                    ncol = len(re.findall(r'<t[hd]\b', hdr.group(1))) if hdr else 0
+                    for row in re.findall(r'(?s)<tr(?![^>]*class="(?:hdr|premise|note)")[^>]*>(.*?)</tr>', tb):
+                        tds = re.findall(r'(?s)<td([^>]*)>(.*?)</td>', row)
+                        span = sum(int((re.search(r'colspan="(\d+)"', a) or [0, 1])[1]) for a, _ in tds)   # 按 colspan 折算列数；不足表头列数 = 被上一行 rowspan 延续、没有首格
+                        cells = [c for _, c in tds]
+                        cells = cells[1:] if (not ncol or span >= ncol) else cells
+                        cells = [c for c in cells if c not in ('737-8', '737-NG')]
+                        for seg in re.split(r'<br>|：|；|。', '；'.join(cells)):
+                            s = plain(seg).lstrip('-')
+                            if len(s) >= 6 and s != '无此项' and s not in T62:
+                                s22.append('%s「%s」' % (os.path.basename(f).split(' ')[0], seg.strip()[:24]))
             if '注：两型检查单差异——' in _t5:
                 s22.append('%s 仍有旧式「注：两型检查单差异——」大段注（应改为表格）' % os.path.basename(f).split(' ')[0])
     # K-S23：第一章「〈本节系统名〉两型差异」条目里的表，须与 6.1 对应表逐字一致（6.1 为对照视图）
