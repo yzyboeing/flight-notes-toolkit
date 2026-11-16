@@ -111,7 +111,8 @@ class DistributionTests(unittest.TestCase):
         manifest = {'name': 'sample-skill', 'stages': {'rules': ['file:SKILL.md'],
                     'render': ['bin:nonexistent-skill-test-executable']}, 'limitations': []}
         result = doctor.check(self.repo, manifest, 'rules')
-        self.assertTrue(result['stages']['rules']['dependencies_found'])
+        # 11-16：dependencies_found 还含主机 python>=3.10 探测（本项目工具链跑在系统 3.9.6），与阶段隔离无关——只断言文件依赖探测
+        self.assertTrue(result['stages']['rules']['probes']['file:SKILL.md'])
         self.assertEqual(result['functional_test'], 'not_run')
         self.assertFalse(doctor.check(self.repo, manifest)['stages']['render']['dependencies_found'])
         with self.assertRaises(ValueError):
