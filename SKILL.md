@@ -24,7 +24,7 @@ description: "维护中文《B737-NG / B737-8 机型理论速查笔记》（一�
 | 7 | `~/flight-repos/study/DESIGN.md`、`更新手册.md` | App 界面规范、构建发版命令 |
 | 8 | [长期决策索引](prompt/decisions-index.md) → [长期决策](prompt/standing-decisions.md) | 只查来历，不作为现行规则 |
 
-工作区：`~/Desktop/工作项目/01_737机型笔记/飞行理论笔记整理/`（旧路径 `~/Desktop/飞行理论笔记整理` 是替身）。单文件版 `prompt/SKILL.md` 由 `tools/export_prompt.py` 生成，给网页端 AI 粘贴用。
+工作区：`~/Projects/737机型笔记/工作资料/飞行理论笔记整理/`（旧路径 `~/Desktop/飞行理论笔记整理` 是替身）。单文件版 `prompt/SKILL.md` 由 `tools/export_prompt.py` 生成，给网页端 AI 粘贴用。
 
 **优先级**：用户在对话里的最新指示 ＞ 现行规则总览的增补 ＞ 三份现行规则 / DESIGN.md ＞ 经验与教训 ＞ 长期决策 ＞ 其他文件。
 
