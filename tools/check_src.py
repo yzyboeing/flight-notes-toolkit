@@ -695,6 +695,7 @@ def main():
     for f in sorted(glob.glob(os.path.join(SRC, '5 故障处置', '5.*.md'))):
         sec = os.path.basename(f).split(' ')[0]
         if sec == '5.12': continue     # 记忆项目汇总节：链到各故障条目，不套骨架
+        if sec not in ('5.3', '5.4', '5.5', '5.7', '5.9', '5.14'): continue   # 11-16 全量审核：只查 N7 名单里的故障类节（原来 5.8 等也被算进来）
         parts = re.split(r'\n### (\d+)\. ', io.open(f, encoding='utf-8').read())
         for k in range(1, len(parts), 2):
             body = parts[k + 1]
@@ -702,6 +703,7 @@ def main():
             if qrh or re.search(r'(?m)^判断与决策参考：\s*$', body):
                 need = (('判断与决策参考', re.search(r'(?m)^判断与决策参考：\s*$', body)), ('检查单与重要项目说明', (not qrh) or re.search(r'(?m)^检查单与重要项目说明：\s*$', body)), ('相关故障', '注：相关故障——' in body))
                 miss = [n for n, ok in need if not ok]
+                if '%s.%s' % (sec, parts[k]) in ('5.3.4', '5.3.5'): miss = [n for n in miss if n != '相关故障']   # 11-16：两型 QRH 均无转阅、无关联检查单（N7 例外，不硬填）
                 if miss: s21.append('%s.%s（新骨架）缺%s' % (sec, parts[k], '、'.join(miss)))
             elif re.search(r'(?m)^现象(与处置)?：\s*$', body):
                 summ = '现象与处置：' in body
