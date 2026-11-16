@@ -61,10 +61,12 @@ else
     exit 1
   fi
   info "泄漏扫描（关键词表 ${KW}，$(wc -l < "$KW" | tr -d ' ') 条）"
-  HITS="$(cd "$PUB" && grep -rnIf "$KW" --exclude-dir=.git . 2>/dev/null | grep -v '^\./CHANGELOG\.md' || true)"
+  # 11-16：只扫 git 管理的文件（已跟踪 + 未跟踪但没被忽略，含未提交改动）；被 .gitignore 忽略的 node_modules 等本机依赖永远推不上去，
+  # 不扫（mini 上装了 @types/node，路径示例误报）。git grep 读工作区内容，比原来只多排除了被忽略的文件。
+  HITS="$(cd "$PUB" && git grep --untracked -nIf "$KW" 2>/dev/null | grep -v '^CHANGELOG\.md' || true)"
   # 模式拼出来而不是写死，否则本脚本自己会被自己扫中
   UPAT="/$(printf 'Users')/|/$(printf 'home')/[a-z]|/$(printf 'sessions')/"
-  PATHS="$(cd "$PUB" && grep -rnIE "$UPAT" --exclude-dir=.git . 2>/dev/null || true)"
+  PATHS="$(cd "$PUB" && git grep --untracked -nIE "$UPAT" 2>/dev/null || true)"
   if [ -n "$HITS" ] || [ -n "$PATHS" ]; then
     no "扫描有命中，工具链**未推送**（只列文件:行，不显示内容）"
     { [ -n "$HITS" ] && printf '%s\n' "$HITS"; [ -n "$PATHS" ] && printf '%s\n' "$PATHS"; } \
