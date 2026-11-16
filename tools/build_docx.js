@@ -495,7 +495,8 @@ function figParts(spec, keepCap, alignLeft) {
 }
 /* 1019R6（记录第 16 条 ND 符号表）：单元格内放小图——格内只写 <img src="figures/…png" w="宽度mm">，按 PNG 原比例缩放、格内居中 */
 function cellImgParas(text) {
-  const m = /^\s*<img\s+src="([^"]+)"(?:\s+w="([\d.]+)")?\s*\/?>\s*$/.exec(String(text || ''));
+  // 11-16：允许图后跟读屏文字 <span class="sr">…</span>（App 里视觉隐藏；Word 同样只放图）——原式不认，14 格把 <img> 原样印成了正文（1.3 / 1.6 / 1.8 / 1.14）
+  const m = /^\s*<img\s+src="([^"]+)"(?:\s+w="([\d.]+)")?\s*\/?>\s*(?:<span class="sr">[^<]*<\/span>\s*)?$/.exec(String(text || ''));
   if (!m) return null;
   const path = require('path');
   const base = process.env.DOC_FIG_DIR || path.join(process.cwd(), 'notes_src');
