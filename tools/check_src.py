@@ -38,6 +38,28 @@ COLSPAN = re.compile(r'colspan="(\d+)"')
 FORBIDDEN_MARKS = re.compile(r'〔待补[^〕]{0,12}〕|\[待补[^\]]{0,12}\]|〔待确认〕|\[待确认\]|【缺失[^】]{0,20}】|待核实|待核对|待原件补充|待补充来源|部分内容待补来源|手册未写|手册中未见|原文未收录')   # SD-48 / SD-50：终稿不允许任何待补、待核类备注
 
 
+def shared_power_difference_covered(summary, title, cells):
+    """核对共有差异中明确列名的检查单及两型完整结论。"""
+    normalize = lambda value: re.sub(r'\s+', '', value)
+    plain = lambda value: re.sub(r'<[^>]+>', '', value)
+    if len(cells) != 3 or normalize(plain(cells[0])) != '仅剩一个主交流电源后':
+        return False
+    for row in re.findall(r'(?s)<tr[^>]*>(.*?)</tr>', summary):
+        shared = re.findall(r'(?s)<td[^>]*>(.*?)</td>', row)
+        if len(shared) != 3 or normalize(plain(shared[0])) != '仅剩一个主交流电源后（APU不可用）':
+            continue
+        ending = re.fullmatch(r'计划在最近合适机场着陆；((?:《[^》]+》)+)检查单结束，其余检查单直接进入下一步。', normalize(shared[1]))
+        prefix = '计划在最近合适机场着陆，然后'
+        maximum = normalize(shared[2])
+        if not ending or not maximum.startswith(prefix):
+            continue
+        names = re.findall(r'《([^》]+)》', ending.group(1))
+        if title.strip('《》') not in names:
+            continue
+        return normalize(cells[1]) == '检查单结束' and normalize(cells[2]) == maximum[len(prefix):]
+    return False
+
+
 def table_widths(block):
     """返回该表块每一行的列宽合计（colspan 累加）。"""
     out = []
@@ -718,13 +740,16 @@ def main():
     p62 = glob.glob(os.path.join(SRC, '6 机型差异', '6.2 *.md'))
     if p62:
         plain = lambda s: re.sub(r'\s+', '', re.sub(r'<[^>]+>', '', s.replace('<br>', '；'))).replace('&lt;', '<').replace('&gt;', '>')
-        T62 = plain(io.open(p62[0], encoding='utf-8').read())
-        C62 = {re.sub(r'\s+', '', c) for tb in re.findall(r'(?s)<table.*?</table>', io.open(p62[0], encoding='utf-8').read()) for c in re.findall(r'(?s)<td[^>]*>(.*?)</td>', tb)}
+        summary62 = io.open(p62[0], encoding='utf-8').read()
+        T62 = plain(summary62)
+        C62 = {re.sub(r'\s+', '', c) for tb in re.findall(r'(?s)<table.*?</table>', summary62) for c in re.findall(r'(?s)<td[^>]*>(.*?)</td>', tb)}
         for f in sorted(glob.glob(os.path.join(SRC, '5 故障处置', '5.*.md'))):
             _t5 = io.open(f, encoding='utf-8').read()
             # 第五轮（11-10）：差异由「注：两型检查单差异——」大段注改为「两型检查单差异：」导语 + 表格；取表格里除首列（检查单 / 差异点）、机型列外的各格
             # 11-16 全量审核：补两处盲区——①「只有一型的检查单：」表也查；② 首格带 rowspan 的行不再漏掉，被 rowspan 延续的行（少首格）不再误删内容格
             for m in re.finditer(r'(?m)^(?:两型检查单差异|只有一型的检查单)：\n\n((?:<table.*?</table>\n\n?)+)', _t5, re.S):
+                titles = re.findall(r'(?m)^### \d+\. (.+)$', _t5[:m.start()])
+                title = titles[-1] if titles else ''
                 for tb in re.findall(r'(?s)<table.*?</table>', m.group(1)):
                     hdr = re.search(r'(?s)<tr class="hdr">(.*?)</tr>', tb)
                     ncol = len(re.findall(r'<t[hd]\b', hdr.group(1))) if hdr else 0
@@ -732,6 +757,8 @@ def main():
                         tds = re.findall(r'(?s)<td([^>]*)>(.*?)</td>', row)
                         span = sum(int((re.search(r'colspan="(\d+)"', a) or [0, 1])[1]) for a, _ in tds)   # 按 colspan 折算列数；不足表头列数 = 被上一行 rowspan 延续、没有首格
                         cells = [c for _, c in tds]
+                        if shared_power_difference_covered(summary62, title, cells):
+                            continue
                         cells = cells[1:] if (not ncol or span >= ncol) else cells
                         cells = [c for c in cells if c not in ('737-8', '737-NG')]
                         for c in cells:   # 11-16 第九轮收紧：整格逐字（只去空白，标签、换行、标点都算）须在 6.2 有同样的格；原「分段子串」口径漏掉 45 行
