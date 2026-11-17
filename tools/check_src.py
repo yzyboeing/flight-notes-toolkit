@@ -503,7 +503,7 @@ def main():
     # ---- SD-209（2026-10-19 整体优化方案批 1）：S6 速查同名、S7 相对上一基线的丢失 / 重复、S8 节粒度、T36 标题规范、T37 速查顺序、L6 插图 ----
     ROOT = os.path.dirname(os.path.abspath(SRC.rstrip('/')))
     if os.path.exists(qsrc):
-        import subprocess, collections as _co
+        import collections as _co   # subprocess 用模块级的（11-16：函数内重复 import 让前面的 S10 报 UnboundLocalError 被吞，S10 从未生效）
         _ents = [(m.group(1).strip(), m.group(2), m.group(3)) for m in re.finditer(r'(?ms)^### (.+?)\n(<!-- 详见.*?-->\n)?(.*?)(?=^### |^## |^%%PART%%|\Z)', qt)]
         for _t, _n in _co.Counter(e[0] for e in _ents).items():
             if _n > 1: errors.append('S6 速查同名条目「%s」×%d' % (_t, _n))
@@ -817,7 +817,7 @@ def main():
     errors.extend('K-S25 连续重复标点：' + x for x in s25)
     # 规则号 S32。K-S32（11-12 用户截图 5.1.2「一列里有的有句号有的没有」）：表格句末标点规则 A（W01，含序号表同列统一）在源头每次都查——原先只在 Word 全量构建的 K-T24 里查，App 门禁漏掉，漂了 383 格
     try:
-        import subprocess, tempfile, json as _json
+        import tempfile, json as _json
         _tmp = tempfile.mktemp(suffix='.json')
         subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'punct_rule.py'), '--repo', os.path.dirname(os.path.abspath(SRC)), '--report', _tmp], capture_output=True, timeout=300)
         _pr = _json.load(open(_tmp, encoding='utf-8')); os.remove(_tmp)
