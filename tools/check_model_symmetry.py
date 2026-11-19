@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""K-S23：对生成器逐格导出检查两型文字对称，以及取值／占位格居中无点。"""
+"""K-S37（原称 K-S23，11-19 改号避开 check_src 的 K-S23）：对生成器逐格导出检查两型文字对称，以及两型列取值格的样式。
+11-19 用户「两型对比都是靠左前面加小圆点，两型共有则居中」（SD-255，用户批准改本检查器）：两型列的取值格一律靠左加点，
+「—」等占位格居中无点；原「取值／占位格居中无点」作废。对称检查照旧。"""
 import argparse,collections,json,re
 from pathlib import Path
 
@@ -49,7 +51,8 @@ def scan(tables):
         for row_cells in rows.values():
             for col, cell in row_cells.items():
                 if col in model_columns and cell['cs'] == 1 and is_value(cell):
-                    if signature(cell) != (['center'], False):
+                    placeholder = bool(re.fullmatch(r'[—－\-–/／]+', re.sub(r'[\s\u200b\u2060\u00ad]', '', cell['t'])))
+                    if signature(cell) != ((['center'], False) if placeholder else (['left'], True)):   # SD-255
                         value_errors.append({'item':table['k'], 'source':table['src'], 'row':cell['r'],
                                              'column':col,'text':cell['t'],'style':signature(cell)})
         for row, cells in rows.items():
@@ -76,5 +79,5 @@ if __name__=='__main__':
     report=scan(load(args.dump))
     if args.report:
         args.report.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
-    print('K-S23', {k:len(v) if isinstance(v,list) else v for k,v in report.items()})
+    print('K-S37', {k:len(v) if isinstance(v,list) else v for k,v in report.items()})
     raise SystemExit(bool(report['mismatches'] or report['valueErrors']))
