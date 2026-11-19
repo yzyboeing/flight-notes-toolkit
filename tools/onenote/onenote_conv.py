@@ -1,9 +1,13 @@
 # LibreOffice HTML → OneNote Graph 接口 HTML
 import re,sys,html
 from html.parser import HTMLParser
+from math import ceil
 import os as _os
 # 2026-10-09 用户：「主要排版规则不变的情况下可以适当加宽页面以让表格内容不那么拥挤」——正文框 700 → 860、最宽表格 670 → 830（表 ≈ 正文框 − 30，文字与表格右缘大致对齐）；ONENOTE_PAGEW 可调
-PAGEW=int(_os.environ.get('ONENOTE_PAGEW', '860')); TABW=PAGEW-30
+# 表格上限可以单独加宽，插图仍按原正文宽度换算。
+PAGEW = int(_os.environ.get('ONENOTE_PAGEW', '860'))
+IMAGE_TABW = PAGEW - 30
+TABW = int(_os.environ.get('ONENOTE_TABW', IMAGE_TABW))
 FONT="FangSong"; SRCW=1020; DOT_PT=6.5; DOT_COLOR="#7f7f7f"
 # 2026-10-09 用户：圆点改用 OneNote 自带列表「Small Solid Square」（接口写 list-style-type:square，读回与用户手设的一致）；
 # 短线：接口不支持 OneNote 的「–」列表符号（自定义符号被丢弃，none 会跳出列表），ONENOTE_CHILD 选子项写法——
@@ -358,7 +362,35 @@ def fit_widths(h, tabw=TABW):
                     W = scaled(fmax)
         else:
             W = balance(W)
-        return format_table(equalize(W))
+        W = equalize(W)
+        if tabw > LEGACY_TABW and hkey not in FIXED:
+            # SD-35③ / B26：先收空白多的标签列，再把腾出的宽度按原列宽比例还给长句列。
+            threshold = 10 * CJK_W + PAD
+            equal_columns = set(EQ.get(hkey, ()))
+            long_columns = [i for i in range(n) if need[i] > threshold and i not in equal_columns]
+            if any(i != 0 for i in long_columns):
+                long_columns = [i for i in long_columns if i != 0]
+            short_columns = [i for i in range(n) if i not in equal_columns and i not in long_columns
+                             and (i == 0 or 0 < need[i] <= threshold)]
+            if long_columns and short_columns:
+                candidate = W.copy()
+                for i in short_columns:
+                    candidate[i] = min(W[i], max(30, ceil(need[i]) + 4))
+                reclaimed = sum(W) - sum(candidate)
+                weight = sum(W[i] for i in long_columns)
+                cumulative = distributed = 0
+                for i in long_columns:
+                    cumulative += W[i]
+                    share = round(reclaimed * cumulative / weight)
+                    candidate[i] += share - distributed
+                    distributed = share
+                def cell_lines(V, col, span, segments):
+                    usable = max(1, sum(V[col:col + span]) - PAD)
+                    return sum(max(1, ceil(_seg_w(x) / usable)) for x in segments if x)
+                if all(cell_lines(candidate, c, cs, segs) <= cell_lines(W, c, cs, segs)
+                       for _, c, cs, segs, _ in cells):
+                    W = candidate
+        return format_table(W)
     return re.sub(r'<table border="1".*?</table>', one, h, flags=re.S)
 
 def unshrink(h):
@@ -489,6 +521,8 @@ class _PrintedTable:
         self.data_table = data_table
         self.rows = []
         self.cell = None
+        self.cell_starts = []
+        self.children = []
 
     def visual_lines(self):
         def cell_lines(cell):
@@ -516,16 +550,20 @@ def _printed_tables(source):
             if tag == 'table':
                 table = _PrintedTable(self.source_offset(), dict(attrs).get('border') == '1')
                 tables.append(table)
+                if stack and stack[-1].cell is not None:
+                    stack[-1].children.append((stack[-1].cell_starts[-1][-1], table))
                 stack.append(table)
             if not stack:
                 return
             table = stack[-1]
             if tag == 'tr':
                 table.rows.append([])
+                table.cell_starts.append([])
             elif tag in ('td', 'th') and table.rows:
                 width = re.search(r'(?:^|;)\s*width:\s*(\d+)px', dict(attrs).get('style', ''))
                 table.cell = (int(width[1]) if width else 0, [])
                 table.rows[-1].append(table.cell)
+                table.cell_starts[-1].append(self.source_offset())
 
         def handle_endtag(self, tag):
             if tag in ('p', 'li', 'div'):
@@ -551,6 +589,59 @@ def _printed_tables(source):
     return [table for table in tables if table.data_table]
 
 
+def _fit_nested_layouts(source, output, tabw):
+    """Keep side-by-side layout tables and their nested cells within the width budget."""
+    incoming = _printed_tables(source)
+    rendered = _printed_tables(output)
+    layouts = [table for table in rendered if table.children]
+    if not layouts:
+        return output
+    original_layouts = [table for table in incoming if table.children]
+    edits = []
+
+    def replace_width(start, pixels):
+        end = output.index('>', start)
+        match = re.search(r'\bwidth:\d+px', output[start:end])
+        if match:
+            edits.append((start + match.start(), start + match.end(), f'width:{pixels}px'))
+
+    def scale(values, limit):
+        total = sum(values)
+        edges = [0]
+        running = 0
+        for value in values:
+            running += value
+            edges.append(round(running * limit / total))
+        return [b - a for a, b in zip(edges, edges[1:])]
+
+    def fit(original, result, limit, layout=False):
+        if len(original.rows) != len(result.rows):
+            raise ValueError('Nested table structure changed during conversion')
+        cells = {}
+        widest = 0
+        for row, starts in zip(original.rows, result.cell_starts):
+            if len(row) != len(starts):
+                raise ValueError('Nested table cell structure changed during conversion')
+            widths = [w for w, _ in row]
+            if not all(widths):
+                raise ValueError('Missing source cell width in nested table')
+            if layout or sum(widths) > limit:
+                widths = scale(widths, limit)
+            widest = max(widest, sum(widths))
+            for start, width in zip(starts, widths):
+                replace_width(start, width)
+                cells[start] = width
+        replace_width(result.start, widest)
+        for (_, child), (start, rendered_child) in zip(original.children, result.children, strict=True):
+            fit(child, rendered_child, cells[start])
+
+    for original, result in zip(original_layouts, layouts, strict=True):
+        fit(original, result, tabw, layout=True)
+    for start, end, value in sorted(edits, reverse=True):
+        output = output[:start] + value + output[end:]
+    return output
+
+
 def _convert_at_width(src, tabw):
     p=C(tabw); p.feed(src); h=''.join(p.out)
     h=re.sub(r'<p style="[^"]*">(\s|<br/>)*<br/>(\s|<br/>)*</p>','<p style="margin-top:0;margin-bottom:0"><span style="font-size:4pt">&#160;</span></p>',h)  # 表间分隔段
@@ -559,11 +650,14 @@ def _convert_at_width(src, tabw):
     h=drop_xref(h)
     h=unwrap_figside(h)
     h=unshrink(h)
+    source = unmerge(h) if tabw > LEGACY_TABW else h
     h=fit_widths(h, tabw)
     h=unmerge(h)
     h=note_blocks(h)
     h=lead_indent(h) if _os.environ.get('DOC_LEAD')!='old' else h
     if LISTS: h=to_lists(h)
+    if tabw > LEGACY_TABW:
+        h = _fit_nested_layouts(source, h, tabw)
     return h
 
 

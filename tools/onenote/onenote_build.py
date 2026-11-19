@@ -10,7 +10,7 @@
 import argparse, glob, html, json, os, re, struct, subprocess, sys, time, uuid
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from onenote_api import req, content, list_pages, create_page, patch_with_image, patch_with_images, delete_page
-from onenote_conv import convert, page, strip_index, FONT, TABW
+from onenote_conv import convert, page, strip_index, FONT, IMAGE_TABW
 NS = os.path.expanduser('~/flight-repos/gh-private/notes_src/')
 WORK = os.path.expanduser('~/flight-repos/_work/onenote')
 CHN = {'第一章': '第一章 系统描述', '第二章': '第二章 操作程序', '第三章': '第三章 运行规范', '第四章': '第四章 特殊情况与风险', '第五章': '第五章 故障处置', '附录': '机型差异'}   # 2026-10-24 SD-234；2026-11-02 第四章按 SD-241 改「特殊情况与风险」
@@ -69,13 +69,23 @@ def figs_for(title):
         if [x.strip() for x in l.split('|')][-1] == '速查': continue   # 2026-10-19：图行末分工标注（P03）「速查」只放速查，完整版 OneNote 不插
         fn, cap, wmm = [x.strip() for x in re.sub(r'^%%FIG(SIDE|RIGHT)?%%\s*', '', l).split('|')][:3]   # SD-207：第 4 段「同页」只给成品排版用
         # OneNote 版删了「详见」行，不能当锚点（1.14-2）
-        prev = ([x for x in Ls[:i] if x.strip() and not re.match(r'\s*详见', x)] or [''])[-1].strip(); nxt = ([x for x in Ls[i + 1:] if x.strip()] or [''])[0].strip()   # 2026-10-19：图在文件末行（1.6）时没有下一行
+        # 2026-11-16：跳过 <!-- callouts --> 注释行（页面上没有；5.3-24 / 5.3-44 因此找不到插入位置）
+        cm = lambda x: x.strip().startswith('<!--')
+        prev = ([x for x in Ls[:i] if x.strip() and not re.match(r'\s*详见', x) and not cm(x)] or [''])[-1].strip(); nxt = ([x for x in Ls[i + 1:] if x.strip() and not cm(x)] or [''])[0].strip()   # 2026-10-19：图在文件末行（1.6）时没有下一行
         anchor = (re.sub(r'^#+\s*', '', nxt), 'before') if prev.startswith('<') else (re.sub(r'^#+\s*', '', prev), 'after')
         if re.match(r'#\s', prev): anchor = (cap, 'before')   # 2026-11-03：上一行是节标题（1.9-1）时，节名会匹配到页眉框里的「章名 ｜ 节名」，图被插进页眉框、绝对定位盖住正文——改为插在正文里成品图注之前（与其他页同排法）
-        if prev.startswith('</table') and nxt.startswith('<'):   # 2026-10-16：图夹在两张表之间（1.13-1）——用上一张表的表头文字找到该表，插在表后
+        if prev.startswith('</table') and (nxt.startswith(('<', '%%FIG')) or not nxt):   # 11-16：图在文件末尾（1.2-11、1.9-11）也插在前表之后   # 2026-10-16：图夹在两张表之间（1.13-1）——用上一张表的表头文字找到该表，插在表后；11-16：后面紧跟另一张图（5.3-24）同样处理
             k = max(j for j in range(i) if Ls[j].lstrip().startswith('<table'))
             hdr = next((x for x in Ls[k:i] if ('<th' in x or '<td' in x) and 'premise' not in x), '')   # 2026-10-19：前提通栏行在 OneNote 里移到表外（unmerge），用真正的表头找表
-            anchor = (plain(re.sub(r'<[^>]+>', ' ', hdr))[:12], 'after-table')
+            key = plain(re.sub(r'<[^>]+>', ' ', hdr))[:12]
+            # 2026-11-16：表头在本页不唯一（第五章「序号｜要点」）时，按表头会找到第一张同名表——改用该表最后一行文字认表
+            if sum(1 for x in Ls if ('<th' in x or '<td' in x) and plain(re.sub(r'<[^>]+>', ' ', x))[:12] == key) > 1:
+                rows = re.findall(r'(?s)<tr(?![^>]*class="(?:hdr|premise|note)")[^>]*>(.*?)</tr>', '\n'.join(Ls[k:i]))   # 行可跨多行写；注行在 OneNote 里移到表外，不用
+                last = plain(re.sub(r'<[^>]+>', ' ', rows[-1]))[:18] if rows else ''
+                key = last or key
+            # 2026-11-16：同样文字的表可能不止一张（两型检查单要点表同句），记下图前同文字表的个数，读回时取对应那一张
+            occ = sum(1 for t in re.findall(r'(?s)<table[^>]*>(.*?)</table>', '\n'.join(Ls[:k])) if key and key in plain(re.sub(r'<[^>]+>', ' ', t)))
+            anchor = (key, 'after-table', occ)
         if prev.startswith('%%FIG'): anchor = ([x.strip() for x in re.sub(r'^%%FIG(SIDE|RIGHT)?%%\s*', '', prev).split('|')][1], 'after')   # 连排几张图：接在上一张图注后（2026-10-11 重要天气预告图三张）
         alt = (re.sub(r'^#+\s*', '', nxt), 'before') if not nxt.startswith(('<', '%%')) else None   # 2026-10-18：前一行（多为注）在 OneNote 里对不上时，用图后一行作后备锚点（1.15-1）
         out.append(dict(file=NS + fn, cap=cap, wmm=float(wmm or 120), anchor=anchor, alt=alt))
@@ -94,14 +104,16 @@ def add_figs(pid, title):
         h = content(pid, ids=True) or ''
         if 'alt="%s"' % html.escape(fg['cap']) in h: L('   图已有', fg['cap'][:16]); continue
         if fg['anchor'][1] == 'after-table':
-            tid = next((m.group(1) for m in re.finditer(r'<table\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</table>', h, re.S) if fg['anchor'][0] and fg['anchor'][0] in plain(m.group(2))), None)
+            cands = [m.group(1) for m in re.finditer(r'<table\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</table>', h, re.S) if fg['anchor'][0] and fg['anchor'][0] in plain(m.group(2))]
+            occ = fg['anchor'][2] if len(fg['anchor']) > 2 else 0
+            tid = cands[occ] if occ < len(cands) else (cands[0] if cands else None)
             pos = 'after'
         else:
             tid = find_anchor(h, fg['anchor'][0]); pos = fg['anchor'][1]
         if not tid and fg.get('alt'): tid = find_anchor(h, fg['alt'][0]); pos = fg['alt'][1]
         if not tid: L('   !! 图找不到插入位置', fg['cap'][:16]); continue
         data = open(fg['file'], 'rb').read(); pw, ph = struct.unpack('>II', data[16:24])
-        w = min(TABW, round(fg['wmm'] / 270 * TABW)); name = 'fig' + uuid.uuid4().hex[:8]
+        w = min(IMAGE_TABW, round(fg['wmm'] / 270 * IMAGE_TABW)); name = 'fig' + uuid.uuid4().hex[:8]
         c = ('<img src="name:%s" width="%d" height="%d" alt="%s"/>' % (name, w, round(w * ph / pw), html.escape(fg['cap'])) +
              '<p style="margin-top:0;margin-bottom:0"><span style="font-family:%s;font-size:9pt;color:#595959">%s</span></p>' % (FONT, html.escape(fg['cap'], quote=False)))
         try:
@@ -121,26 +133,37 @@ def add_cell_imgs(pid, title, src=None):
         f = glob.glob(NS + '*/' + title + '.md')
         if not f: return
         src = open(f[0], encoding='utf-8').read()
+    def hdr_of(tbody):   # 表头行文字前 12 字（源文件取 class="hdr" 行，读回取第一行）
+        m = re.search(r'(?s)<tr class="hdr">(.*?)</tr>', tbody) or re.search(r'(?s)<tr\b[^>]*>(.*?)</tr>', tbody)
+        return plain(re.sub(r'<[^>]+>', ' ', m.group(1)))[:12] if m else ''
+    seen = {}   # 2026-11-16：同一页常有多张同表头的表（第五章「项目｜说明」），按「同表头第几张」对齐，原来总取第一张
     for tm in re.finditer(r'(?s)<table[^>]*>(.*?)</table>', src):
+        hdr = hdr_of(tm.group(1)); nth = seen.get(hdr, 0); seen[hdr] = nth + 1
         rows = re.findall(r'(?s)<tr(?![^>]*class="(?:hdr|premise|note)")[^>]*>(.*?)</tr>', tm.group(1))
         imgs = [re.search(r'<img\s+src="([^"]+)"(?:\s+w="([\d.]+)")?', r) for r in rows]
+        # 2026-11-16：图在第几格（11-10 起第五章灯图在第 2 格「说明」列，原来只看第 1 格，98 格全部插不进）
+        cols = [next((i for i, td in enumerate(re.findall(r'(?s)<td\b[^>]*>(.*?)</td>', r)) if '<img' in td), 0) for r in rows]
         if not any(imgs): continue
-        hdr = plain(re.sub(r'<[^>]+>', ' ', re.search(r'(?s)<tr class="hdr">(.*?)</tr>', tm.group(1)).group(1)))[:12]
         h = content(pid, ids=True) or ''
-        tb = next((m for m in re.finditer(r'<table\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</table>', h, re.S) if hdr and hdr in plain(m.group(2))), None)
+        if quiet:   # 速查：src 是整本速查源、不是本页，序号对不上——沿用旧口径（表内含表头文字的第一张）
+            cands = [m for m in re.finditer(r'<table\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</table>', h, re.S) if hdr and hdr in plain(m.group(2))]; nth = 0
+        else:
+            cands = [m for m in re.finditer(r'<table\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</table>', h, re.S) if hdr and hdr_of(m.group(2)) == hdr]
+        tb = cands[nth] if nth < len(cands) else None
         if not tb:
-            if quiet is False: L('   !! 格内图找不到表', title, hdr)
+            if quiet is False: L('   !! 格内图找不到表', title, hdr, '第 %d 张' % (nth + 1))
             continue
-        if '<img' in tb.group(2): L('   格内图已有', hdr); continue
+        if '<img' in tb.group(2): L('   格内图已有', hdr, '第 %d 张' % (nth + 1)); continue
         trs = re.findall(r'(?s)<tr\b[^>]*>(.*?)</tr>', tb.group(2))[1:]   # 去表头
         cmds, files = [], []
-        for tr, im in zip(trs, imgs):
+        for tr, im, col in zip(trs, imgs, cols):
             if not im: continue
-            td1 = re.search(r'(?s)<td\b[^>]*>(.*?)</td>', tr)   # 2026-11-02：只看第一格——原式会越过空首格匹配到第 2 列，图插进名称列
+            tds = list(re.finditer(r'(?s)<td\b[^>]*>(.*?)</td>', tr))
+            td1 = tds[col] if col < len(tds) else None   # 只看图所在那一格（11-02：不越格匹配，免得图插进名称列）
             pm = td1 and re.search(r'<p\b[^>]*\bid="([^"]+)"', td1.group(1))
-            if not pm: L('   !! 格内图首格没有段落', hdr, im.group(1)[-20:]); continue
+            if not pm: L('   !! 格内图所在格没有段落', hdr, '第 %d 格' % (col + 1), im.group(1)[-20:]); continue
             data = open(NS + im.group(1), 'rb').read(); pw, ph = struct.unpack('>II', data[16:24])
-            w = round(float(im.group(2) or 15) / 270 * TABW); name = 'cimg' + uuid.uuid4().hex[:8]
+            w = round(float(im.group(2) or 15) / 270 * IMAGE_TABW); name = 'cimg' + uuid.uuid4().hex[:8]
             ih = '<img src="name:%s" width="%d" height="%d"/>' % (name, w, round(w * ph / pw))
             empty = not plain(re.sub(r'<[^>]+>', '', re.search(r'(?s)<p\b[^>]*\bid="%s"[^>]*>(.*?)</p>' % re.escape(pm.group(1)), td1.group(1)).group(1)))
             cmds.append({'target': pm.group(1), 'action': 'replace', 'content': ih} if empty else {'target': pm.group(1), 'action': 'insert', 'position': 'before', 'content': ih})
@@ -153,7 +176,7 @@ def add_cell_imgs(pid, title, src=None):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--docx', required=True)
-    ap.add_argument('--notebook-id', default=NB_ID, help='默认：用户自己的「飞行」笔记本（另有同名共享只读本，必须按编号区分）')
+    ap.add_argument('--notebook-id', default=NB_ID, help='默认：用户自己的「B737 机型理论知识笔记」笔记本（11-16 核实；另有他人共享的只读本「飞行」，已关闭，必须按编号区分）')
     ap.add_argument('--group', default='', help='分区组名；留空表示分区直接放在笔记本下（2026-10-05 起）')
     ap.add_argument('--chapters', default='1-6')
     ap.add_argument('--prune', action='store_true', help='整章重写后删掉本次写入分区里、标题不在新基线中的旧页（节号 / 节名变了时用）')
