@@ -311,6 +311,23 @@ def scan_center_alignment(table, exempt):
             yield header
 
 
+def model_of(label):
+    """与 build_docx.js modelOf 同口径：只含 737-NG → NG，只含 737-8 / MAX → 8，两者都有或都没有 → None。"""
+    label = re.sub(r'[\s\u200b\u2060\u00ad]', '', label).upper()
+    ng = bool(re.search(r'737[-‐‑–—]?NG', label))
+    eight = bool(re.search(r'737[-‐‑–—]?(?:8(?![0-9])|MAX)', label))
+    return None if ng == eight else ('NG' if ng else '8')
+
+
+def scan_model_center(table):
+    models = [(h, model_of(''.join(h['segments']))) for h in table['headers'] if h['span'] == 1]
+    kinds = {m for _, m in models}
+    if 'NG' in kinds and '8' in kinds:
+        for header, model in models:
+            if model and 'col-center' in header['classes']:
+                yield header
+
+
 MIX_DETAIL = []
 
 MIX = []
@@ -512,6 +529,12 @@ def main():
         for cell in scan_center_alignment(table, exempt[filename]):
             line = offset + source.count('\n', 0, cell['offset']) + 1
             errors.append(f"K-S22 {filename}:{line} 机型长句列标了 col-center")
+    # 规则号 S36。K-S36（SD-255，2026-11-19 用户，1.7 第 2 条：「两型对比都是靠左前面加小圆点，两型共有则居中」）：
+    # 表头同时有 737-NG、737-8 列的两型对比表，两型列（含「仅 737-NG / 仅 737-8」，与 build_docx modelOf 同口径；「两型相同」不算）表头不得标 col-center
+    for _, filename, source, offset, table in alignment_documents:
+        for cell in scan_model_center(table):
+            line = offset + source.count('\n', 0, cell['offset']) + 1
+            errors.append(f"K-S36 {filename}:{line} 两型对比表的两型列「{''.join(cell['segments'])}」标了 col-center（两型列一律靠左加点，SD-255）")
 
     # SD-196：速查主题 JSON 的 order / see / exclude / short 引用必须能前缀匹配到某条速查标题（失效引用曾掩盖条目被删）
     _qj = os.path.join(os.path.dirname(os.path.abspath(SRC.rstrip('/'))), '速查', '速查按主题查.json')
@@ -735,49 +758,34 @@ def main():
                 s21_method += 1
     if s21 or not QUIET:
         print(f'  提示  K-S21 故障条目骨架 {len(s21)} 条未完成（方法条 {s21_method} 条不套骨架）' + ('：' + '、'.join(s21[:8]) + ('…' if len(s21) > 8 else '') if s21 else ''))
-    # K-S22（顾问 11-09：差异真源在知识点处、第六章作对照视图）：第五章「注：两型检查单差异——」每一段都要能在 6.2 正文里找到
-    s22 = []
-    p62 = glob.glob(os.path.join(SRC, '6 机型差异', '6.2 *.md'))
-    if p62:
-        plain = lambda s: re.sub(r'\s+', '', re.sub(r'<[^>]+>', '', s.replace('<br>', '；'))).replace('&lt;', '<').replace('&gt;', '>')
-        summary62 = io.open(p62[0], encoding='utf-8').read()
-        T62 = plain(summary62)
-        C62 = {re.sub(r'\s+', '', c) for tb in re.findall(r'(?s)<table.*?</table>', summary62) for c in re.findall(r'(?s)<td[^>]*>(.*?)</td>', tb)}
-        for f in sorted(glob.glob(os.path.join(SRC, '5 故障处置', '5.*.md'))):
-            _t5 = io.open(f, encoding='utf-8').read()
-            # 第五轮（11-10）：差异由「注：两型检查单差异——」大段注改为「两型检查单差异：」导语 + 表格；取表格里除首列（检查单 / 差异点）、机型列外的各格
-            # 11-16 全量审核：补两处盲区——①「只有一型的检查单：」表也查；② 首格带 rowspan 的行不再漏掉，被 rowspan 延续的行（少首格）不再误删内容格
-            for m in re.finditer(r'(?m)^(?:两型检查单差异|只有一型的检查单)：\n\n((?:<table.*?</table>\n\n?)+)', _t5, re.S):
-                titles = re.findall(r'(?m)^### \d+\. (.+)$', _t5[:m.start()])
-                title = titles[-1] if titles else ''
-                for tb in re.findall(r'(?s)<table.*?</table>', m.group(1)):
-                    hdr = re.search(r'(?s)<tr class="hdr">(.*?)</tr>', tb)
-                    ncol = len(re.findall(r'<t[hd]\b', hdr.group(1))) if hdr else 0
-                    for row in re.findall(r'(?s)<tr(?![^>]*class="(?:hdr|premise|note)")[^>]*>(.*?)</tr>', tb):
-                        tds = re.findall(r'(?s)<td([^>]*)>(.*?)</td>', row)
-                        span = sum(int((re.search(r'colspan="(\d+)"', a) or [0, 1])[1]) for a, _ in tds)   # 按 colspan 折算列数；不足表头列数 = 被上一行 rowspan 延续、没有首格
-                        cells = [c for _, c in tds]
-                        if shared_power_difference_covered(summary62, title, cells):
-                            continue
-                        cells = cells[1:] if (not ncol or span >= ncol) else cells
-                        cells = [c for c in cells if c not in ('737-8', '737-NG')]
-                        for c in cells:   # 11-16 第九轮收紧：整格逐字（只去空白，标签、换行、标点都算）须在 6.2 有同样的格；原「分段子串」口径漏掉 45 行
-                            if c.strip() and c.strip() != '无此项' and re.sub(r'\s+', '', c) not in C62:
-                                s22.append('%s「%s」' % (os.path.basename(f).split(' ')[0], re.sub(r'<[^>]+>', '', c).strip()[:24]))
-            if '注：两型检查单差异——' in _t5:
-                s22.append('%s 仍有旧式「注：两型检查单差异——」大段注（应改为表格）' % os.path.basename(f).split(' ')[0])
-    # K-S23：第一章「〈本节系统名〉两型差异」条目里的表，须与 6.1 对应表逐字一致（6.1 为对照视图）
-    s23 = []
-    p61 = glob.glob(os.path.join(SRC, '6 机型差异', '6.1 *.md'))
-    if p61:
-        norm = lambda s: re.sub(r'\s+', '', s)
-        T61 = {norm(x) for x in re.findall(r'(?s)<table.*?</table>', io.open(p61[0], encoding='utf-8').read())}
-        for f in sorted(glob.glob(os.path.join(SRC, '1 系统描述', '1.*.md'))):
-            txt = io.open(f, encoding='utf-8').read(); sysn = (re.search(r'(?m)^title_cn:\s*"([^"]+)"', txt) or [None, '\x00'])[1]
-            for m in re.finditer(r'(?ms)^### (\d+)\. %s ?两型差异\n(.*?)(?=^### |\Z)' % re.escape(sysn), txt):
-                for tb in re.findall(r'(?s)<table.*?</table>', m.group(2)):
-                    if norm(tb) not in T61:
-                        s23.append('%s.%s' % (os.path.basename(f).split(' ')[0], m.group(1)))
+    # K-S22 / K-S23（11-19 第六章完全融合进前五章后替换，SD-258；原 K-S22「第五章差异表与 6.2 逐字一致」、K-S23「第一章节末差异条与 6.1 逐字一致」随第六章取消）：
+    #   K-S22（错误）：全书不得再有第六章文件、6.x 条目链接或「6.x 第 N 条」；第五章不得有旧式「注：两型检查单差异——」大段注（原 K-S22 附带的检查，保留）；
+    #           5.1 必须有「多张检查单共有的两型差异」条（共有差异的唯一落点），它列出的检查单《…》在第五章都要有同名条目（找不到的列为警告，逐张看）；
+    #   K-S23（错误）：第一章不得再出现「〈系统〉两型差异」节末条（防回加，用户 11-19「第一章节末重复的两型差异全部删掉」）
+    s22, s22w, s23 = [], [], []
+    if glob.glob(os.path.join(SRC, '6 *')): s22.append('notes_src 下还有第六章目录')
+    ch5_titles = []
+    for f in sorted(glob.glob(os.path.join(SRC, '[1-5] *', '*.md'))):
+        _t = io.open(f, encoding='utf-8').read(); _b = os.path.basename(f)
+        for _m in re.finditer(r'(?<![\d.])6\.[1-4] 第 \d+ 条|\[\[6\.[1-4] ', _t):
+            s22.append('%s 指向第六章：「%s」' % (_b.split(' ')[0], _m.group(0)))
+        if _b.startswith('5.'):
+            ch5_titles += re.findall(r'(?m)^### \d+\. (.+)$', _t)
+            if '注：两型检查单差异——' in _t:
+                s22.append('%s 仍有旧式「注：两型检查单差异——」大段注（应改为表格）' % _b.split(' ')[0])
+        if _b.startswith('1.'):
+            for _m in re.finditer(r'(?m)^### (\d+)\. (.*两型差异)\s*$', _t):
+                s23.append('%s 第 %s 条「%s」' % (_b.split(' ')[0], _m.group(1), _m.group(2)))
+    _p51 = glob.glob(os.path.join(SRC, '5 故障处置', '5.1 *.md'))
+    _t51 = io.open(_p51[0], encoding='utf-8').read() if _p51 else ''
+    _share = re.search(r'(?ms)^### \d+\. 多张检查单共有的两型差异\s*\n(.*?)(?=^### |\Z)', _t51)
+    if not _share: s22.append('5.1 没有「多张检查单共有的两型差异」条')
+    else:
+        _ck = lambda x: re.sub(r'【[^】]*】|[（(][^）)]*[）)]|\s|[–—-]', '', x).upper()
+        _have = {_ck(t) for t in ch5_titles} | {re.sub(r'[\s（）()【】–—-]', '', t).upper() for t in ch5_titles}
+        for _n in sorted(set(re.findall(r'《([^》]+)》', re.sub(r'<[^>]+>', '', _share.group(1))))):
+            if _ck(_n) not in _have and not any(_ck(_n) in h or h in _ck(_n) for h in _have if len(h) >= 2):
+                s22w.append(_n)
     # 规则号 S24 S25。K-S24（第四轮 F0）：同一节内插图编号「图 x.y-N」须按出现顺序 1、2、3…（导图追加后忘了重编号会乱序）
     # K-S25（第四轮第一批）：正文不得有连续重复的中文标点「；；」「，，」「。。」（转换脚本拼接时最易产生）
     s24, s25 = [], []
@@ -894,9 +902,11 @@ def main():
                     s35.append('%s:%d「%s」' % (os.path.basename(f), _t.count('\n', 0, _tm.start()) + 1, _first[_ri][:20]))
     errors.extend('K-S35 首列相邻同内容的格没合并（rowspan）：' + x for x in s35)
     if s23:
-        warns.append('K-S23 第一章两型差异表与 6.1 不一致 %d 处：%s' % (len(s23), '、'.join(s23)))
+        errors.append('K-S23 第一章又出现节末两型差异条 %d 处（SD-258：两型差异写进讲该话题的条目）：%s' % (len(s23), '、'.join(s23)))
     if s22:
-        warns.append('K-S22 两型检查单差异注与 6.2 不一致 %d 处：%s' % (len(s22), '、'.join(s22[:6])))
+        errors.append('K-S22 第六章融合后的检查 %d 处：%s' % (len(s22), '、'.join(s22[:6])))
+    if s22w:
+        warns.append('K-S22 5.1 共有两型差异条列出的检查单第五章没有同名条目 %d 张（只在 QRH 的，逐张看）：%s' % (len(s22w), '、'.join(s22w)))
     for label, hits in zip(('S15 同条注 ≥ 4', 'S16 空注', 'S17 元注关键词'), note_hints):
         if hits or not QUIET:
             print(f'  提示  K-{label} {len(hits)} 处' + ('：' + '、'.join(hits[:8]) if hits else ''))

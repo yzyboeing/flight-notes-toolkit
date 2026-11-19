@@ -716,38 +716,19 @@ function htmlTableCore(html) {
       return ng === eight ? null : ng ? 'NG' : '8';
     };
     const segsOf = (c) => String(c.text).split(/<br\s*\/?>/).map(plainOf).filter(Boolean);
-    const modelLength = (text) => Array.from(text.replace(/[\s\u200b\u2060\u00ad]/g, '')).reduce((n, ch) => n + (ch.codePointAt(0) < 256 ? 0.5 : 1), 0);
-    const modelValue = (c) => {
-      const text = segsOf(c).join(';').replace(/[\s\u200b\u2060\u00ad]/g, '')
-        .replace(/（[^）]{0,14}）|\([^)]{0,14}\)/g, '');
-      if (/^[—－\-–]$/.test(text)) return true;
-      return !!text && text.split(/[;；]/).filter(Boolean).every(value => {
-        const numeric = value.replace(/^(约|至少|不少于|不超过|最多|最少|小于|大于)/, '')
-          .replace(/千米|公里|英尺|夸脱|分钟|小时|米|磅|升|秒|天|度|个/g, 'u');
-        return /\d/.test(numeric) && /^[\d.,:：~～+\-−–≤≥<>≦≧≈=%\/°×±℃℉a-zA-Z·→]*$/.test(numeric);
-      });
-    };
     const modelHdr = parsed.find(r => /hdr/.test(r.cls) && r.cells.some(c => modelOf(c) === 'NG') && r.cells.some(c => modelOf(c) === '8'));
     const modelCells = modelHdr ? modelHdr.cells.filter(c => c.colspan === 1 && modelOf(c)) : [];
-    const modelCols = new Set(modelCells.map(c => startCol[parsed.indexOf(modelHdr)][modelHdr.cells.indexOf(c)]));
-    const modelRows = parsed.map((r, ri) => /hdr|note|premise|warn/.test(r.cls) ? [] :
-      r.cells.filter((c, k) => c.colspan === 1 && modelCols.has(startCol[ri][k]) && segsOf(c).length));
-    const modelLong = modelCells.some(c => /\bcol-bullet\b/.test(c.cls || '')) ||
-      modelRows.some(cells => cells.some(c => {
-        const segs = segsOf(c);
-        return segs.length >= 3 || segs.some(x => modelLength(x) >= 15 || /^[-–—]\s/.test(x)) ||
-          segs.slice(0, -1).some(x => /[：:]$/.test(x));
-      }));
-    const modelPinned = modelCells.some(c => /\bcol-center\b/.test(c.cls || ''));
-    // B10 取值格独立居中。只有文字格参与两型成对判断。
-    if (modelCells.length >= 2) modelRows.forEach(cells => {
-      const textCells = cells.filter(c => !modelValue(c));
-      const short = textCells.every(c => {
-        const segs = segsOf(c);
-        return segs.length === 1 && modelLength(segs[0]) <= 10 && !/[；;]|^[①-⑳▪•]/.test(segs[0]);
-      });
-      cells.forEach(c => { c.modelRowStyle = modelValue(c) || modelPinned || !modelLong || short ? 'center' : 'bullet'; });
-    });
+    /* SD-255（2026-11-19 用户，1.7 第 2 条：「两型对比都是靠左前面加小圆点，两型共有则居中，按照这个规则排查整本笔记所有表格排版」）：
+       表头同时有 737-NG、737-8 列的两型对比表（首格 no-cmp 也算），两型列（含「仅 737-NG / 仅 737-8」）跨 1 列的格一律靠左加点，数值、单项也一样；
+       跨两型列合并的共有格居中；「两型相同」列居中；「—」占位居中。表头显式 col-center 对两型列作废（check_src 报错）。
+       原「两型列全是数值时整表居中」「B10 取值格独立居中」作废。td 级显式 center / nodot 的格照标注不动 */
+    const modelOn = modelCells.length >= 2;
+    const modelCols = new Set(modelOn ? modelCells.map(c => startCol[parsed.indexOf(modelHdr)][modelHdr.cells.indexOf(c)]) : []);
+    const sameCols = new Set(); if (modelOn) modelHdr.cells.forEach((c, k) => { if (c.colspan === 1 && /^两型相同$/.test(plainOf(c.text).replace(/\s+/g, ''))) sameCols.add(startCol[parsed.indexOf(modelHdr)][k]); });
+    if (modelOn) parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+      r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (c.colspan !== 1 || !segsOf(c).length || /(^|\s)(center|nodot)(\s|$)/.test(c.cls || '')) return;
+        if (sameCols.has(col)) c.modelRowStyle = 'center';
+        else if (modelCols.has(col)) c.modelRowStyle = /^[—－\-–\/／]+$/.test(plainOf(c.text).replace(/\s+/g, '')) ? 'center' : 'bullet'; }); });
     { const hrC = parsed.find(r => r.cls.includes('hdr'));
       if (hrC && !process.env.NO_CMP && hrC.cells.every(c => c.colspan === 1) && hrC.cells.length >= 3 && !/(^|\s)no-cmp(\s|$)/.test(hrC.cells[0].cls || '')) {
         const vh0 = hrC.cells.slice(1);
@@ -765,7 +746,7 @@ function htmlTableCore(html) {
           const strip = (t) => String(t || '').replace(/(^|\s)col-(center|bullet|plain|left)(?=\s|$)/g, ' ').trim();
           vh.forEach(c => {
             const authoredCenter = /(^|\s)col-center(\s|$)/.test(c.cls || '');
-            const bullet = !authoredCenter && (typeH ? modelLong && !modelPinned : longT);
+            const bullet = typeH || (!authoredCenter && longT);   // SD-255：两型列一律加点，表头 col-center 作废
             c.cls = (strip(c.cls) + (bullet ? ' col-bullet' : ' col-center')).trim();
           });
           body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) sharedMark(c); }));
@@ -792,7 +773,7 @@ function htmlTableCore(html) {
             body.forEach(r => r.cells.forEach((c, k) => { const sc = startCol[parsed.indexOf(r)][k]; if (sc < 1 || c.colspan !== 1) return; if (!by.has(sc)) by.set(sc, []); by.get(sc).push(c); }));
             for (const [sc, cs] of by) { const tx = cs.map(c => plainOf(c.text)), hc = hrC.cells[sc];
               if (cs.every(c => segsOf(c).length <= 1) && tx.every(t => wl(t) <= 10) && tx.filter(Boolean).length >= 2 && !(hc && /(^|\s)col-left(\s|$)/.test(hc.cls || ''))) shortCol.add(sc); } }
-          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] < 1 || c.colspan !== 1 || c.cmpShared) return;
+          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] < 1 || c.colspan !== 1 || c.cmpShared || c.modelRowStyle) return;   // SD-255：两型列 / 两型相同列按上面判定
             if (srcCtr.has(startCol[parsed.indexOf(r)][k]) || shortCol.has(startCol[parsed.indexOf(r)][k])) { if (plainOf(c.text).trim()) { c.cls = ((c.cls || '') + ' center nodot').trim(); c.cmpShared = true; } return; }
             if (isVal(c)) { if (plainOf(c.text).trim()) { c.cls = ((c.cls || '') + ' center nodot').trim(); c.cmpShared = true; } }
             else c.leftUniq = true; }));
@@ -804,6 +785,10 @@ function htmlTableCore(html) {
       if (hrN && !process.env.DOC_NOSHARE_OFF && /(^|\s)no-cmp(\s|$)/.test(hrN.cells[0].cls || '') && !/(^|\s)no-share(\s|$)/.test(hrN.cells[0].cls || '') && !serialTable(parsed, startCol)) {
         parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
           r.cells.forEach((c, k) => { if (startCol[ri][k] >= 1 && c.colspan >= 2 && !c.cmpShared && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) sharedMark(c); }); }); } }
+    /* SD-255：两型对比表（含首格 no-cmp）跨两型列合并的共有格一律居中、不加点（显式 cell-bullet 的格照标注） */
+    if (modelOn) parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
+      r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (col < 1 || c.colspan < 2 || c.cmpShared) return;
+        for (let j = col; j < col + c.colspan; j++) if (modelCols.has(j)) { sharedMark(c); return; } }); });
     /* SD-188 ②（2026-10-15 用户，速查第 41 页「F/D 指令杆再现后」：「只有两列那第二列就靠左前面加小圆点」；待改清单第 12、14 条）：
        只有两列的表，第二列整列靠左加点（单句格也加点）；序号表（首列 ①② / 1、2）除外——第二列靠左、不另加点；
        并列对照表（parallel，如 PF | PM）两列都加点。DOC_SD188_OFF=1 关闭 */
@@ -849,7 +834,8 @@ function htmlTableCore(html) {
                 n0++;
                 if (t.replace(/（[^）]{0,12}）/g, '').length >= 15) longS = true;   // 第 91 条（用户 2026-10-20）：长句（≥ 15 字，短括注不计）
                 if (/<br\s*\/?>/i.test(raw) || /(^|\n)\s*(- |• |[①-⑳])/.test(raw.replace(/<[^>]+>/g, '')) || /<img\b/i.test(raw)) multi = true;
-                if (/[；。]/.test(t.replace(/[；。]$/, ''))) multi = true; }); });   // 第 124 条：格内「；」分项或两句以上（中间有句号）也算多项
+                /* SD-262（2026-11-19 用户，3.2.6「解决的问题这一列去掉前面的小圆点统一居中」）：一项 = 格内不分行；格中间的「。」不再算多项，\n                   「；」只有在加点列里真会拆成两个以上圆点（每段约 6 字以上）时才算（原第 124 条口径） */
+                { const pp = splitOut(raw, /[；;]/); if (pp && pp.length >= 2 && pp.every(y => pv(String(y).replace(/[；;，,。]/g, '')) >= 12)) multi = true; } }); });   // 第 124 条：格内「；」分项或两句以上（中间有句号）也算多项
             /* 第 91 / 92 条（用户 2026-10-20「凡是长句列，不论表头，都改成靠左加点；用户点名的『时间』『定义』照旧居中」）：
                列里有长句 → 整列靠左加点（B03），不看表头；只有全是短值 / 短句的单项列才居中（B38）。用户点名居中的列在源文件显式标 col-center */
             /* 第 124 条（用户 2026-10-21 选 B）：整列每格只有一项（无 <br>、无分项符号、格中间无「。」「；」）→ 居中不加点，不论字数；
@@ -881,6 +867,11 @@ function htmlTableCore(html) {
             noSemCols.add(startCol[hri][hk]);
           if (/(^|\s)col-plain(\s|$)/.test(hc.cls || '')) { bulletCols.add(startCol[hri][hk]); brOnlyCols.add(startCol[hri][hk]); }   // col-plain（2026-10-03 改）：不按「；」拆句；一格里按换行分开的 ≥ 2 条要点照常加点，单句不加（SD-120）
           if (/(^|\s)col-bullet(\s|$)/.test(hc.cls || '')) bulletCols.add(startCol[hri][hk]); }); } }
+    /* SD-255：两型列整列按项加点（不论表头 col-center / 无标注）；「两型相同」列居中不加点（顾问裁定） */
+    if (modelOn) { const hrM = parsed.indexOf(modelHdr);
+      modelHdr.cells.forEach((hc, hk) => { const col = startCol[hrM][hk]; if (hc.colspan !== 1) return;
+        if (modelCols.has(col)) { bulletCols.add(col); noSemCols.delete(col); hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(center|left)(?=\s|$)/g, ' ') + (/(^|\s)col-(bullet|plain)(\s|$)/.test(hc.cls || '') ? '' : ' col-bullet')).trim(); }
+        else if (sameCols.has(col)) { bulletCols.delete(col); brOnlyCols.delete(col); noSemCols.add(col); hc.cls = (String(hc.cls || '').replace(/(^|\s)col-(bullet|plain|left)(?=\s|$)/g, ' ') + ' col-center').trim(); } }); }
     /* 单句不加点（用户 2026-10-03）：除父子关系外，单独一句话前不加小圆点。按整列判断——加点列里每格都只有一句：整列改居中、不加点；
        有多条的列仍靠左，其中的单句格不加点、文字与圆点项文字对齐（见下方 MK_Q） */
     const itemsOf = (t) => { const s1 = String(t).split(/<br\s*\/?>/).filter(x => plainOf(x));
@@ -1136,7 +1127,7 @@ function htmlTableCore(html) {
       r.cells.forEach((c, k) => { const t = String(c.text); if (//.test(t)) colsB.add(startCol[ri][k]); if (//.test(t)) colsL.add(startCol[ri][k]); }); });
     parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
       r.cells.forEach((c, k) => { const span = [...Array(c.colspan || 1).keys()].some(d => colsB.has(startCol[ri][k] + d));   // 跨列格：跨到的任一列有「•」也算（速查 125 Ⅱ 类说明格）
-        if ((span || /(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) && //.test(String(c.text))) c.text = String(c.text).replace(//g, ''); }); }); }
+        if ((span || /(^|\s)cell-bullet(\s|$)/.test(c.cls || '') || c.modelRowStyle === 'bullet') && //.test(String(c.text))) c.text = String(c.text).replace(//g, ''); }); }); }   // SD-255：两型列一律加点，粗体小标题段也加「•」
   /* SD-120 单句不加点·总收口（2026-10-03 全书审查：「同列统一」等前面的步骤会给单句格补「•」）：
      一格里只有一个「•」项（可带悬挂续句、没有子项）→ 算单句。整列都是单句：去掉标记、整列居中；混合列：单句格改为不加点、文字对齐（）；跨列格单句直接去点 */
   if (process.env.DOC_SINGLE_NODOT) { const single = (c) => { const ls = String(c.text).split(/<br\s*\/?>/).filter(x => x.replace(/<[^>]+>|[-\s]/g, ''));
@@ -2043,7 +2034,15 @@ function htmlTableCore(html) {
           && (nm.startsWith('\uE002') || nm === '\uE005' || c.cmpShared || NUM_RE.test(String(rawParas[pj + 1]).replace(/^[\uE001-\uE006]+/, '')));   // 与下面 parentSeg 判定一致；带编号的引导语不算
         return n0 + ((m0 === '\uE001' || par) ? 1 : 0); }, 0);
       const leadDot = !LEAD_OLD && !hierarchy && !SERIAL_T && process.env.DOC_LEAD_DOT !== '0' && topCnt >= 2;
-      const firstModelParagraph = c.modelRowStyle === 'bullet' ? rawParas.findIndex(seg => seg.replace(/<[^>]+>|[\uE001-\uE006]/g, '').trim()) : -1;
+      /* SD-255：两型列加点格。格里已有分项标记（•/–/悬挂）的按标记排，只给无标记的首段补「•」；整格无标记的（粗体「小标题：」各段、未经分项的格），
+         每段并列项都加「•」，「但 / 或 / 而…」延续句、「注：」、括注续行不加；①② / 1. / 第 N 步： 编号列表格（≥ 2 段编号）编号本身就是标记，靠左不另加点 */
+      const modelDots = new Set();
+      if (c.modelRowStyle === 'bullet') { const pl0 = (seg) => unesc(String(seg).replace(/<[^>]+>|[\uE001-\uE006]/g, '')).trim();
+        const ne = rawParas.map((seg, i) => [i, pl0(seg)]).filter(x => x[1]);
+        const numRe = /^([\u2460-\u2473]|\d{1,2}[.、)）](?!\d)|第 ?\d+ ?[条步][：:])/;   // 编号列表：首段编号、且 ≥ 2 段编号（单独一句「第 2 步对应…」是普通句子，照样加点）
+        if (ne.length && !(numRe.test(ne[0][1]) && ne.filter(x => numRe.test(x[1])).length >= 2)) {
+          if (semMarked) modelDots.add(ne[0][0]);
+          else ne.forEach(([i, p0], n) => { if (n === 0 || !/^(但|但是|因此|所以|即(?!使)|其中|否则|此时|然后|随后|并且|而且|而|且|或|→|注[：:]|[（(])/.test(p0)) modelDots.add(i); }); } }
       const paras = rawParas.map((seg, pi) => {
         const hasParent = parentFlags.slice(0, pi + 1).some(Boolean);
         const mk = (seg.match(/^[\uE001-\uE006]+/) || [''])[0]; seg = seg.slice(mk.length);
@@ -2063,7 +2062,7 @@ function htmlTableCore(html) {
         const prefix = (SERIAL_T && ci > 0) ? ((mk.startsWith('\uE002') || (hierarchy && !parentFlags[pi] && hasParent)) ? '– ' : '') :   // SD-140：序号表其余列不加「•」，子项「–」保留
           leadSeg ? ((leadDot && !isNumSeg) ? '• ' : '') :
           hierarchy ? (parentFlags[pi] ? '• ' : (hasParent ? '– ' : '')) :   /* 父项统一「•」（Muse M5-149 / 258，2026-10-01） */ mk === '\uE001' ? '• ' : mk.startsWith('\uE002') ? '– ' : '';
-        const prefix2 = c.modelRowStyle === 'center' ? '' : pi === firstModelParagraph ? '• ' : (prefix === '– ' && /^\s*(<[^>]+>\s*)*([\u2460-\u2473]|\d+[.、)）])/.test(seg)) ? '' : prefix;   // ① 子项已编号不加短线
+        const prefix2 = c.modelRowStyle === 'center' ? '' : modelDots.has(pi) ? '• ' : (prefix === '– ' && /^\s*(<[^>]+>\s*)*([\u2460-\u2473]|\d+[.、)）])/.test(seg)) ? '' : prefix;   // ① 子项已编号不加短线
         const CHW = FS * 10;   // 一个汉字宽（twip）
         const childInd = LEAD_OLD ? null : prefix === '– ' ? (prefix2 ? { left: Math.round(CHW * 1.75), hanging: Math.round(CHW * 0.85) } : { left: Math.round(CHW * 0.9) }) : null;
         const paragraphCenter = c.modelRowStyle ? center : /(^|\s)center(\s|$)/.test(c.cls || '') && !longLeft || (!(hierarchy || semMarked) && center);
@@ -2079,7 +2078,7 @@ function htmlTableCore(html) {
           /* 第一列（项目名 / 标签列）加粗，让表头行与首列都醒目；首列为长句列时不加粗 */
           children: runs(prefix2 + seg.trim(), { inTable: true, noRed: labelCol, bold: isHdr || c.head || labelCol || boldFirst || parentSeg, size: FS, cs: cellCS, ...(leadSeg && !BW ? { color: LEAD_C } : {}) }),
           spacing: shrinkLv >= 5 ? { before: 0, after: 0, line: LN } : shrinkLv === 4 ? { before: 10, after: 10, line: LN } : { before: 20, after: 20, line: LN },   // 2026-10-23：4 级（8pt 收行距）格内段间距减半而不是清零——清零让 3→4 级表高骤减约 23%（实测），中间少了一档   // 4 级（one-page 超大表）：格内段间距取 0（1.4 D-2 约 70 段，段间距合计约 140pt）
-          indent: c.modelRowStyle === 'center' ? undefined : pi === firstModelParagraph ? { left: 0, hanging: 120 } : leadSeg ? ((leadDot && !isNumSeg) ? { left: 0, hanging: 120 } : { left: 0 }) : childInd ? childInd : numUnderLead ? { left: Math.round(CHW * 2.2), hanging: Math.round(CHW * 1.3) } : hierarchy ? { left: 0, hanging: 120 } : (mk === '\uE001' || mk.startsWith('\uE002')) ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : undefined,   // 用户 2026-10-04 样本：子项「–」与圆点对齐（都悬挂在左留白），子项文字与父项文字对齐；编号子项、单句同一起点（SD-180 起子项缩进一级，DOC_LEAD=old 时仍按此）   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
+          indent: c.modelRowStyle === 'center' ? undefined : modelDots.has(pi) ? { left: 0, hanging: 120 } : leadSeg ? ((leadDot && !isNumSeg) ? { left: 0, hanging: 120 } : { left: 0 }) : childInd ? childInd : numUnderLead ? { left: Math.round(CHW * 2.2), hanging: Math.round(CHW * 1.3) } : hierarchy ? { left: 0, hanging: 120 } : (mk === '\uE001' || mk.startsWith('\uE002')) ? { left: 0, hanging: 120 } : mk === '\uE006' ? { left: 200, hanging: 200 } : undefined,   // 用户 2026-10-04 样本：子项「–」与圆点对齐（都悬挂在左留白），子项文字与父项文字对齐；编号子项、单句同一起点（SD-180 起子项缩进一级，DOC_LEAD=old 时仍按此）   // 悬挂圆点（2026-10-03）：「•」挂在左留白里，文字与单句、普通格同一起点；子项「–」/ 编号统一缩进 320
           keepNext: false,   // SD-218（2026-10-21）：表格行内不设「与下段同页」——LibreOffice 见到就整表不拆、并与下文连成一串整体下移；断点改由 fit_fix 按实测修（原：表头 / 前提 / 整表同页 / 首尾防孤行 / 表后注 / KEEP_LAST）
           /* 单格居中（<td class="center">，2026-10-01 用户，速查 120「条件」跨列格）优先于列规则 */
           alignment: paragraphCenter ? AlignmentType.CENTER : undefined
