@@ -737,6 +737,12 @@ def main():
     #   带 QRH 检查单图或旁注受管块的条目 → 新骨架须齐（判断与决策参考 / 检查单与重要项目说明 / 相关故障）；
     #   有旧式「现象：」的条目 → 旧四段须齐；其余（判断方法、机动、技术、按阶段流程、记忆项目汇总）为方法条，只计数。
     s21 = []; s21_method = 0
+    # N7：以下三张检查单均无转阅。按两型 QRH 原页确认，也无应直链的相关检查单。
+    no_related = {
+        ('5.4', '紧急定位发射机（ELT）'),  # NG 1.4；737-8 1.4
+        ('5.8', '无线电持续发射（麦克风电门卡死）'),  # NG 5.1；737-8 5.1
+        ('5.13', '飞行记录器断开'),  # NG 10.22；737-8 10.19
+    }
     for f in sorted(glob.glob(os.path.join(SRC, '5 故障处置', '5.*.md'))):
         sec = os.path.basename(f).split(' ')[0]
         # （记忆项目汇总节改号为 5.21，已不在下面的故障类节范围里）
@@ -749,6 +755,9 @@ def main():
                 need = (('判断与决策参考', re.search(r'(?m)^判断与决策参考：\s*$', body)), ('检查单与重要项目说明', (not qrh) or re.search(r'(?m)^检查单与重要项目说明：\s*$', body)), ('相关故障', '注：相关故障——' in body))
                 miss = [n for n, ok in need if not ok]
                 if '%s.%s' % (sec, parts[k]) in ('5.3.4', '5.3.5'): miss = [n for n in miss if n != '相关故障']   # 11-16：两型 QRH 均无转阅、无关联检查单（N7 例外，不硬填）
+                title = body.splitlines()[0].strip()
+                if (sec, title) in no_related:
+                    miss = [n for n in miss if n != '相关故障']
                 if miss: s21.append('%s.%s（新骨架）缺%s' % (sec, parts[k], '、'.join(miss)))
             elif re.search(r'(?m)^现象(与处置)?：\s*$', body):
                 summ = '现象与处置：' in body
