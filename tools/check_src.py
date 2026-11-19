@@ -348,7 +348,7 @@ def main():
     def collect_editorial(text, filename, offset=0):
         for bucket, hits in zip(editorial, scan_editorial_markers(text, filename, common, offset)):
             bucket.extend(hits)
-        errors.extend('K-S21 两型共有格含单型内容 '+hit
+        errors.extend('K-S38 两型共有格含单型内容 '+hit
                       for hit in scan_model_colspans(text, filename, offset))
         book = '速查' if filename == '速查/速查源.md' else '完整版'
         alignment_documents.extend((book, filename, text, offset, table) for table in alignment_tables(text))
@@ -528,7 +528,7 @@ def main():
     for _, filename, source, offset, table in alignment_documents:
         for cell in scan_center_alignment(table, exempt[filename]):
             line = offset + source.count('\n', 0, cell['offset']) + 1
-            errors.append(f"K-S22 {filename}:{line} 机型长句列标了 col-center")
+            errors.append(f"K-S36 {filename}:{line} 机型长句列标了 col-center")   # 11-19 并入 K-S36（原借用 K-S22 号）
     # 规则号 S36。K-S36（SD-255，2026-11-19 用户，1.7 第 2 条：「两型对比都是靠左前面加小圆点，两型共有则居中」）：
     # 表头同时有 737-NG、737-8 列的两型对比表，两型列（含「仅 737-NG / 仅 737-8」，与 build_docx modelOf 同口径；「两型相同」不算）表头不得标 col-center
     for _, filename, source, offset, table in alignment_documents:
@@ -739,8 +739,8 @@ def main():
     s21 = []; s21_method = 0
     for f in sorted(glob.glob(os.path.join(SRC, '5 故障处置', '5.*.md'))):
         sec = os.path.basename(f).split(' ')[0]
-        if sec == '5.12': continue     # 记忆项目汇总节：链到各故障条目，不套骨架
-        if sec not in ('5.3', '5.4', '5.5', '5.7', '5.9', '5.14'): continue   # 11-16 全量审核：只查 N7 名单里的故障类节（原来 5.8 等也被算进来）
+        # （记忆项目汇总节改号为 5.21，已不在下面的故障类节范围里）
+        if not (3 <= int(sec.split('.')[1]) <= 18 or sec == '5.23'): continue   # 11-19 第五章按 QRH 章分节（SD-259）：故障类节 = 5.3～5.18（QRH 第 0～15 章）与 5.23（地面发动机火警与撤离）
         parts = re.split(r'\n### (\d+)\. ', io.open(f, encoding='utf-8').read())
         for k in range(1, len(parts), 2):
             body = parts[k + 1]
@@ -794,6 +794,9 @@ def main():
         for ln, line in enumerate(io.open(f, encoding='utf-8').read().split('\n'), 1):
             m = re.match(r'%%FIG[A-Z]*%%[^|]*\|\s*图\s*' + re.escape(sec) + r'-(\d+)', line)
             if m: nums.append(int(m.group(1)))
+            mf = re.match(r'%%FIG[A-Z]*%%\s*figures/(\d+\.\d+-\d+)_[^|]*\|\s*图\s*(\d+\.\d+-\d+)', line)
+            if mf and mf.group(1) != mf.group(2):   # 11-19（规则 M8）：图注号与文件号必须一致
+                s24.append('%s:%d 图注号 %s 与文件号 %s 不一致' % (os.path.basename(f), ln, mf.group(2), mf.group(1)))
             if not line.startswith('%%') and re.search(r'；；|，，|。。|[。；，][。；，]|：。', line):   # 11-12：混合重复「。；」「；。」也算
                 s25.append('%s:%d' % (os.path.basename(f), ln))
         if nums and nums != list(range(1, len(nums) + 1)):
