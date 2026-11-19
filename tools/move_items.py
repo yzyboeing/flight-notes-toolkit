@@ -74,6 +74,9 @@ for ps in plan_secs:   # 节级引用的主去向：fm 指向的节排第一
     if ps['id'] in SMAP.get(ps['fm'], []):
         SMAP[ps['fm']].remove(ps['id']); SMAP[ps['fm']].insert(0, ps['id'])
 src_secs = {k.split(' ')[0] for ps in plan_secs for k in ps['items'] if not k.startswith('%%')}
+# 11-19（第十轮统一执行，第六章完全融合）：remove 里列的节可以一条也不进新结构——条目全部 merge 进别节；
+#   这时也算源节（文件移走、条目逐条核对：每一条都必须在 merge 里，否则「漏列」报错）
+src_secs |= {s for s in PLAN.get('remove', []) if s in SEC}
 for s in src_secs:
     for it in SEC[s]['items']:
         if (s, it[0]) in MERGE: continue
