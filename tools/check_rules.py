@@ -54,12 +54,26 @@ STALE = [
     (r'模拟机 / QRH → 第 4 章|第 4 章顺序锁定', 'SD-241 后模拟机 / QRH 在第 5 章；节内按主题插入，条号后移由 App 迁移链处理'),
     (r'「最新文件」只给速查 PDF|最新文件」只给速查', '2026-11 起日常交付是 App，PDF / Word 用户点名才出'),
     (r'或在节末追加|追加在节末', '新条按主题插在最贴切的条目之后，迁移链负责收藏（2026-11-05 审核）'),
+    # 2026-11-19 规则矛盾审核（问题 5）：SD-254～264 作废的说法，现行规则里再出现就报
+    (r'能用图表达得更简洁的，不用表格|能用图片和思维导图表达更简洁的就不要用表格', '第十轮 11-18 修订（App 规则 〇-3 / P10）：按信息关系选表 / 图，比较类优先用表'),
+    (r'只留第六章|只放第六章|两型差异汇总只放第六章|位置、标签、外观类只留第六章', 'SD-258（11-19）：取消第六章，两型差异完全融合进前五章'),
+    (r'6\.2 镜像|与 6\.2 逐字一致|与 6\.1 逐字一致|逐字镜像的正式差异汇编表|与其逐字镜像', 'SD-258：第六章取消，K-S22 / K-S23 改为融合后的检查'),
+    (r'〈系统名?〉两型差异」条里|K-S23 要求', 'SD-255 / 258：第一章不设节末两型差异条，K-S23 原逐字校验取消'),
+    (r'全是数值时整表居中|两型列全是数值\s*/?\s*短值\s*→|两型列\*?\*?全是数值\s*/\s*短值\*?\*?的，两列居中', 'SD-255（11-19）：两型列一律靠左加点，数值也一样，共有格居中'),
+    (r'竖屏上下排|竖屏仍显示上下排|照旧上下排', 'SD-255（11-19）：两型对比图横屏、竖屏都并排，字小点图放大'),
+    (r'横屏并排版.{0,20}最小字\s*≥\s*11px|看不清不并排', 'SD-255：并排两型对比图豁免 11px 下限，靠点图放大'),
+    (r'同表已有加点列时.{0,12}也(靠左)?加点|同一张表里已有加点列时，长句单项列也', 'SD-262（11-19）：单项列一律居中不加点，不因同表别的列加点而跟着加点'),
+    (r'第五章\s*5\.3\s*增压相关|5\.3 增压相关|5\.9 燃油、液压与起落架', 'SD-259（11-19）：第五章按 QRH 章分节，一章一节'),
+    (r'两型不同处：……」|图底留一行「两型不同处|图下一行「两型不同处」', '11-14 用户：两型不同处不写在图里，进表或注；面板图差异写图底红框图例'),
+    (r'一步一框', 'SD-263（11-19）：简化处置导图，一阶段一卡，不需要的不画'),
+    (r'第 ?N ?步对应 737-NG 第 ?M ?步」?(写|照写|保留)', 'SD-264（11-19）：不写纯步号对应'),
 ]
-EXEMPT = re.compile(r'作废|不再|已删|不设|已并入|原第|旧|删除|去掉|取消|改名|不收|无前言|不标|没有|已归档')
+EXEMPT = re.compile(r'作废|不再|已删|不设|已并入|原第|旧|删除|去掉|取消|改名|不收|无前言|不标|没有|已归档|取代')   # 11-19 加「取代」：「（取代原……）」是作废说明
 
 CHECKERS = ['check_layout.py', 'check_struct.py', 'check_src.py', 'check_blocks.py', 'check_quickref.py',
             'check_pair.py', 'check_userpins.py', 'check_linkage.py', 'check_figs.py', 'check_rules.py',
-            'verify.py', 'check_splits.py', 'check_coverage.py', 'punct_rule.py', 'fit_fix.py']
+            'verify.py', 'check_splits.py', 'check_coverage.py', 'punct_rule.py', 'fit_fix.py',
+            'check_model_symmetry.py']   # K-S37（11-19，原自称 K-S23）
 
 errs = []
 
@@ -126,6 +140,8 @@ alltext = '\n'.join(src_text.values())
 
 # 只能在 sync 或别的脚本里实现的号：写明实现位置
 ELSEWHERE = {'RULES': 'check_rules.py', 'L7': 'check_figs.py', 'B5': 'check_gaps.py', 'Z3': 'check_overshrink.py'}
+# 11-19：check_src 的 K-S22 / K-S23（第六章融合后的检查）与 check_model_symmetry 的 K-S37 只以「K-Sxx」形式出现，按实现文件登记
+ELSEWHERE.update({'S22': 'check_src.py', 'S23': 'check_src.py', 'S37': 'check_model_symmetry.py'})
 # 外部检查（实现在别的仓库，SD-244）：学习系统网页排版检查 AC1～AC10 = study/tools/test_layout.js 的 C1～C10；本机没有 study 库（如噜噜虚拟机）时只提示不报错
 EXTERNAL = {'AC%d' % n: PUB.parent / 'study' / 'tools' / 'test_layout.js' for n in range(1, 11)}
 EXTERNAL['L9'] = PUB.parent / 'gh-private' / 'figures_src' / 'qrh' / 'build_figs.py'   # 11-12：第五章旁注图最大字号 ≤ 15px（比正文小一号），出图时由 build_figs 检查
