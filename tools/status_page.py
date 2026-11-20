@@ -138,7 +138,9 @@ def manual_block(ws):
 
 
 def strip_time(text):
-    return re.sub(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}', '<时间>', text)
+    # 比对时忽略生成时间和「工作区」一行：生成文件本身就提交在工作区，提交后那一行必然变化
+    text = re.sub(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}', '<时间>', text)
+    return '\n'.join(l for l in text.split('\n') if not l.startswith('| 工作区 |'))
 
 
 def main():
