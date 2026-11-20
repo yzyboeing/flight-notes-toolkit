@@ -42,14 +42,14 @@ def scale():
                   if re.match(r'\d+\.\d+ ', os.path.basename(f)))
     chapters = sorted({os.path.basename(os.path.dirname(f)) for f in secs})
     entries = sum(len(re.findall(r'(?m)^### \d+\. ', read(f))) for f in secs)
-    refs = set()
+    main, cell = set(), set()
     for f in secs:
         t = read(f)
-        refs.update(re.findall(r'%%FIG%%\s*figures/([^\s|]+)', t))
-        refs.update(re.findall(r'<img[^>]*src="figures/([^"]+)"', t))
+        main.update(x.strip() for x in re.findall(r'%%FIG%%\s*figures/([^|\n]+?)\s*\|', t))
+        cell.update(re.findall(r'<img[^>]*src="figures/([^"]+)"', t))
     fig_dir = os.path.join(G, 'notes_src', 'figures')
-    dark = sum(1 for r in refs if os.path.exists(os.path.join(fig_dir, re.sub(r'\.png$', '.dark.png', r))))
-    return chapters, len(secs), entries, len(refs), dark
+    dark = lambda s: sum(1 for r in s if os.path.exists(os.path.join(fig_dir, re.sub(r'\.png$', '.dark.png', r))))
+    return chapters, len(secs), entries, (len(main), dark(main), len(cell), dark(cell))
 
 
 def checks():
@@ -104,14 +104,14 @@ def last_line(path, pattern):
 
 def status_block(ws, now):
     content, snapshot, tf, build = app_status()
-    chapters, nsec, nent, nfig, ndark = scale()
+    chapters, nsec, nent, (nmain, dmain, ncell, dcell) = scale()
     errs, warns, hints = checks()
     rules = os.path.join(G, '规则', '现行规则.md')
     rules_kb = os.path.getsize(rules) / 1024 if os.path.exists(rules) else 0
     L = ['## 现状（%s 自动生成）' % now, '',
          '| 项目 | 当前值 |', '|---|---|',
          '| 正文规模 | %d 章 %d 节 %d 条（%s） |' % (len(chapters), nsec, nent, '、'.join(c.split(' ', 1)[-1] for c in chapters)),
-         '| 正文引用插图 | %d 张，其中 %d 张有原生深色版 `.dark.png` |' % (nfig, ndark),
+         '| 正文引用插图 | `%%%%FIG%%%%` 主图 %d 张（%d 张有原生 `.dark.png`）；表格格内小图 %d 张（%d 张有深色版）。口径：按正文引用的不同文件计，不含横屏并排版 |' % (nmain, dmain, ncell, dcell),
          '| 当前内容提交 | gh-private `%s` |' % content,
          '| 与当前内容一致的快照 | `%s` |' % snapshot,
          '| study 构建号 | %s |' % build,

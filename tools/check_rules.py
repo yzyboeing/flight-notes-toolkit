@@ -175,7 +175,9 @@ for old in ('规则总纲.md', '排版规则总表.md', '内容校对核心规�
         errs.append('私有库 规则/%s 是瘦身前的旧副本，应移到 规则/历史档_20261120/' % old)
 
 # ---- 4. 现行规则体量与决策记录落实行 ----
-if not COPIES_ONLY:
+if not COPIES_ONLY and not NOTES.is_dir():
+    print('RULES 提示 没有私有笔记库 %s，跳过现行规则体量与决策记录检查' % NOTES)
+elif not COPIES_ONLY:
     rules = NOTES / RULES_FILE
     if not rules.is_file():
         errs.append('找不到现行规则 %s' % rules)
