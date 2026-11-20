@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""K-S37（原称 K-S23，11-19 改号避开 check_src 的 K-S23）：对生成器逐格导出检查两型文字对称，以及两型列取值格的样式。
-11-19 用户「两型对比都是靠左前面加小圆点，两型共有则居中」（SD-255，用户批准改本检查器）：两型列的取值格一律靠左加点，
-「—」等占位格居中无点；原「取值／占位格居中无点」作废。对称检查照旧。"""
+"""K-S37（原称 K-S23，11-19 改号避开 check_src 的 K-S23）：对生成器逐格导出检查两型文字对称，以及两型对比表（含共有格）样式。
+11-20 用户（SD-268，取代 SD-255 旧口径）：两型对比表（含单型列与跨两列共有格）按格内内容统一判定——
+单独的单一数值 / 范围 /「—」占位格居中无点，其余文字描述格靠左加点。与 build_docx.js isSingleVal 同口径。"""
 import argparse,collections,json,re
 from pathlib import Path
 
@@ -16,18 +16,19 @@ def model(label):
     eight=bool(re.search(r'737[-‐‑–—]?(?:8(?![0-9])|MAX)',label))
     return 'ng' if ng and not eight else '8' if eight and not ng else None
 
-def is_value(cell):
-    text = re.sub(r'[\s\u200b\u2060\u00ad]', '', cell['t'])
-    text = re.sub(r'（[^）]{0,14}）|\([^)]{0,14}\)', '', text)
-    if re.fullmatch(r'[—－\-–]', text):
+def is_single_val(cell):
+    """与 build_docx.js isSingleVal 同口径：单段、无中文与分号，纯「—」占位或单独单一数值/范围。"""
+    if len([p for p in cell.get('items', []) if p.get('html', '').strip()]) != 1:
+        return False
+    t = re.sub(r'[\s\u200b\u2060\u00ad]', '', cell['t'])
+    if not t:
+        return False
+    if re.fullmatch(r'[—－\-–/／]+', t):
         return True
-    parts = [x for x in re.split(r'[;；]', text) if x]
-    for value in parts:
-        numeric = re.sub(r'^(约|至少|不少于|不超过|最多|最少|小于|大于)', '', value)
-        numeric = re.sub(r'千米|公里|英尺|夸脱|分钟|小时|米|磅|升|秒|天|度|个', 'u', numeric)
-        if not re.search(r'\d', numeric) or not re.fullmatch(r'[\d.,:：~～+\-−–≤≥<>≦≧≈=%/°×±℃℉a-zA-Z·→]*', numeric):
-            return False
-    return bool(parts)
+    return bool(re.search(r'\d', t) and re.fullmatch(r'[+\-−–~～≤≥<>±×·.,/°%℃℉a-zA-Z0-9()（）]+', t))
+
+def is_value(cell):
+    return is_single_val(cell)
 
 def signature(cell):
     return sorted({p['align'] for p in cell['items']}), any(p['bullet']=='•' for p in cell['items'])
@@ -50,9 +51,9 @@ def scan(tables):
         model_columns = columns['ng'] | columns['8']
         for row_cells in rows.values():
             for col, cell in row_cells.items():
-                if col in model_columns and cell['cs'] == 1 and is_value(cell):
-                    placeholder = bool(re.fullmatch(r'[—－\-–/／]+', re.sub(r'[\s\u200b\u2060\u00ad]', '', cell['t'])))
-                    if signature(cell) != ((['center'], False) if placeholder else (['left'], True)):   # SD-255
+                hits_model = (col in model_columns and cell['cs'] == 1) or (cell['cs'] >= 2 and any(j in model_columns for j in range(col, col + cell['cs'])))
+                if hits_model and is_single_val(cell):
+                    if signature(cell) != (['center'], False):   # SD-268：单独单一数值 / 范围 /「—」居中无点
                         value_errors.append({'item':table['k'], 'source':table['src'], 'row':cell['r'],
                                              'column':col,'text':cell['t'],'style':signature(cell)})
         for row, cells in rows.items():
