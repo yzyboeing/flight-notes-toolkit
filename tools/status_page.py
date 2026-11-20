@@ -95,10 +95,7 @@ nk = os.path.join(WS, '新知识点待入库清单.md')
 if os.path.exists(nk):
     part = open(nk, encoding='utf-8').read().split('## 待入库', 1)[-1].split('## 已入库', 1)[0]
     todo.append('- 新知识点待入库：%d 张卡' % len(re.findall(r'【知识点卡】', part)))
-one = os.path.join(WS, 'OneNote待同步记录.md')
-if os.path.exists(one):
-    pend = [l for l in open(one, encoding='utf-8') if '待同步' in l]
-    todo.append('- OneNote：%d 条记录标「待同步」（只在用户指令时更新）' % len(pend))
+todo.append('- OneNote：2026-11-19 起彻底停更（SD-266），同步记录仅供溯源。')
 L += todo + ['']
 
 # 保留人工维护的剩余批次区；重新生成只替换自动段。
