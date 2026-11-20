@@ -718,17 +718,32 @@ function htmlTableCore(html) {
     const segsOf = (c) => String(c.text).split(/<br\s*\/?>/).map(plainOf).filter(Boolean);
     const modelHdr = parsed.find(r => /hdr/.test(r.cls) && r.cells.some(c => modelOf(c) === 'NG') && r.cells.some(c => modelOf(c) === '8'));
     const modelCells = modelHdr ? modelHdr.cells.filter(c => c.colspan === 1 && modelOf(c)) : [];
-    /* SD-255（2026-11-19 用户，1.7 第 2 条：「两型对比都是靠左前面加小圆点，两型共有则居中，按照这个规则排查整本笔记所有表格排版」）：
-       表头同时有 737-NG、737-8 列的两型对比表（首格 no-cmp 也算），两型列（含「仅 737-NG / 仅 737-8」）跨 1 列的格一律靠左加点，数值、单项也一样；
-       跨两型列合并的共有格居中；「两型相同」列居中；「—」占位居中。表头显式 col-center 对两型列作废（check_src 报错）。
-       原「两型列全是数值时整表居中」「B10 取值格独立居中」作废。td 级显式 center / nodot 的格照标注不动 */
+    /* SD-268（2026-11-20 用户，1.1.1 / 1.1.11，取代 SD-255 旧口径）：
+       两型对比表（表头同时有 737-NG、737-8 列，含首格 no-cmp）的单型列、「两型相同」列及跨两型列合并的共有格统一按格内内容判定：
+       ① 单独的单一数值 / 范围 /「—」占位符（单段、无中文与分号）→ 居中、不加点；
+       ② 其余文字描述格（含跨两列共有文字格）→ 靠左加「•」（含引导语父项靠左与子项靠左）。
+       td 级显式 center / nodot 的格照标注不动。 */
+    const isSingleVal = (c) => {
+      const sg = segsOf(c); if (sg.length !== 1) return false;
+      const t = sg[0].replace(/\s+/g, '');
+      if (!t) return false;
+      if (/^[—－\-–\/／]+$/.test(t)) return true;
+      return /\d/.test(t) && /^[+\-−–~～≤≥<>±×·.,\/°%℃℉a-zA-Z0-9()（）]+$/.test(t);
+    };
     const modelOn = modelCells.length >= 2;
     const modelCols = new Set(modelOn ? modelCells.map(c => startCol[parsed.indexOf(modelHdr)][modelHdr.cells.indexOf(c)]) : []);
     const sameCols = new Set(); if (modelOn) modelHdr.cells.forEach((c, k) => { if (c.colspan === 1 && /^两型相同$/.test(plainOf(c.text).replace(/\s+/g, ''))) sameCols.add(startCol[parsed.indexOf(modelHdr)][k]); });
     if (modelOn) parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
-      r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (c.colspan !== 1 || !segsOf(c).length || /(^|\s)(center|nodot)(\s|$)/.test(c.cls || '')) return;
-        if (sameCols.has(col)) c.modelRowStyle = 'center';
-        else if (modelCols.has(col)) c.modelRowStyle = /^[—－\-–\/／]+$/.test(plainOf(c.text).replace(/\s+/g, '')) ? 'center' : 'bullet'; }); });
+      r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (!segsOf(c).length || /(^|\s)(center|nodot)(\s|$)/.test(c.cls || '')) return;
+        if (c.colspan === 1 && (sameCols.has(col) || modelCols.has(col))) {
+          c.modelRowStyle = isSingleVal(c) ? 'center' : 'bullet';
+        } else if (col >= 1 && c.colspan >= 2) {
+          let hitsModel = false; for (let j = col; j < col + c.colspan; j++) if (modelCols.has(j)) { hitsModel = true; break; }
+          if (hitsModel) {
+            if (isSingleVal(c)) { c.modelRowStyle = 'center'; c.cls = ((c.cls || '') + ' center').trim(); c.cmpShared = true; }
+            else { c.modelRowStyle = 'bullet'; if (!/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) c.cls = ((c.cls || '') + ' cell-bullet').trim(); }
+          }
+        } }); });
     { const hrC = parsed.find(r => r.cls.includes('hdr'));
       if (hrC && !process.env.NO_CMP && hrC.cells.every(c => c.colspan === 1) && hrC.cells.length >= 3 && !/(^|\s)no-cmp(\s|$)/.test(hrC.cells[0].cls || '')) {
         const vh0 = hrC.cells.slice(1);
@@ -749,13 +764,13 @@ function htmlTableCore(html) {
             const bullet = typeH || (!authoredCenter && longT);   // SD-255：两型列一律加点，表头 col-center 作废
             c.cls = (strip(c.cls) + (bullet ? ' col-bullet' : ' col-center')).trim();
           });
-          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) sharedMark(c); }));
+          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2 && !c.modelRowStyle) sharedMark(c); }));
           if (process.env.CMP_LOG) console.error('CMP', TBL_IDX, longT ? 'long' : 'short', vh.map(c => plainOf(c.text)).join(' | '));
         } else if (shared && !serialTable(parsed, startCol)) {
           /* SD-156（2026-10-06 用户，第 170 页减速板警告「抑制条件」）：「两列共有的内容」的表格都按对比原则——跨列的共有格去掉圆点、统一居中。
              不是机型对照 / 并列方式的表也适用（着陆 | 中断起飞、起飞 | 着陆、快速离机 | 紧急撤离……）；只动共有格，各列自己的加点 / 居中不变。
              跨列格不是「共有内容」的表（如 3.9 安保搜查、4.9 液压处置），首格标 no-cmp 排除。 */
-          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2) sharedMark(c); }));
+          body.forEach(r => r.cells.forEach((c, k) => { if (startCol[parsed.indexOf(r)][k] >= 1 && c.colspan >= 2 && !c.modelRowStyle) sharedMark(c); }));
         }
         /* SD-188 ①（2026-10-15 用户，速查第 170 条减速板警告：「着陆和中断起飞共有的内容居中，各自有的靠左」；待改清单第 7 条）：
            有跨列共有格的表——共有格居中（上面已标），各列独有的文字格一律靠左（c.leftUniq，最终对齐判定优先于 SD-84 单句列居中）；
@@ -784,10 +799,10 @@ function htmlTableCore(html) {
     { const hrN = parsed.find(r => r.cls.includes('hdr'));
       if (hrN && !process.env.DOC_NOSHARE_OFF && /(^|\s)no-cmp(\s|$)/.test(hrN.cells[0].cls || '') && !/(^|\s)no-share(\s|$)/.test(hrN.cells[0].cls || '') && !serialTable(parsed, startCol)) {
         parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
-          r.cells.forEach((c, k) => { if (startCol[ri][k] >= 1 && c.colspan >= 2 && !c.cmpShared && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) sharedMark(c); }); }); } }
-    /* SD-255：两型对比表（含首格 no-cmp）跨两型列合并的共有格一律居中、不加点（显式 cell-bullet 的格照标注） */
+          r.cells.forEach((c, k) => { if (startCol[ri][k] >= 1 && c.colspan >= 2 && !c.cmpShared && !c.modelRowStyle && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) sharedMark(c); }); }); } }
+    /* SD-268：两型对比表跨两型列合并的共有格已在上方按 isSingleVal 判定，此处仅兜底未命中的两型跨列格 */
     if (modelOn) parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
-      r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (col < 1 || c.colspan < 2 || c.cmpShared) return;
+      r.cells.forEach((c, k) => { const col = startCol[ri][k]; if (col < 1 || c.colspan < 2 || c.cmpShared || c.modelRowStyle) return;
         for (let j = col; j < col + c.colspan; j++) if (modelCols.has(j)) { sharedMark(c); return; } }); });
     /* SD-188 ②（2026-10-15 用户，速查第 41 页「F/D 指令杆再现后」：「只有两列那第二列就靠左前面加小圆点」；待改清单第 12、14 条）：
        只有两列的表，第二列整列靠左加点（单句格也加点）；序号表（首列 ①② / 1、2）除外——第二列靠左、不另加点；
