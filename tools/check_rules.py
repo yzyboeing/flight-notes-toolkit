@@ -9,7 +9,9 @@
    写在「已作废」表里、或同一行带「作废 / 不再 / 已删 / 不设 / 原 / 旧」这类否定说明的不算。
 2. K- 规则号与检查器一一对应：《排版规则总表》「检查器规则号」表里每个 K- 号都要在某个检查脚本里找得到；
    检查脚本 err() / sug() / rep() 报出的规则号都要登记在表里。
-3. 规则副本与真本一致：私有库 规则/、桌面 Muse交接包/ 里的副本（存在时）与 pub/prompt 真本逐字相同。
+3. 规则副本：2026-11-20 规则瘦身后不再保留副本；私有库 规则/ 下不得再出现旧副本文件。
+4. 现行规则（私有库 规则/现行规则.md）体量 ≤ 30,720 字节；决策记录（规则/决策记录.md）SD-267 起每条必须有「落实：」行，
+   写明改了现行规则哪一节（「现行规则 第 X 节」）或哪个检查器（K- 号）。
 """
 import os, re, sys
 from pathlib import Path
@@ -21,9 +23,10 @@ NOTES = Path(ARGS[0]).resolve() if ARGS else PUB.parent / 'gh-private'
 NO_COPIES, COPIES_ONLY = '--no-copies' in sys.argv, '--copies-only' in sys.argv
 HB = Path.home() / 'Desktop/飞行理论笔记整理/Muse交接包'
 
-CURRENT = ['SKILL.md', 'AGENTS.md', 'prompt/AGENT.md', 'prompt/portable-instruction.md',
-           'prompt/layout-checklist.md', 'prompt/content-core.md', 'prompt/lessons.md']
-PRIVATE = ['START_HERE.md', 'AGENTS.md', '规则/示例.md']
+CURRENT = ['SKILL.md', 'AGENTS.md', 'prompt/AGENT.md', 'prompt/checks.md']
+PRIVATE = ['START_HERE.md', 'AGENTS.md', '规则/示例.md', '规则/现行规则.md']
+RULES_FILE, DECISIONS = '规则/现行规则.md', '规则/决策记录.md'
+RULES_LIMIT = 30720
 
 # 过时说法：(正则, 说明)
 STALE = [
@@ -101,10 +104,10 @@ if not COPIES_ONLY:
         stale_scan(NOTES / rel, '私有库/' + rel)
 
 # ---- 2. K- 规则号 ↔ 检查器 ----
-lc = (PUB / 'prompt/layout-checklist.md').read_text(encoding='utf-8')
+lc = (PUB / 'prompt/checks.md').read_text(encoding='utf-8')
 sec = lc.split('## 检查器规则号（K-）', 1)
 if len(sec) < 2:
-    errs.append('排版规则总表找不到「## 检查器规则号（K-）」一节')
+    errs.append('prompt/checks.md 找不到「## 检查器规则号（K-）」一节')
     table = ''
 else:
     table = sec[1].split('\n## ', 1)[0]
@@ -157,32 +160,43 @@ for code in sorted(registered) if not COPIES_ONLY else ():
             errs.append('K-%s 登记的实现 %s 不存在' % (code, ELSEWHERE[code]))
         continue
     if not re.search(r'(?<![A-Za-z0-9_-])%s(?![0-9])' % re.escape(code), alltext):
-        errs.append('K-%s 在排版规则总表里登记了，检查脚本里找不到实现' % code)
+        errs.append('K-%s 在 prompt/checks.md 里登记了，检查脚本里找不到实现' % code)
 
 emitted = set()
 for f, t in src_text.items():
     emitted.update(re.findall(r"\b(?:err|sug|rep)\(\s*'([A-Z]+\d*)'", t))
     emitted.update(re.findall(r"(?:errors|warns)\.append\(\s*'([A-Z]+\d+) ", t))
 for code in sorted(emitted - registered) if not COPIES_ONLY else ():
-    errs.append('检查脚本报出的规则号 %s 没有登记在排版规则总表「检查器规则号」表' % code)
+    errs.append('检查脚本报出的规则号 %s 没有登记在 prompt/checks.md「检查器规则号」表' % code)
 
-# ---- 3. 规则副本 ----
-COPIES = [
-    (PUB / 'prompt/portable-instruction.md', [NOTES / '规则/规则总纲.md', HB / '规则总纲.md']),
-    (PUB / 'prompt/layout-checklist.md', [NOTES / '规则/排版规则总表.md', HB / '排版规则总表.md']),
-    (PUB / 'prompt/content-core.md', [NOTES / '规则/内容校对核心规则.md', HB / '内容校对核心规则.md']),
-    (PUB / 'prompt/standing-decisions.md', [NOTES / '规则/长期决策.md']),
-    (PUB / 'prompt/lessons.md', [NOTES / '规则/经验与教训.md', HB / '经验与教训.md']),
-    (PUB / 'prompt/SKILL.md', [NOTES / '规则/B737笔记总规范_单文件.md', HB / 'SKILL.md']),
-]
-for real, copies in (COPIES if not NO_COPIES else ()):
-    body = real.read_bytes()
-    for c in copies:
-        if c.is_file() and c.read_bytes() != body:
-            errs.append('规则副本与真本不一致：%s（真本 %s；sync --full 会自动复制）' % (c, real.relative_to(PUB)))
-stale_copy = NOTES / '规则/排版检查清单.md'
-if stale_copy.exists():
-    errs.append('私有库还有旧副本 规则/排版检查清单.md（已改名 排版规则总表.md）')
+# ---- 3. 规则副本（2026-11-20 起不保留副本）----
+for old in ('规则总纲.md', '排版规则总表.md', '内容校对核心规则.md', '长期决策.md', '经验与教训.md', 'B737笔记总规范_单文件.md', '排版检查清单.md'):
+    if (NOTES / '规则' / old).exists() and not COPIES_ONLY:
+        errs.append('私有库 规则/%s 是瘦身前的旧副本，应移到 规则/历史档_20261120/' % old)
+
+# ---- 4. 现行规则体量与决策记录落实行 ----
+if not COPIES_ONLY:
+    rules = NOTES / RULES_FILE
+    if not rules.is_file():
+        errs.append('找不到现行规则 %s' % rules)
+    elif rules.stat().st_size > RULES_LIMIT:
+        errs.append('现行规则 %d 字节，超过上限 %d（先删过时内容，来历写进决策记录）' % (rules.stat().st_size, RULES_LIMIT))
+    dec = NOTES / DECISIONS
+    if not dec.is_file():
+        errs.append('找不到决策记录 %s' % dec)
+    else:
+        parts = re.split(r'(?m)^## (SD-\d+)', dec.read_text(encoding='utf-8'))
+        seen = []
+        for code, body in zip(parts[1::2], parts[2::2]):
+            n = int(code[3:])
+            seen.append(n)
+            if n < 267:
+                errs.append('决策记录 %s：SD-1～266 已冻结在历史档，新条从 SD-267 起' % code)
+            m = re.search(r'(?m)^\s*(?:[-*]\s*)?落实[：:](.*)$', body)
+            if not m or not re.search(r'现行规则\s*第\s*[〇一二三四五六七八九十\d.]+\s*节|K-?[A-Z]*\d+', m.group(1)):
+                errs.append('决策记录 %s 缺「落实：」行，或没写改了现行规则哪一节 / 哪个 K- 号（现行规则 第七节）' % code)
+        if seen and seen != list(range(267, 267 + len(seen))):
+            errs.append('决策记录 SD 号不连续：%s' % seen)
 
 for e in errs:
     print('RULES 错误', e)

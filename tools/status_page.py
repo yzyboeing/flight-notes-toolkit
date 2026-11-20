@@ -1,112 +1,171 @@
 #!/usr/bin/env python3
-"""生成《现状一页纸.md》（规则重组轮方案 A8，2026-10-21）：给任何接手的 AI 一页看清现在的状态。
-用法：python3 ~/flight-repos/pub/tools/status_page.py   （任意位置运行；每轮收尾、出基线后重跑）
-只读各仓库与成品，不改任何源文件；输出写到工作区根目录《现状一页纸.md》。"""
-import datetime, glob, os, re, subprocess
+"""生成工作区《现状一页纸.md》与《README.md》（2026-11-20 规则瘦身：两份都自动生成，不再手写）。
+
+用法：python3 ~/flight-repos/pub/tools/status_page.py [--ws <工作区>] [--check]
+- 只读各仓库、快照与上传日志，不改任何源文件；输出写到工作区根目录。
+- 工作区要有两份输入：`README_模板.md`（固定说明，含 {{生成时间}} {{现状}} {{人工项}} 三个占位）、
+  `状态_人工项.md`（脚本读不出来、由人决定的发布通道、否决项、下一步）。
+- `--check`：只比对现有两份文件除生成时间外是否与重新生成的一致，不一致退出码 1。
+工作区默认 ~/Projects/737机型笔记/工作资料/飞行理论笔记整理，可用 --ws 或环境变量 STATUS_WS 改。
+"""
+import argparse, datetime, glob, os, re, subprocess
 
 HOME = os.path.expanduser('~')
-WS = os.path.join(HOME, 'Desktop', '飞行理论笔记整理')
-G = os.path.join(HOME, 'flight-repos', 'gh-private')
-PUB = os.path.join(HOME, 'flight-repos', 'pub')
+FLIGHT = os.path.join(HOME, 'flight-repos')
+G = os.path.join(FLIGHT, 'gh-private')
+STUDY = os.path.join(FLIGHT, 'study')
+PUB = os.path.join(FLIGHT, 'pub')
+DEFAULT_WS = os.path.join(HOME, 'Projects', '737机型笔记', '工作资料', '飞行理论笔记整理')
 
 
 def sh(*a, cwd=None):
     try:
-        return subprocess.run(a, cwd=cwd, capture_output=True, text=True, timeout=60).stdout.strip()
+        return subprocess.run(a, cwd=cwd, capture_output=True, text=True, timeout=120).stdout.strip()
     except Exception:
         return ''
 
 
+def read(path):
+    with open(path, encoding='utf-8') as f:
+        return f.read()
+
+
 def repo(path):
-    head = sh('git', 'log', '-1', '--format=%h %ad %s', '--date=format:%m-%d %H:%M', cwd=path)
+    head = sh('git', 'log', '-1', '--format=%h|%ad|%s', '--date=format:%m-%d %H:%M', cwd=path).split('|', 2)
     dirty = [l for l in sh('git', 'status', '--porcelain', cwd=path).splitlines() if l]
     ahead = sh('git', 'rev-list', '--count', '@{u}..HEAD', cwd=path) or '?'
-    return head, len(dirty), ahead
+    return (head + ['', '', ''])[:3], len(dirty), ahead
 
 
-L = ['# 现状一页纸', '',
-     '> 自动生成（`pub/tools/status_page.py`），%s。只读汇总，不是规则；规则看 `gh-private/规则/` 三份现行规则。' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), '']
+def scale():
+    secs = sorted(f for f in glob.glob(os.path.join(G, 'notes_src', '[1-9] *', '*.md'))
+                  if re.match(r'\d+\.\d+ ', os.path.basename(f)))
+    chapters = sorted({os.path.basename(os.path.dirname(f)) for f in secs})
+    entries = sum(len(re.findall(r'(?m)^### \d+\. ', read(f))) for f in secs)
+    refs = set()
+    for f in secs:
+        t = read(f)
+        refs.update(re.findall(r'%%FIG%%\s*figures/([^\s|]+)', t))
+        refs.update(re.findall(r'<img[^>]*src="figures/([^"]+)"', t))
+    fig_dir = os.path.join(G, 'notes_src', 'figures')
+    dark = sum(1 for r in refs if os.path.exists(os.path.join(fig_dir, re.sub(r'\.png$', '.dark.png', r))))
+    return chapters, len(secs), entries, len(refs), dark
 
-# 以当前内容提交和已成功的本机上传日志为准。
+
+def checks():
+    out = sh('python3', os.path.join(PUB, 'tools', 'check_src.py'), '--src', 'notes_src', cwd=G)
+    errs = len(re.findall(r'(?m)^\s*错误\s', out))
+    warns = len(re.findall(r'(?m)^\s*警告\s', out))
+    hints = re.findall(r'(?m)^\s*提示\s+K-(S\d+)[^\n]*?(\d+) 处', out)
+    return errs, warns, '、'.join('K-%s %s' % h for h in hints if h[1] != '0') or '无'
+
+
 def app_status():
-    flight = os.path.join(HOME, 'flight-repos')
-    content = sh('git', 'log', '-1', '--format=%H', 'HEAD', '--', 'notes_src', '速查/速查源.md', cwd=G)
-    roots = glob.glob(os.path.join(flight, '_work', '学习系统快照_*', '基线.txt'))
+    content = sh('git', 'log', '-1', '--format=%H', 'HEAD', '--', 'notes_src', cwd=G)
     matching = []
-    for meta in roots:
-        with open(meta, encoding='utf-8') as f:
-            revision = re.search(r'(?m)^提交：gh-private ([0-9a-f]+)', f.read())
+    for meta in glob.glob(os.path.join(FLIGHT, '_work', '学习系统快照_*', '基线.txt')):
+        revision = re.search(r'(?m)^提交：gh-private ([0-9a-f]+)', read(meta))
         if content and revision and revision[1] == content:
             matching.append(meta)
-    snapshot = os.path.basename(os.path.dirname(max(matching, key=os.path.getmtime))) if matching else '尚无匹配快照'
+    snapshot = os.path.basename(os.path.dirname(max(matching, key=os.path.getmtime))) if matching else '尚无与当前内容一致的快照'
     uploads = []
-    for log in glob.glob(os.path.join(flight, '_work', 'archives', '737note_*_upload.log')):
+    for log in glob.glob(os.path.join(FLIGHT, '_work', 'archives', '737note_*_upload.log')):
         version = re.fullmatch(r'737note_(\d+(?:\.\d+)*)_(\d+)_upload\.log', os.path.basename(log))
         if not version:
             continue
-        with open(log, encoding='utf-8', errors='replace') as f:
-            result = f.read()
-        if 'Upload succeeded' in result and 'EXPORT SUCCEEDED' in result:
-            uploads.append((os.path.getmtime(log), version[1], version[2]))
+        result = read(log)
+        if 'EXPORT SUCCEEDED' in result or 'Upload succeeded' in result:
+            uploads.append((int(version[2]), version[1], os.path.getmtime(log)))
     tf = '本机无成功上传记录'
     if uploads:
-        _, version, number = max(uploads)
-        tf = f'{version} ({number}) 已上传（本机日志，未查询 Apple 当前处理状态）'
-    return content[:7] or '未知', snapshot, tf
+        number, version, mtime = max(uploads)
+        tf = '%s (%d) 已上传（本机上传日志 %s；Apple 处理状态与加组情况见人工项）' % (
+            version, number, datetime.datetime.fromtimestamp(mtime).strftime('%m-%d %H:%M'))
+    pbx = os.path.join(STUDY, 'app', 'ios', 'App', 'App.xcodeproj', 'project.pbxproj')
+    build = re.search(r'CURRENT_PROJECT_VERSION = (\d+);', read(pbx)) if os.path.exists(pbx) else None
+    return content[:8] or '未知', snapshot, tf, build[1] if build else '未知'
 
 
-content, snapshot, tf = app_status()
-L += ['## App 快照与 TestFlight', '',
-      '| 项目 | 现状 |', '|---|---|',
-      '| 当前内容提交 | `%s` |' % content,
-      '| 与当前内容一致的 App 快照 | `%s` |' % snapshot,
-      '| 最近成功上传的 TestFlight | %s |' % tf, '']
+def latest_sd():
+    nums = []
+    for p in (os.path.join(PUB, 'prompt', 'archive', '2026-11-20_规则瘦身前', 'standing-decisions.md'),
+              os.path.join(G, '规则', '决策记录.md')):
+        if os.path.exists(p):
+            nums += [int(x) for x in re.findall(r'(?m)^## SD-(\d+)', read(p))]
+    return max(nums) if nums else 0
 
-# 两本规模
-secs = [f for f in glob.glob(os.path.join(G, 'notes_src', '[1-9] *', '*.md')) if re.match(r'\d+\.\d+ ', os.path.basename(f))]
-ents = sum(len(re.findall(r'(?m)^### \d+\. ', open(f, encoding='utf-8').read())) for f in secs)
-chs = sorted({os.path.basename(os.path.dirname(f)) for f in secs})
-q = open(os.path.join(G, '速查', '速查源.md'), encoding='utf-8').read()
-L += ['## 两本规模', '',
-      '| 本 | 结构 | 条目 |', '|---|---|---|',
-      '| 完整版 | %d 章%s %d 节（%s） | %d 条 |' % (len([c for c in chs if '附录' not in c]), ' + 附录' if any('附录' in c for c in chs) else '', len(secs), '、'.join(chs), ents),
-      '| 旧速查源（SD-234 起只作溯源） | %d 段 %d 个主题 | %d 条 |' % (len(re.findall(r'(?m)^%%PART%%', q)), len(re.findall(r'(?m)^## ', q)), len(re.findall(r'(?m)^### ', q))), '']
 
-# 仓库
-L += ['## 仓库', '', '| 仓库 | 最新提交 | 未提交文件 | 未推送提交 |', '|---|---|---|---|']
-for nm, p in (('私有笔记库 gh-private', G), ('公开工具库 pub', PUB), ('工作区', WS)):
-    h, d, a = repo(p)
-    L.append('| %s | %s | %d | %s |' % (nm, h, d, a))
-L.append('')
+def last_line(path, pattern):
+    if not os.path.exists(path):
+        return '（没有这个文件）'
+    hits = [l for l in read(path).splitlines() if re.match(pattern, l)]
+    return hits[-1] if hits else '（无）'
 
-# 规则
-sd = sorted(set(int(x) for x in re.findall(r'SD-(\d+)', open(os.path.join(PUB, 'prompt', 'standing-decisions.md'), encoding='utf-8').read())))
-L += ['## 规则', '', '- 长期决策编到 SD-%d；现行规则：总纲、排版规则总表、内容校对核心规则（`pub/prompt/`）。' % (sd[-1] if sd else 0), '']
 
-# 待办
-todo = ['## 待办与待用户定', '']
-opin = sorted(glob.glob(os.path.join(WS, '优化意见记录_*.md')), key=os.path.getmtime)
-if opin:
-    t = open(opin[-1], encoding='utf-8').read()
-    rows = [r for r in t.split('\n') if re.match(r'\|\s*\d+\s*\|', r)]
-    pend = [r.split('|')[1].strip() for r in rows if not re.search(r'已执行|不改|作废|已撤回', r.split('|')[-2] if r.count('|') > 2 else '')]
-    todo.append('- 当期意见记录 `%s`：%d 条，未执行 %d 条%s' % (os.path.basename(opin[-1]), len(rows), len(pend), ('（第 %s 条）' % '、'.join(pend[:15])) if pend else ''))
-nk = os.path.join(WS, '新知识点待入库清单.md')
-if os.path.exists(nk):
-    part = open(nk, encoding='utf-8').read().split('## 待入库', 1)[-1].split('## 已入库', 1)[0]
-    todo.append('- 新知识点待入库：%d 张卡' % len(re.findall(r'【知识点卡】', part)))
-todo.append('- OneNote：2026-11-19 起彻底停更（SD-266），同步记录仅供溯源。')
-L += todo + ['']
+def status_block(ws, now):
+    content, snapshot, tf, build = app_status()
+    chapters, nsec, nent, nfig, ndark = scale()
+    errs, warns, hints = checks()
+    rules = os.path.join(G, '规则', '现行规则.md')
+    rules_kb = os.path.getsize(rules) / 1024 if os.path.exists(rules) else 0
+    L = ['## 现状（%s 自动生成）' % now, '',
+         '| 项目 | 当前值 |', '|---|---|',
+         '| 正文规模 | %d 章 %d 节 %d 条（%s） |' % (len(chapters), nsec, nent, '、'.join(c.split(' ', 1)[-1] for c in chapters)),
+         '| 正文引用插图 | %d 张，其中 %d 张有原生深色版 `.dark.png` |' % (nfig, ndark),
+         '| 当前内容提交 | gh-private `%s` |' % content,
+         '| 与当前内容一致的快照 | `%s` |' % snapshot,
+         '| study 构建号 | %s |' % build,
+         '| 最近成功上传的 TestFlight | %s |' % tf,
+         '| 源检查（check_src） | 错误 %d、警告 %d；提示：%s |' % (errs, warns, hints),
+         '| 现行规则 | `gh-private/规则/现行规则.md` %.1f KB（上限 30 KB）；决策记录编到 SD-%d |' % (rules_kb, latest_sd()),
+         '', '### 四库', '', '| 仓库 | 最新提交 | 未提交 | 未推送 |', '|---|---|---|---|']
+    for name, path in (('gh-private（私有笔记库）', G), ('study（App）', STUDY), ('pub（公开工具库）', PUB), ('工作区', ws)):
+        (h, d, s), dirty, ahead = repo(path)
+        L.append('| %s | `%s` %s %s | %d | %s |' % (name, h, d, s[:60], dirty, ahead))
+    L += ['', '### 最近一条交接与审核', '',
+          '- 交接：' + last_line(os.path.join(ws, '00_先读我_AI交接.md'), r'- ')[:240],
+          '- 审核：' + last_line(os.path.join(ws, '审核记录.md'), r'## ')[3:200], '']
+    return '\n'.join(L)
 
-# 保留人工维护的剩余批次区；重新生成只替换自动段。
-dest = os.path.join(WS, '现状一页纸.md')
-marker = '<!-- status-page:manual -->'
-if os.path.isfile(dest):
-    with open(dest, encoding='utf-8') as f:
-        old = f.read()
-    _, sep, manual = old.partition(marker)
-    if sep:
-        L += [marker + manual.rstrip('\n'), '']
-with open(dest, 'w', encoding='utf-8') as f:
-    f.write('\n'.join(L))
-print('已生成 现状一页纸.md')
+
+def manual_block(ws):
+    p = os.path.join(ws, '状态_人工项.md')
+    if not os.path.exists(p):
+        return '## 人工项\n\n（缺 `状态_人工项.md`）\n'
+    body = read(p).split('\n', 1)[-1]
+    body = re.sub(r'(?s)^\s*>.*?\n\n', '', body, count=1)   # 去掉说明引言
+    return body.strip() + '\n'
+
+
+def strip_time(text):
+    return re.sub(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}', '<时间>', text)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--ws', default=os.environ.get('STATUS_WS', DEFAULT_WS))
+    ap.add_argument('--check', action='store_true')
+    a = ap.parse_args()
+    ws = a.ws
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    status, manual = status_block(ws, now), manual_block(ws)
+    page = '\n'.join(['# 现状一页纸', '',
+                      '> 自动生成（`pub/tools/status_page.py`，%s），不要手改。规则看 `gh-private/规则/现行规则.md`；人工决定的几项改 `状态_人工项.md`。' % now,
+                      '', status, manual])
+    tmpl_path = os.path.join(ws, 'README_模板.md')
+    readme = read(tmpl_path).replace('{{生成时间}}', now).replace('{{现状}}', status).replace('{{人工项}}', manual) \
+        if os.path.exists(tmpl_path) else None
+    outputs = [('现状一页纸.md', page)] + ([('README.md', readme)] if readme else [])
+    if a.check:
+        bad = [n for n, t in outputs if not os.path.exists(os.path.join(ws, n))
+               or strip_time(read(os.path.join(ws, n))) != strip_time(t)]
+        print('已是最新' if not bad else '需要重跑 status_page.py：' + '、'.join(bad))
+        raise SystemExit(1 if bad else 0)
+    for name, text in outputs:
+        with open(os.path.join(ws, name), 'w', encoding='utf-8') as f:
+            f.write(text)
+    print('已生成 ' + '、'.join(n for n, _ in outputs) + ('' if readme else '（缺 README_模板.md，README 未生成）'))
+
+
+if __name__ == '__main__':
+    main()

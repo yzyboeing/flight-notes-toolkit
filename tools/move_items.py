@@ -233,8 +233,10 @@ if STUDY:
         t = io.open(f, encoding='utf-8').read(); t2 = conv(t, json_style=True)
         if t2 != t: writes[f] = t2
 if PROMPT:
-    for b in ('layout-checklist.md', 'content-core.md'):
-        f = os.path.join(os.path.expanduser(PROMPT), b); t = io.open(f, encoding='utf-8').read(); t2 = conv(t)
+    # 2026-11-20 规则瘦身：规则正文只剩私有库 规则/现行规则.md；pub/prompt 只有 checks.md
+    for f in (os.path.join(os.path.expanduser(PROMPT), 'checks.md'), os.path.join(REPO, '规则', '现行规则.md')):
+        if not os.path.exists(f): continue
+        t = io.open(f, encoding='utf-8').read(); t2 = conv(t)
         if t2 != t: writes[f] = t2
 
 # ---------- 4 报告 ----------

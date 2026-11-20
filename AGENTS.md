@@ -14,19 +14,17 @@
 
 | 文件 | 内容 | 注意 |
 |---|---|---|
-| `prompt/portable-instruction.md` | **规则总纲**——硬约束、结构、写法要点、工作方式、流程、新知识点入库、验证、出基线、工具清单 | 开工前通读 |
-| `prompt/layout-checklist.md` | **排版规则总表**——全部排版规则与检查器规则号（K-） | 排版判定以它为准 |
-| `prompt/content-core.md` | **内容校对核心规则** | 整理与核对内容时读取 |
-| `prompt/lessons.md` | **经验与教训** | 动手前按问题类别读取，避免同类问题反复 |
-| `prompt/decisions-index.md` | 长期决策索引（自动生成） | 按 SD 编号查来历 |
-| `prompt/standing-decisions.md` | 长期决策记录（SD-1…），来历流水 | 只查来历；已有结论不得重复提问，已放弃的方案不得重新提出 |
-| `prompt/archive/` | 已作废的旧版规则 | 不再使用 |
+| 私有库 `规则/现行规则.md` | **唯一现行规则**（2026-11-20 规则瘦身后），≤ 30 KB | 开工前通读；含章节与运行限制值，不进本仓库 |
+| 私有库 `规则/决策记录.md` | 新的用户决定（SD-267 起），每条带「落实：」行 | 新决定写这里，同一提交改现行规则或检查器 |
+| `prompt/checks.md` | 检查器规则号（K-）与 W06 常用缩写清单 | 工具数据；改检查器时登记 |
+| `prompt/archive/2026-11-20_规则瘦身前/` | 冻结的 SD-1～266、旧总纲、排版总表、内容核心、教训、旧单文件版 | 只查来历，不加载 |
+| `prompt/archive/` 其余 | 更早作废的规则 | 不再使用 |
 | `prompt/AGENT.md` | 简短任务入口 | 引导读取规则并实测能力 |
 | `README.md` | 对外说明 | |
 
 兼容 raw 入口仍为 `https://raw.githubusercontent.com/yzyboeing/flight-notes-toolkit/main/prompt/SKILL.md`，由 `tools/export_prompt.py` 自动生成。
 
-冲突时：用户最新指示 ＞ 三份现行规则 ＞ 长期决策。改规则后跑 `python3 tools/check_rules.py`（规则自检）。
+冲突时：用户最新指示 ＞ 私有库《现行规则》＞ 其他文件。改规则或检查器后跑 `python3 tools/check_rules.py`（规则自检）。
 
 ## 四、执行约定
 

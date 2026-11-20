@@ -134,6 +134,45 @@ def check_note_lines(body, filename, offset=0):
     return notes
 
 
+# 规则号 S39 / S40 / S41 / S42（2026-11-20 规则瘦身，现行规则 3.2、3.5）：注数与表题的数字规则机判。
+# S39 同一条目注 ≥ 5 行（错误；≥ 4 仍由 S15 提示）。S40 一条里连续两张表之间没有表题或正文（警告，只隔空行 / 注释的算；%%TABPAIR%% 并排组不算）。
+# S41 第五章 <!-- callouts --> 受管块正上方有表题（错误；第五章骨架段名如「检查单与重要项目说明：」不算）。S42 「注：补充——」后接 <br> 的机械合并注（错误）。
+SKELETON_LABELS = {'判断与决策参考', '背景知识', '结构说明', '检查单与重要项目说明', '两型检查单差异', '现象', '处置思路', '处置'}
+
+
+def check_numeric_rules(body, filename, offset=0):
+    s39, s40, s41, s42 = [], [], [], []
+    headings = list(re.finditer(r'^### (.+)$', body, re.M))
+    for index, heading in enumerate(headings):
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(body)
+        line = offset + body.count('\n', 0, heading.start()) + 1
+        count = len(list(NOTE_LINE.finditer(body, heading.end(), end)))
+        if count >= 5:
+            s39.append(f'{filename}:{line}「{heading[1]}」{count} 行注')
+        depth, closed, between, pair_first = 0, False, [], False
+        for raw in body[heading.end():end].split('\n'):
+            opens, closes = len(re.findall(r'<table\b', raw)), len(re.findall(r'</table>', raw))
+            if depth == 0 and opens:
+                text = [x for x in between if x.strip() and not x.strip().startswith(('<!--', '%%TABPAIR'))]
+                starts_pair = any(x.strip().startswith('%%TABPAIR') for x in between)
+                if closed and not text and not starts_pair and not pair_first:
+                    s40.append(f'{filename}:{line}「{heading[1]}」')
+                pair_first = starts_pair   # %%TABPAIR%% 后紧跟的两张表是一组，第二张不要求表题
+                between = []
+            depth += opens - closes
+            if depth == 0 and closes:
+                closed, between = True, []
+            elif depth == 0 and not opens:
+                between.append(raw)
+    for match in re.finditer(r'(?m)^(.*)\n(?:[ \t]*\n)*<!-- callouts', body):
+        prev = re.sub(r'<[^>]+>', '', match[1]).strip()
+        if prev and not match[1].lstrip().startswith('<!--') and re.search(r'[：:]$', prev) and prev.rstrip('：:') not in SKELETON_LABELS:
+            s41.append(f'{filename}:{offset + body.count(chr(10), 0, match.start()) + 1}「{prev[:30]}」')
+    for match in re.finditer(r'注[：:]\s*补充——\s*<br', body):
+        s42.append(f'{filename}:{offset + body.count(chr(10), 0, match.start()) + 1}')
+    return s39, s40, s41, s42
+
+
 # SD-239 / SD-240: old labels may appear at the start of a line or inside a table cell.
 RETIRED_NOTE = re.compile(r'(?:公司差异|解释|出处|来源)\s*[：:]')
 NAMED_MANUAL = re.compile(
@@ -148,7 +187,7 @@ ABBR_DEFINITION = re.compile(r'(?:^|[；;])\s*([A-Z][A-Z0-9 /.-]*?)\s*[：:]')
 def common_abbreviations():
     # Read the maintained W06 list to keep the checker and the rule in sync.
     from pathlib import Path
-    rules = Path(__file__).resolve().parents[1] / 'prompt/layout-checklist.md'
+    rules = Path(__file__).resolve().parents[1] / 'prompt/checks.md'   # 2026-11-20 规则瘦身：W06 清单移到 checks.md
     w06 = next(line for line in rules.read_text(encoding='utf-8').splitlines() if '| **W06** |' in line)
     match = re.search(r'常用缩写（([^（]+)（SD-250））', w06)
     return set(match[1].removesuffix(' 等').split('、'))
@@ -350,6 +389,7 @@ def main():
     ids   = collections.defaultdict(list)
     notes = 0
     note_hints = [[], [], []]
+    numeric_hits = [[], [], [], []]
     common = common_abbreviations()
     editorial = [[], [], []]
     alignment_documents = []
@@ -394,6 +434,8 @@ def main():
         collect_editorial(body, rel(f), t[:body_start].count("\n"))
         if is_note:
             for bucket, hits in zip(note_hints, check_note_lines(body, rel(f), t[:body_start].count('\n'))):
+                bucket.extend(hits)
+            for bucket, hits in zip(numeric_hits, check_numeric_rules(body, rel(f), t[:body_start].count('\n'))):
                 bucket.extend(hits)
 
         # 行首项目符号：只查正文笔记，MOC / 总目录用 markdown 列表是正常的
@@ -928,6 +970,11 @@ def main():
         errors.append('K-S22 第六章融合后的检查 %d 处：%s' % (len(s22), '、'.join(s22[:6])))
     if s22w:
         warns.append('K-S22 5.1 共有两型差异条列出的检查单第五章没有同名条目 %d 张（只在 QRH 的，逐张看）：%s' % (len(s22w), '、'.join(s22w)))
+    s39, s40, s41, s42 = numeric_hits
+    errors.extend('K-S39 同一条目注 ≥ 5 行（并回表格行或合并标签，现行规则 3.5）：' + x for x in s39)
+    warns.extend('K-S40 连续两张表之间没有表题或正文（现行规则 3.2）：' + x for x in s40)
+    errors.extend('K-S41 第五章 callouts 受管块正上方有表题（现行规则 3.2）：' + x for x in s41)
+    errors.extend('K-S42 「注：补充——」机械合并注（每条注独立成段，现行规则 3.5）：' + x for x in s42)
     for label, hits in zip(('S15 同条注 ≥ 4', 'S16 空注', 'S17 元注关键词'), note_hints):
         if hits or not QUIET:
             print(f'  提示  K-{label} {len(hits)} 处' + ('：' + '、'.join(hits[:8]) if hits else ''))

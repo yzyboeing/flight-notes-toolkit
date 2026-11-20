@@ -19,7 +19,7 @@
 - **内容层** —— 一节一个 markdown 文件，用极少的标记表达「这是阈值」「这是共性前提」「这是补充说明」，人可读、可 diff、可版本管理
 - **呈现层** —— iPad App 是唯一主产物。也可按需用渲染器生成带自动列宽、超链接目录的 A4 横版 Word / PDF。
 
-自 2026-11-19 起 OneNote 彻底停更（[SD-266](prompt/standing-decisions.md#sd-266-onenote-彻底停更ipad-app-为唯一主产物2026-11-19用户)）。`tools/onenote/onenote_conv.py` 原路径保留，供 App 工具链本地转换。其余写入脚本只作历史留档，禁止执行 Graph 写入。
+自 2026-11-19 起 OneNote 彻底停更（SD-266）。`tools/onenote/onenote_conv.py` 原路径保留，供 App 工具链本地转换。其余写入脚本只作历史留档，禁止执行 Graph 写入。
 
 改内容只动 markdown，排版规则改一次全库生效。
 
@@ -29,12 +29,9 @@
 
 ```
 SKILL.md                       标准 Skill 入口（name: flight-theory-notes）
-prompt/portable-instruction.md 规则总纲（硬约束、结构、工作方式、流程、验证、出基线）
-prompt/layout-checklist.md     排版规则总表（规则与检查器规则号）
-prompt/content-core.md         内容校对核心规则
-prompt/lessons.md              经验与教训（现象 → 根因 → 规则 → 拦截）
-prompt/decisions-index.md      长期决策索引（自动生成）
-prompt/SKILL.md                自动导出的完整 Prompt（兼容旧网址）
+prompt/checks.md               检查器规则号与 W06 常用缩写清单（工具数据）
+prompt/SKILL.md                自动导出的单文件 Prompt（兼容旧网址，只含入口）
+prompt/archive/                冻结的旧规则（2026-11-20 规则瘦身前的总纲、排版总表、内容核心、教训、SD-1～266）
 tools/assemble.py     从源文件组装章节 md 与全书 md
 tools/build_docx.js   md + 内嵌 HTML 表格 → A4 横版 docx
 tools/check_src.py    源文件校验（front matter / id / 双链 / 标签配对 / MANIFEST 对账）
@@ -115,7 +112,7 @@ python3 tools/verify.py build/manual.pdf   # 空白页 / 标签泄漏 / 项目�
 - **技术冲突不自行裁决**，列出双方原文与出处，请使用者判定
 - **原始材料不完整时不猜写**，标 `【缺失，待原件补充】`
 
-细则见 [`prompt/portable-instruction.md`](prompt/portable-instruction.md)。
+项目现行规则在私有笔记库 `规则/现行规则.md`（含章节与限制值，不进公开库）；旧细则冻结在 `prompt/archive/`。
 
 ---
 

@@ -151,7 +151,7 @@ for s in STEMS:
         info[(s, e)] = os.path.join(G, 'build', '%s.%s' % (s, e))
 gh = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=G, capture_output=True, text=True).stdout.strip()
 tk = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=PUB, capture_output=True, text=True).stdout.strip()
-sd = max(int(x) for x in re.findall(r'SD-(\d+)', open(os.path.join(PUB, 'prompt', 'standing-decisions.md'), encoding='utf-8').read()))
+sd = max(int(x) for x in re.findall(r'SD-(\d+)', ''.join(open(p, encoding='utf-8').read() for p in (os.path.join(PUB, 'prompt', 'archive', '2026-11-20_规则瘦身前', 'standing-decisions.md'), os.path.join(G, '规则', '决策记录.md')) if os.path.exists(p))))
 rows = {
     '基线编号': '**%s**（git 标签 %s；封面版本号「%s　·　YZYBOEING」）' % (ED, TAG, ED),
     '笔记源提交': gh, '工具链提交': tk,
