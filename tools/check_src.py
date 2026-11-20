@@ -75,6 +75,13 @@ def rel(p):
     return os.path.relpath(p, SRC)
 
 
+# 相关故障行只并列检查单名时，机型标记属于对应名称，不是正文混写。
+RELATED_CHECKLISTS = re.compile(
+    r'[ \t]*注[：:]\s*相关故障——(?:《[^》\n]+》)*'
+    r'《[^》\n]+》[ \t]*【737-NG】[ \t]*[/／][ \t]*《[^》\n]+》[ \t]*【737-8】'
+    r'(?:《[^》\n]+》)*[。.]?[ \t]*'
+)
+
 def find_type_mixtures(text):
     """同格或同段显式混写，两种标记必须完整出现；返回准确原始偏移。"""
     masked = list(text)
@@ -94,6 +101,8 @@ def find_type_mixtures(text):
     out = []
     for kind, start, end in sorted(spans, key=lambda x: x[1]):
         block = clean[start:end]
+        if kind == 'paragraph' and RELATED_CHECKLISTS.fullmatch(block.rstrip("\n")):
+            continue
         if '【737-NG】' in block and '【737-8】' in block:
             plain = re.sub(r'<[^>]+>|\s+', '', block)
             out.append({'kind': kind, 'offset': start, 'line': text.count('\n', 0, start) + 1, 'fragment': plain[:24]})
