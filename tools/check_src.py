@@ -180,8 +180,8 @@ NAMED_MANUAL = re.compile(
     r'(?:运行手册|SOP|FCOM|FCTM|QRH|AFM|大纲)\s*(?:的\s*)?口径|'
     r'公司手册|(?:运行手册|SOP|FCOM|FCTM|QRH|AFM)\s*(?:只写|仅写|写作|另写|写为|只要求|写(?=[「“])|为[「“])'
 )
-ABBR_NOTE = re.compile(r'^\s*注[：:]\s*缩写[—–-]+')
-ABBR_DEFINITION = re.compile(r'(?:^|[；;])\s*([A-Z][A-Z0-9 /.-]*?)\s*[：:]')
+ABBR_NOTE = re.compile(r'^\s*注[：:]\s*(?:缩写[—–-]+\s*|(?=[A-Z][A-Za-z0-9/.\-]{1,14}\s*(?:——|[：:])\s*[A-Za-z]))')
+ABBR_DEFINITION = re.compile(r'(?:^|[；;])\s*([A-Z][A-Z0-9 /.-]*?)\s*(?:——|[：:])')
 
 
 def common_abbreviations():

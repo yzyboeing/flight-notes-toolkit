@@ -248,7 +248,7 @@ _SRCS = sorted(glob.glob(os.path.join(REPO, 'notes_src', '[1-6]*', '*.md'))) + (
 for f in _SRCS:
     fn = os.path.basename(f).replace('.md', '') if 'notes_src' in f else '速查'
     for title, body in _entries(f):
-        notes = [l for l in body.split('\n') if l.startswith('注：') and not re.match(r'注：(?:缩写[：——]+)?[A-Z][A-Za-z/\-]{1,12}：[A-Z]', l)]   # 缩写注不计（批 3；1019R6 写法「注：缩写——X：…」）
+        notes = [l for l in body.split('\n') if l.startswith('注：') and not re.match(r'注：(?:缩写[：——]+)?[A-Z][A-Za-z0-9/.\-]{1,14}(?:：|——)[A-Z]', l)]   # 缩写注不计（SD-274 写法「注：X——…」）
         # 2026-10-23（用户，速查第 207 条：「改成注释放在表格下面」）：B37 改——注不再改「注 ｜ 说明」注表，一律「注：」行紧跟主表；T32 改查残留的注表
         if (ONLY is None or 'T32' in ONLY) and re.search(r'<tr class="hdr"><th[^>]*>注</th>', body):
             rep('T32', fn, title, '有「注 ｜ 说明」注表（B37：注一律写成「注：」行紧跟主表，能对应表格行的并回该行）')
@@ -269,7 +269,7 @@ for f in _SRCS:
         if ONLY is None or 'T35' in ONLY:
             for l in [l for l in body.split('\n') if l.startswith('注：')]:   # 1019R6：缩写注不计入 T32，但 T35 照查
                 for seg in re.split(r'[；。]', plain(l)):
-                    m = re.match(r'\s*(?:注：)?([A-Z][A-Za-z/\-]{1,12})：([A-Z][A-Za-z][A-Za-z /\-]*)(.*)$', seg)
+                    m = re.match(r'\s*(?:注：)?([A-Z][A-Za-z0-9/.\-]{1,14})(?:：|——)([A-Z][A-Za-z][A-Za-z /\-]*)(.*)$', seg)
                     _pb = plain(body)
                     if m:   # 1019R6：表格里缩写与中文名同格（「MEA<br>最低航路飞行高度」）或同一行有短中文名格（「IRS 显示组件 | 1 个 | ISDU」）也算条目里已有中文名
                         _ab = m.group(1); _hit = False
