@@ -701,27 +701,12 @@ function htmlTableCore(html) {
     /* SD-119 对照表统一（2026-10-03 用户，速查第 11、40 条、1.6 C-4）：表头几列是并列的机型 / 方式（≥ 2 列含 737-NG / 737-8，或有跨列的共有格），
        同一张表只用一种逻辑——① 格子都是一两句短内容：整表居中、不加点（第 40 条）；② 有格子含 ≥ 3 段、父子层级或「- 」子项：
        共有格（跨列）居中，独有格靠左加点（第 11 条三种复飞）。表头已显式 col-bullet 的（用户点名加点）按 ②；首格 class="no-cmp" 不参与。 */
-    /* 跨列共有格一律居中、不加点（SD-156；2026-10-16 用户先选方案 C「多条靠左加点」，随即改回：「共有还是统一居中吧」）。
-       方案 C 的实现保留为开关（用户未采纳）：DOC_SHARED_BULLET=1 时两条以上的共有格靠左按段加点 */
-    const sharedMark = (c) => {
-      // Explicit cell alignment takes precedence over the default for shared cells.
-      if (/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) return;
-      const segs = String(c.text).split(/<br\s*\/?>/).map(x => plainOf(x).trim()).filter(Boolean).filter(x => !/^[（(]/.test(x));
-      const multi = !!process.env.DOC_SHARED_BULLET && !/(^|\s)center(\s|$)/.test(c.cls || '') && segs.length >= 2 && segs.some(x => x.replace(/^[-–•]\s*/, '').length >= 10);
-      if (multi) { if (!/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) c.cls = ((c.cls || '') + ' cell-bullet').trim(); }
-      else { c.cls = ((c.cls || '') + ' center').trim(); c.cmpShared = true; } };
-    const modelOf = (cell) => {
-      const label = plainOf(cell.text).replace(/[\s\u200b\u2060\u00ad]/g, '').toUpperCase();
-      const ng = /737[-‐‑–—]?NG/.test(label), eight = /737[-‐‑–—]?(?:8(?![0-9])|MAX)/.test(label);
-      return ng === eight ? null : ng ? 'NG' : '8';
-    };
     const segsOf = (c) => String(c.text).split(/<br\s*\/?>/).map(plainOf).filter(Boolean);
-    const modelHdr = parsed.find(r => /hdr/.test(r.cls) && r.cells.some(c => modelOf(c) === 'NG') && r.cells.some(c => modelOf(c) === '8'));
-    const modelCells = modelHdr ? modelHdr.cells.filter(c => c.colspan === 1 && modelOf(c)) : [];
-    /* SD-268（2026-11-20 用户，1.1.1 / 1.1.11，取代 SD-255 旧口径）：
-       两型对比表（表头同时有 737-NG、737-8 列，含首格 no-cmp）的单型列、「两型相同」列及跨两型列合并的共有格统一按格内内容判定：
+    /* SD-268 / SD-272（2026-11-20 用户，1.1.1 / 1.1.11 / 1.2.8，取代 SD-156 / SD-255 旧口径）：
+       全书所有对照表（含两型对比表及普通多列对照表如左/右再循环风扇、三种复飞、快速离机/紧急撤离等）的跨列共有格及两型列统一按格内内容判定：
        ① 单独的单一数值 / 范围 /「—」占位符（单段、无中文与分号）→ 居中、不加点；
-       ② 其余文字描述格（含跨两列共有文字格）→ 靠左加「•」（含引导语父项靠左与子项靠左）。
+       ② 其余文字描述格（含跨列共有长文字格）→ 靠左加「•」（含引导语父项靠左与子项靠左）。
+       非两型跨列共有格里极短状态词（「禁止 / 允许 / 正常 / 适用 / 不适用 / 无 / 有 / 是 / 否 / 空白」）照短值居中无点。
        td 级显式 center / nodot 的格照标注不动。 */
     const isSingleVal = (c) => {
       const sg = segsOf(c); if (sg.length !== 1) return false;
@@ -730,6 +715,23 @@ function htmlTableCore(html) {
       if (/^[—－\-–\/／]+$/.test(t)) return true;
       return /\d/.test(t) && /^[+\-−–~～≤≥<>±×·.,\/°%℃℉a-zA-Z0-9()（）]+$/.test(t);
     };
+    const sharedMark = (c) => {
+      // Explicit cell alignment takes precedence over the default for shared cells.
+      if (/(^|\s)(cell-bullet|center|nodot)(\s|$)/.test(c.cls || '')) return;
+      const sg = segsOf(c), t = sg.length === 1 ? sg[0].replace(/\s+/g, '') : '';
+      if (isSingleVal(c) || /^(禁止|允许|正常|适用|不适用|无|有|是|否|空白)$/.test(t)) {
+        c.modelRowStyle = 'center'; c.cls = ((c.cls || '') + ' center').trim(); c.cmpShared = true;
+      } else {
+        c.modelRowStyle = 'bullet'; c.cls = ((c.cls || '') + ' cell-bullet').trim();
+      }
+    };
+    const modelOf = (cell) => {
+      const label = plainOf(cell.text).replace(/[\s\u200b\u2060\u00ad]/g, '').toUpperCase();
+      const ng = /737[-‐‑–—]?NG/.test(label), eight = /737[-‐‑–—]?(?:8(?![0-9])|MAX)/.test(label);
+      return ng === eight ? null : ng ? 'NG' : '8';
+    };
+    const modelHdr = parsed.find(r => /hdr/.test(r.cls) && r.cells.some(c => modelOf(c) === 'NG') && r.cells.some(c => modelOf(c) === '8'));
+    const modelCells = modelHdr ? modelHdr.cells.filter(c => c.colspan === 1 && modelOf(c)) : [];
     const modelOn = modelCells.length >= 2;
     const modelCols = new Set(modelOn ? modelCells.map(c => startCol[parsed.indexOf(modelHdr)][modelHdr.cells.indexOf(c)]) : []);
     const sameCols = new Set(); if (modelOn) modelHdr.cells.forEach((c, k) => { if (c.colspan === 1 && /^两型相同$/.test(plainOf(c.text).replace(/\s+/g, ''))) sameCols.add(startCol[parsed.indexOf(modelHdr)][k]); });
@@ -793,11 +795,12 @@ function htmlTableCore(html) {
             if (isVal(c)) { if (plainOf(c.text).trim()) { c.cls = ((c.cls || '') + ' center nodot').trim(); c.cmpShared = true; } }
             else c.leftUniq = true; }));
         } } }
-    /* SD-192 修订（2026-10-16，噜噜 1016R1 A-001～003 / A-019 / A-020）：首格 no-cmp 只让两型 / 并列列不参与自动识别（列样式按表头标注，SD-165 / 用户点名，如 #80 滑油表两列居中）；
-       表里从第二列起跨两列以上的共有格仍按 SD-156 去点居中。跨列格确实不是共有内容的表（3.2 运行类别、3.8 安保搜查、4.14 液压处置）首格另标 no-share。
-       显式 cell-bullet 的跨列格不动。DOC_NOSHARE_OFF=1 退回旧行为 */
+    /* SD-192 / SD-272：非 no-share、非序号表的 ≥ 3 列多列表（含首格 no-cmp 或表头含跨列 th 如 1.4 14 三种复飞），
+       从第二列起跨两列以上的共有格统一走 sharedMark(c)（长文字靠左加点，单一数值 / 极短状态词居中无点）。
+       跨列格确实不是共有内容的表（3.2 运行类别、3.8 安保搜查、4.14 液压处置）首格标 no-share 排除。DOC_NOSHARE_OFF=1 关闭 */
     { const hrN = parsed.find(r => r.cls.includes('hdr'));
-      if (hrN && !process.env.DOC_NOSHARE_OFF && /(^|\s)no-cmp(\s|$)/.test(hrN.cells[0].cls || '') && !/(^|\s)no-share(\s|$)/.test(hrN.cells[0].cls || '') && !serialTable(parsed, startCol)) {
+      const nColsN = hrN ? hrN.cells.reduce((a, c) => a + (c.colspan || 1), 0) : 0;
+      if (hrN && !process.env.DOC_NOSHARE_OFF && nColsN >= 3 && !/(^|\s)no-share(\s|$)/.test(hrN.cells[0].cls || '') && !serialTable(parsed, startCol)) {
         parsed.forEach((r, ri) => { if (/hdr|note|premise|warn/.test(r.cls)) return;
           r.cells.forEach((c, k) => { if (startCol[ri][k] >= 1 && c.colspan >= 2 && !c.cmpShared && !c.modelRowStyle && !/(^|\s)cell-bullet(\s|$)/.test(c.cls || '')) sharedMark(c); }); }); } }
     /* SD-268：两型对比表跨两型列合并的共有格已在上方按 isSingleVal 判定，此处仅兜底未命中的两型跨列格 */
