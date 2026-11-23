@@ -68,6 +68,18 @@ def table_widths(block):
                        for _tag, at, _txt in CELL.findall(inner)))
     return out
 
+def table_occupancy(block):
+    """返回每一行实际占用的列数（本行单元格的 colspan，加上上方 rowspan 延伸下来的占位）。"""
+    occ = {}
+    rows = TR.findall(block)
+    for ri, (_cls, inner) in enumerate(rows):
+        for _tag, at, _txt in CELL.findall(inner):
+            cs = int(COLSPAN.search(at).group(1)) if COLSPAN.search(at) else 1
+            m = re.search(r'rowspan="(\d+)"', at)
+            for i in range(int(m.group(1)) if m else 1):
+                occ[ri + i] = occ.get(ri + i, 0) + cs
+    return [occ.get(i, 0) for i in range(len(rows))]
+
 errors, warns = [], []
 
 
@@ -518,6 +530,14 @@ def main():
                 ln_no = body[:mt.start()].count('\n') + 1
                 errors.append('表格首行列宽 %d，表内最大 %d（nCols 会被算成 %d）: %s:%d'
                               % (w[0], max(w), w[0], rel(f), ln_no))
+            # K-S43（2026-11-22 用户看 1.4 第 14 条复飞表）：计入 rowspan 占位后，每行实占列数须相同；
+            # 少一格的行在 App 里会右侧缺格、跨列错位
+            occ = table_occupancy(mt.group(0))
+            if len(set(occ)) > 1:
+                ln_no = body[:mt.start()].count('\n') + 1
+                bad = [i + 1 for i, x in enumerate(occ) if x != max(occ)]
+                errors.append('K-S43 表格各行实占列数不一致（含 rowspan 占位），第 %s 行少于 %d 列: %s:%d'
+                              % ('、'.join(map(str, bad[:5])), max(occ), rel(f), ln_no))
 
         # SD-170：提示级；同格/完整多行段落，保留准确全文行号供私有进度表。
         for hit in find_type_mixtures(body):

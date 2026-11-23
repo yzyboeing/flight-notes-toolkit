@@ -10,7 +10,16 @@ G = os.path.abspath(os.path.expanduser(sys.argv[sys.argv.index('--repo') + 1] if
 STRONG = re.compile(r'(没有|得到|失去|是|为|应|须|必须|不得|不要|禁止|可以|会|将|使|进行|提供|显示|选择|转换|转到|断开|接通|脱开|打开|关闭|亮|灭|出现|消失|保持|执行|完成|检查|核实|确认|报告|申请|使用|调定|设置|置于|放出|收上|恢复|增加|减小|降低|升高|开始|结束|要求|需要|能|应当|导致|造成|影响|取代|代替|移到|移至|产生|允许|继续|停止|改平|截获|预位|生效|失效|计算|判断|避免|防止|确保|实施|处置|操纵|控制|耗|流经|指示|告警|警告|触发|供压|供电|跳开|有效|无效|不可用|可用|不受|受|取决|属于|包括|对应|超过|低于|高于|大于|小于|达到|减至|加至|回到|处于|位于|在 [A-Z]|视为|按照|根据)')
 WEAK = re.compile(r'(时|可|需|按|由|向|对|自动|人工|工作|飞行|起飞|着陆|复飞|上升|下降|注意|通过)')
 def plain(s): return re.sub(r'<[^>]+>', '', s).replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&').strip()
+STATE = {'可用', '不可用', '禁止', '允许', '正常', '适用', '不适用', '无', '有', '是', '否', '空白', '接通', '断开', '预位', '开', '关', '亮', '灭', '工作', '不工作', '无效', '有效', '相同', '不同', '—', '-'}
 def classify(item):
+    kd, p = _classify(item)
+    core0 = re.sub(r'^【[^】]*】', '', re.sub(r'[。；;，,]$', '', p)).strip()
+    if kd != 'skip' and (core0 in STATE or re.fullmatch(r'[（(][^）)]*[）)]', core0)): return 'P!', p   # SD-272 状态词、整格只有括注：不加句号
+    if kd in ('P', 'P?'):
+        core = re.sub(r'^【[^】]*】', '', re.sub(r'[。；;，,]$', '', p))
+        if len(re.findall(r'[\u4e00-\u9fff]', core)) <= 4 and not STRONG.search(core): return 'P!', p   # SD-275：单个词、状态词、颜色、数值（「空白」「F/D 目标速度」「【737-NG】白色」）永不加句号，也不参与同列多数
+    return kd, p
+def _classify(item):
     p = plain(item)
     if not p or re.fullmatch(r'[①-⑳\d\s、，,]+|「[^」]*」', p) or p in ('—', '-', '无', '有', '是', '否') or re.search(r'([：:且或及和与、，,]|——)$', p) or re.search(r'[：:][；;。]?$', p): return 'skip', p
     core = re.sub(r'[。；;，,]$', '', p)
@@ -35,6 +44,9 @@ def classify(item):
     if WEAK.search(bv) or re.search(r'[，；。]', bv): return '?', p
     if len(body) <= 8 or re.search(r'(的情况|的项目|等|者|的)$', body): return 'P', p
     return 'P?', p
+def pseudo_head(attrs, body):
+    """表身里的小表头格（如「失效时机」「目标速度」）：居中且全格加粗、无句末标点，不参与同列统一"""
+    return 'center' in attrs and re.fullmatch(r'\s*<strong>[^<]{1,12}</strong>\s*', body) is not None
 def fix_item(raw, want_end):
     """raw 是带标签的一项；want_end：'。' / '；' / ''"""
     m = re.search(r'([。；;，,])((?:\s|</[a-z]+>)*)$', raw)
@@ -73,13 +85,47 @@ def main():
                     if k == 0: continue
                     kd = last_kind(c)
                     if kd and kd != 'skip': col.setdefault(k, []).append(kd)
-            def col_want(k, kd):
+            # SD-275（2026-11-22 用户：「为什么现在还会有同一列表格中有的有句号有的没有呢？」）：
+            # 按网格列（计入 colspan / rowspan 占位）分组，同组（起始列 + 跨列数相同）各格末项句末标点统一
+            allrows = list(re.finditer(r'<tr([^>]*)>.*?</tr>', tb, re.S)); occ = set(); POS = []
+            for ri, r in enumerate(allrows):
+                c_ = 0; pos = []
+                for cm in re.finditer(r'<(td|th)([^>]*)>', r.group(0)):
+                    while (ri, c_) in occ: c_ += 1
+                    cs = int((re.search(r'colspan="(\d+)"', cm.group(2)) or [0, 1])[1]); rs = int((re.search(r'rowspan="(\d+)"', cm.group(2)) or [0, 1])[1])
+                    for i_ in range(rs):
+                        for j_ in range(cs): occ.add((ri + i_, c_ + j_))
+                    if cm.group(1) == 'td': pos.append((c_, cs))
+                    c_ += cs
+                POS.append(pos)
+            GK = {}
+            for ri, r in enumerate(allrows):
+                if re.search(r'class="[^"]*(hdr|premise|note)', r.group(1) or ''): continue
+                if re.match(r'(QRH 状况|目的|QRH 书名)', plain((re.findall(r'<td[^>]*>(.*?)</td>', r.group(0), re.S) or [''])[0])): continue
+                for k_, ((gc, cs), (ca, c)) in enumerate(zip(POS[ri], re.findall(r'<td([^>]*)>(.*?)</td>', r.group(0), re.S))):
+                    if gc == 0 or pseudo_head(ca, c) or (k_ == 0 and cs < 2): continue
+                    kd = last_kind(c)
+                    if kd and kd != 'skip': GK.setdefault((gc, cs), []).append(kd)
+            def group_want(g):
+                ks = GK.get(g, [])
+                ks = [x for x in ks if x != 'P!']
+                if len(ks) < 2: return None
+                nS = sum(1 for x in ks if x in ('S', 'S?')); nP = sum(1 for x in ks if x in ('P', 'P?'))
+                if nP == 0: return '。'
+                if nS == 0: return ''
+                return '。' if nS > nP else ''
+            def col_want(k, kd, g=None):
+                if kd == 'P!': return ''
+                gw = group_want(g) if g else None
+                if gw is not None: return gw
                 ks = [x for x in col.get(k, []) if x in ('S', 'P')]
                 if seq_tab and ks and ks.count('S') != ks.count('P'):
                     return '。' if ks.count('S') > ks.count('P') else ''   # 序号表的同列各项是并列条目：按多数统一（多数是句子 → 整列「。」；多数是短语 → 整列不加）
                 if kd in ('S', 'P'): return '。' if kd == 'S' else ''
                 return None
+            RI = [-1]
             def do_tr(mt):
+                RI[0] += 1; pos = POS[RI[0]] if RI[0] < len(POS) else []
                 tr = mt.group(0)
                 if re.search(r'class="[^"]*(hdr|premise|note)', mt.group(1) or ''): return tr
                 cells = list(re.finditer(r'(<td[^>]*>)(.*?)(</td>)', tr, re.S))
@@ -88,7 +134,10 @@ def main():
                 if re.match(r'(QRH 状况|目的|QRH 书名)', first_plain): return tr   # 11-12：QRH 状况 / 目的是手册原文照录，标点照原文
                 new = tr
                 for k, c in enumerate(cells):
-                    if k == 0: continue
+                    g = pos[k] if k < len(pos) else None
+                    if (g[0] if g else k) == 0: continue   # SD-275：按网格列判首列
+                    if k == 0 and not (g and g[1] >= 2): continue   # 上方 rowspan 占位时本行第一个 td 多是小标签（如「复飞前发动机失效」），只有跨列内容格才参与
+                    if g and pseudo_head(c.group(1), c.group(2)): continue
                     body = c.group(2)
                     items = re.split(r'(<br\s*/?>\s*\n?)', body)
                     parts = items[0::2]; seps = items[1::2]
@@ -106,7 +155,7 @@ def main():
                         key = re.sub(r'[。；;，,]$', '', p)
                         if is_last:
                             if key in DEC: kd = 'S' if DEC[key] == '。' else 'P'   # 人工裁定优先
-                            want = col_want(k, kd)
+                            want = col_want(k, kd, g if g and g[0] > 0 else None)
                         else:
                             want = '；'; kd = 'S' if kd != 'P' else 'P'          # 多项格中间项一律「；」（规则 A）
                         if want is None:
